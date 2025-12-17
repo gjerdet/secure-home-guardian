@@ -13,10 +13,23 @@
 git clone https://github.com/DITT_BRUKERNAVN/DITT_REPO.git
 cd DITT_REPO
 
-# Kjør installasjonsskript
+# Kjør installasjonsskript (med sikkerhetsverktøy)
 chmod +x scripts/install.sh
-sudo ./scripts/install.sh
+sudo ./scripts/install.sh --with-security
 ```
+
+### Installasjonsopsjoner
+
+| Opsjon | Beskrivelse |
+|--------|-------------|
+| `--with-security` | Installer Docker, Nmap og OpenVAS automatisk |
+| `--skip-security` | Hopp over sikkerhetsverktøy |
+| (ingen) | Scriptet spør interaktivt |
+
+**Hva installeres med `--with-security`:**
+- **Nmap** - Nettverksskanning og port-oppdagelse
+- **Docker** - Container runtime for OpenVAS
+- **OpenVAS/Greenbone** - Fullverdig sårbarhetsskanner
 
 ## Manuell installasjon
 
