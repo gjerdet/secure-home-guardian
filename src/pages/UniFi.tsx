@@ -1,27 +1,48 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Header } from "@/components/Header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import { AttackMap } from "@/components/AttackMap";
+import { exportToCSV, exportToJSON, batchLookupGeoIP } from "@/lib/ids-utils";
+import { useToast } from "@/hooks/use-toast";
 import { 
   Wifi, Shield, ShieldAlert, AlertTriangle, Activity, 
   Users, Globe, Clock, ArrowUpRight, ArrowDownRight,
   Monitor, Smartphone, Laptop, Router, Radio, Network,
-  ArrowUpDown
+  ArrowUpDown, Download, FileJson, FileSpreadsheet, RefreshCw
 } from "lucide-react";
 
-const idsAlerts = [
-  { id: "1", timestamp: "2024-12-17 14:32:05", severity: "high", category: "ET SCAN", signature: "Potential SSH Brute Force Attack", srcIp: "45.33.32.156", dstIp: "192.168.1.1", srcPort: 54321, dstPort: 22, action: "blocked", country: "US", lat: 37.7749, lng: -122.4194 },
-  { id: "2", timestamp: "2024-12-17 14:28:12", severity: "medium", category: "ET MALWARE", signature: "Suspicious DNS Query - Known Malware Domain", srcIp: "192.168.1.45", dstIp: "8.8.8.8", srcPort: 53421, dstPort: 53, action: "alerted", country: "Internal", lat: null, lng: null },
-  { id: "3", timestamp: "2024-12-17 14:15:33", severity: "low", category: "ET POLICY", signature: "Potential Corporate Privacy Violation", srcIp: "192.168.1.52", dstIp: "142.250.185.78", srcPort: 443, dstPort: 443, action: "alerted", country: "Internal", lat: null, lng: null },
-  { id: "4", timestamp: "2024-12-17 13:45:00", severity: "high", category: "ET EXPLOIT", signature: "Possible SQL Injection Attempt", srcIp: "103.21.244.0", dstIp: "192.168.1.10", srcPort: 12345, dstPort: 80, action: "blocked", country: "CN", lat: 31.2304, lng: 121.4737 },
-  { id: "5", timestamp: "2024-12-17 13:20:45", severity: "critical", category: "ET TROJAN", signature: "Known Command and Control Traffic", srcIp: "185.220.101.1", dstIp: "192.168.1.99", srcPort: 443, dstPort: 49152, action: "blocked", country: "DE", lat: 52.52, lng: 13.405 },
-  { id: "6", timestamp: "2024-12-17 12:55:00", severity: "high", category: "ET SCAN", signature: "Nmap OS Detection Attempt", srcIp: "91.189.88.142", dstIp: "192.168.1.1", srcPort: 45678, dstPort: 0, action: "blocked", country: "GB", lat: 51.5074, lng: -0.1278 },
-  { id: "7", timestamp: "2024-12-17 12:30:22", severity: "medium", category: "ET WEB", signature: "XSS Attack Attempt", srcIp: "177.54.148.213", dstIp: "192.168.1.10", srcPort: 34567, dstPort: 443, action: "blocked", country: "BR", lat: -23.5505, lng: -46.6333 },
-  { id: "8", timestamp: "2024-12-17 11:45:10", severity: "critical", category: "ET EXPLOIT", signature: "Log4j RCE Attempt", srcIp: "5.188.86.172", dstIp: "192.168.1.10", srcPort: 56789, dstPort: 8080, action: "blocked", country: "RU", lat: 55.7558, lng: 37.6173 },
+interface IdsAlert {
+  id: string;
+  timestamp: string;
+  severity: string;
+  category: string;
+  signature: string;
+  srcIp: string;
+  dstIp: string;
+  srcPort: number;
+  dstPort: number;
+  action: string;
+  country?: string;
+  city?: string;
+  lat?: number | null;
+  lng?: number | null;
+  isp?: string;
+}
+
+const initialAlerts: IdsAlert[] = [
+  { id: "1", timestamp: "2024-12-17 14:32:05", severity: "high", category: "ET SCAN", signature: "Potential SSH Brute Force Attack", srcIp: "45.33.32.156", dstIp: "192.168.1.1", srcPort: 54321, dstPort: 22, action: "blocked" },
+  { id: "2", timestamp: "2024-12-17 14:28:12", severity: "medium", category: "ET MALWARE", signature: "Suspicious DNS Query - Known Malware Domain", srcIp: "192.168.1.45", dstIp: "8.8.8.8", srcPort: 53421, dstPort: 53, action: "alerted" },
+  { id: "3", timestamp: "2024-12-17 14:15:33", severity: "low", category: "ET POLICY", signature: "Potential Corporate Privacy Violation", srcIp: "192.168.1.52", dstIp: "142.250.185.78", srcPort: 443, dstPort: 443, action: "alerted" },
+  { id: "4", timestamp: "2024-12-17 13:45:00", severity: "high", category: "ET EXPLOIT", signature: "Possible SQL Injection Attempt", srcIp: "103.21.244.15", dstIp: "192.168.1.10", srcPort: 12345, dstPort: 80, action: "blocked" },
+  { id: "5", timestamp: "2024-12-17 13:20:45", severity: "critical", category: "ET TROJAN", signature: "Known Command and Control Traffic", srcIp: "185.220.101.1", dstIp: "192.168.1.99", srcPort: 443, dstPort: 49152, action: "blocked" },
+  { id: "6", timestamp: "2024-12-17 12:55:00", severity: "high", category: "ET SCAN", signature: "Nmap OS Detection Attempt", srcIp: "91.189.88.142", dstIp: "192.168.1.1", srcPort: 45678, dstPort: 0, action: "blocked" },
+  { id: "7", timestamp: "2024-12-17 12:30:22", severity: "medium", category: "ET WEB", signature: "XSS Attack Attempt", srcIp: "177.54.148.213", dstIp: "192.168.1.10", srcPort: 34567, dstPort: 443, action: "blocked" },
+  { id: "8", timestamp: "2024-12-17 11:45:10", severity: "critical", category: "ET EXPLOIT", signature: "Log4j RCE Attempt", srcIp: "5.188.86.172", dstIp: "192.168.1.10", srcPort: 56789, dstPort: 8080, action: "blocked" },
 ];
 
 const connectedDevices = [
@@ -75,6 +96,79 @@ const DeviceIcon = ({ type }: { type: string }) => {
 export default function UniFi() {
   const [sortBy, setSortBy] = useState<string>("time");
   const [filterSeverity, setFilterSeverity] = useState<string>("all");
+  const [idsAlerts, setIdsAlerts] = useState<IdsAlert[]>(initialAlerts);
+  const [isLookingUp, setIsLookingUp] = useState(false);
+  const { toast } = useToast();
+
+  // Load cached GeoIP data on mount
+  useEffect(() => {
+    const cached = localStorage.getItem("ids_geoip_cache");
+    if (cached) {
+      try {
+        const geoData = JSON.parse(cached);
+        setIdsAlerts(prev => prev.map(alert => ({
+          ...alert,
+          ...geoData[alert.srcIp]
+        })));
+      } catch (e) {
+        console.error("Failed to load cached GeoIP data");
+      }
+    }
+  }, []);
+
+  const handleGeoIPLookup = async () => {
+    setIsLookingUp(true);
+    toast({ title: "GeoIP Oppslag", description: "Henter lokasjon for IP-adresser..." });
+
+    try {
+      const ips = idsAlerts.map(a => a.srcIp);
+      const results = await batchLookupGeoIP(ips);
+      
+      // Update alerts with GeoIP data
+      const updatedAlerts = idsAlerts.map(alert => {
+        const geo = results.get(alert.srcIp);
+        if (geo) {
+          return {
+            ...alert,
+            country: geo.countryCode,
+            city: geo.city,
+            lat: geo.lat,
+            lng: geo.lng,
+            isp: geo.isp
+          };
+        }
+        return alert;
+      });
+
+      setIdsAlerts(updatedAlerts);
+
+      // Cache results
+      const geoCache: Record<string, any> = {};
+      results.forEach((value, key) => {
+        geoCache[key] = {
+          country: value.countryCode,
+          city: value.city,
+          lat: value.lat,
+          lng: value.lng,
+          isp: value.isp
+        };
+      });
+      localStorage.setItem("ids_geoip_cache", JSON.stringify(geoCache));
+
+      toast({ 
+        title: "GeoIP Fullført", 
+        description: `Hentet lokasjon for ${results.size} IP-adresser` 
+      });
+    } catch (error) {
+      toast({ 
+        title: "Feil", 
+        description: "Kunne ikke hente GeoIP data", 
+        variant: "destructive" 
+      });
+    } finally {
+      setIsLookingUp(false);
+    }
+  };
 
   const sortedAlerts = useMemo(() => {
     let filtered = [...idsAlerts];
@@ -88,17 +182,27 @@ export default function UniFi() {
         case "severity":
           return severityOrder[a.severity as keyof typeof severityOrder] - severityOrder[b.severity as keyof typeof severityOrder];
         case "country":
-          return (a.country || "").localeCompare(b.country || "");
+          return (a.country || "ZZZ").localeCompare(b.country || "ZZZ");
         case "time":
         default:
           return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
       }
     });
-  }, [sortBy, filterSeverity]);
+  }, [sortBy, filterSeverity, idsAlerts]);
 
   const attackLocations = idsAlerts
     .filter(a => a.lat && a.lng)
-    .map(a => ({ lat: a.lat!, lng: a.lng!, severity: a.severity, country: a.country }));
+    .map(a => ({ lat: a.lat!, lng: a.lng!, severity: a.severity, country: a.country || "Unknown" }));
+
+  const handleExportCSV = () => {
+    exportToCSV(sortedAlerts, `ids-alerts-${new Date().toISOString().split('T')[0]}.csv`);
+    toast({ title: "Eksportert", description: "IDS alerts eksportert til CSV" });
+  };
+
+  const handleExportJSON = () => {
+    exportToJSON(sortedAlerts, `ids-alerts-${new Date().toISOString().split('T')[0]}.json`);
+    toast({ title: "Eksportert", description: "IDS alerts eksportert til JSON" });
+  };
 
   return (
     <div className="min-h-screen bg-background cyber-grid">
@@ -272,14 +376,32 @@ export default function UniFi() {
           <TabsContent value="ids">
             <Card className="bg-card border-border">
               <CardHeader className="border-b border-border">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <CardTitle className="flex items-center gap-2">
                     <Shield className="h-5 w-5 text-primary" />
                     Intrusion Detection / Prevention System
                   </CardTitle>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={handleGeoIPLookup}
+                      disabled={isLookingUp}
+                      className="h-8 text-xs"
+                    >
+                      <RefreshCw className={`h-3 w-3 mr-1 ${isLookingUp ? 'animate-spin' : ''}`} />
+                      GeoIP Oppslag
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={handleExportCSV} className="h-8 text-xs">
+                      <FileSpreadsheet className="h-3 w-3 mr-1" />
+                      CSV
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={handleExportJSON} className="h-8 text-xs">
+                      <FileJson className="h-3 w-3 mr-1" />
+                      JSON
+                    </Button>
                     <Select value={filterSeverity} onValueChange={setFilterSeverity}>
-                      <SelectTrigger className="w-[140px] h-8 text-xs bg-muted border-border">
+                      <SelectTrigger className="w-[120px] h-8 text-xs bg-muted border-border">
                         <SelectValue placeholder="Filter" />
                       </SelectTrigger>
                       <SelectContent>
@@ -291,12 +413,12 @@ export default function UniFi() {
                       </SelectContent>
                     </Select>
                     <Select value={sortBy} onValueChange={setSortBy}>
-                      <SelectTrigger className="w-[140px] h-8 text-xs bg-muted border-border">
+                      <SelectTrigger className="w-[130px] h-8 text-xs bg-muted border-border">
                         <ArrowUpDown className="h-3 w-3 mr-1" />
                         <SelectValue placeholder="Sorter" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="time">Tid (nyeste først)</SelectItem>
+                        <SelectItem value="time">Tid (nyeste)</SelectItem>
                         <SelectItem value="severity">Alvorlighet</SelectItem>
                         <SelectItem value="country">Land</SelectItem>
                       </SelectContent>
@@ -310,7 +432,7 @@ export default function UniFi() {
                     {sortedAlerts.map((alert) => (
                       <div key={alert.id} className="p-4 hover:bg-muted/50 transition-colors">
                         <div className="flex items-start justify-between mb-2">
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <Badge className={severityColors[alert.severity as keyof typeof severityColors]}>
                               {alert.severity.toUpperCase()}
                             </Badge>
@@ -320,14 +442,15 @@ export default function UniFi() {
                             <Badge variant={alert.action === "blocked" ? "destructive" : "secondary"}>
                               {alert.action === "blocked" ? "Blokkert" : "Varslet"}
                             </Badge>
-                            {alert.country && alert.country !== "Internal" && (
+                            {alert.country && (
                               <Badge variant="outline" className="text-xs">
                                 <Globe className="h-3 w-3 mr-1" />
                                 {alert.country}
+                                {alert.city && ` • ${alert.city}`}
                               </Badge>
                             )}
                           </div>
-                          <span className="text-xs text-muted-foreground font-mono flex items-center gap-1">
+                          <span className="text-xs text-muted-foreground font-mono flex items-center gap-1 shrink-0">
                             <Clock className="h-3 w-3" />
                             {alert.timestamp}
                           </span>
@@ -342,6 +465,12 @@ export default function UniFi() {
                             <span className="text-muted-foreground">Destinasjon IP:</span>
                             <p className="font-mono text-foreground">{alert.dstIp}:{alert.dstPort}</p>
                           </div>
+                          {alert.isp && (
+                            <div className="col-span-2">
+                              <span className="text-muted-foreground">ISP:</span>
+                              <p className="font-mono text-foreground">{alert.isp}</p>
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -354,10 +483,21 @@ export default function UniFi() {
           <TabsContent value="map">
             <Card className="bg-card border-border">
               <CardHeader className="border-b border-border">
-                <CardTitle className="flex items-center gap-2">
-                  <Globe className="h-5 w-5 text-primary" />
-                  Angreps Geolokasjon
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <Globe className="h-5 w-5 text-primary" />
+                    Angreps Geolokasjon
+                  </CardTitle>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={handleGeoIPLookup}
+                    disabled={isLookingUp}
+                  >
+                    <RefreshCw className={`h-4 w-4 mr-2 ${isLookingUp ? 'animate-spin' : ''}`} />
+                    Oppdater GeoIP
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="p-0">
                 <AttackMap attacks={attackLocations} />
