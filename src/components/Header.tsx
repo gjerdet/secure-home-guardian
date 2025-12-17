@@ -1,28 +1,63 @@
-import { Shield, Bell, Settings, Terminal } from "lucide-react";
+import { Link, useLocation } from "react-router-dom";
+import { Shield, Bell, Settings, Terminal, Home, Wifi, HardDrive, Server, Radar } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
+const navItems = [
+  { href: "/", label: "Dashboard", icon: Home },
+  { href: "/unifi", label: "UniFi", icon: Wifi },
+  { href: "/truenas", label: "TrueNAS", icon: HardDrive },
+  { href: "/proxmox", label: "Proxmox", icon: Server },
+  { href: "/security", label: "Sikkerhet", icon: Radar },
+];
 
 export function Header() {
+  const location = useLocation();
+
   return (
     <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-50">
       <div className="container mx-auto px-4 py-3">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <div className="rounded-lg bg-primary/10 p-2 animate-glow-pulse">
-                <Shield className="h-6 w-6 text-primary" />
+          <div className="flex items-center gap-6">
+            <Link to="/" className="flex items-center gap-3">
+              <div className="relative">
+                <div className="rounded-lg bg-primary/10 p-2 animate-glow-pulse">
+                  <Shield className="h-6 w-6 text-primary" />
+                </div>
               </div>
-            </div>
-            <div>
-              <h1 className="text-lg font-bold text-foreground flex items-center gap-2">
-                NetGuard
-                <span className="text-xs font-mono text-primary bg-primary/10 px-2 py-0.5 rounded">
-                  v1.0
-                </span>
-              </h1>
-              <p className="text-xs text-muted-foreground">
-                Hjemmenettverk Sikkerhetssenter
-              </p>
-            </div>
+              <div>
+                <h1 className="text-lg font-bold text-foreground flex items-center gap-2">
+                  NetGuard
+                  <span className="text-xs font-mono text-primary bg-primary/10 px-2 py-0.5 rounded">
+                    v1.0
+                  </span>
+                </h1>
+                <p className="text-xs text-muted-foreground">
+                  Lokal Sikkerhetssenter
+                </p>
+              </div>
+            </Link>
+
+            <nav className="hidden md:flex items-center gap-1">
+              {navItems.map((item) => {
+                const isActive = location.pathname === item.href;
+                return (
+                  <Link
+                    key={item.href}
+                    to={item.href}
+                    className={cn(
+                      "flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors",
+                      isActive
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                    )}
+                  >
+                    <item.icon className="h-4 w-4" />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </nav>
           </div>
 
           <div className="flex items-center gap-2">
@@ -33,9 +68,11 @@ export function Header() {
               <Bell className="h-5 w-5" />
               <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-destructive" />
             </Button>
-            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
-              <Settings className="h-5 w-5" />
-            </Button>
+            <Link to="/settings">
+              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
+                <Settings className="h-5 w-5" />
+              </Button>
+            </Link>
           </div>
         </div>
       </div>
