@@ -710,6 +710,22 @@ app.post('/api/docker/containers/:id/restart', async (req, res) => {
   }
 });
 
+app.get('/api/docker/containers/:id/logs', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { tail = 100 } = req.query;
+    
+    const { stdout, stderr } = await execAsync(
+      `docker logs --tail ${tail} --timestamps ${id} 2>&1`,
+      { maxBuffer: 10 * 1024 * 1024 } // 10MB buffer
+    );
+    
+    res.json({ logs: stdout || stderr || 'Ingen logs' });
+  } catch (error) {
+    res.status(500).json({ error: error.message, logs: '' });
+  }
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log(`NetGuard API kjører på port ${PORT}`);
