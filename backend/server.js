@@ -511,6 +511,205 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Comprehensive health check for all services
+app.get('/api/health/all', async (req, res) => {
+  const services = [];
+  const os = require('os');
+  
+  // Check backend itself
+  services.push({
+    name: 'backend',
+    status: 'online',
+    message: 'API kjører normalt',
+    responseTime: 1,
+  });
+  
+  // Check UniFi
+  if (process.env.UNIFI_CONTROLLER_URL) {
+    try {
+      const start = Date.now();
+      await axios.get(`${process.env.UNIFI_CONTROLLER_URL}/status`, { 
+        httpsAgent, 
+        timeout: 5000 
+      });
+      services.push({
+        name: 'unifi',
+        status: 'online',
+        message: 'UniFi Controller tilgjengelig',
+        responseTime: Date.now() - start,
+      });
+    } catch (error) {
+      services.push({
+        name: 'unifi',
+        status: 'offline',
+        message: error.message,
+      });
+    }
+  }
+  
+  // Check TrueNAS
+  if (process.env.TRUENAS_URL) {
+    try {
+      const start = Date.now();
+      await axios.get(`${process.env.TRUENAS_URL}/api/v2.0/system/info`, {
+        headers: { Authorization: `Bearer ${process.env.TRUENAS_API_KEY}` },
+        timeout: 5000,
+      });
+      services.push({
+        name: 'truenas',
+        status: 'online',
+        message: 'TrueNAS tilgjengelig',
+        responseTime: Date.now() - start,
+      });
+    } catch (error) {
+      services.push({
+        name: 'truenas',
+        status: 'offline',
+        message: error.message,
+      });
+    }
+  }
+  
+  // Check Proxmox
+  if (process.env.PROXMOX_URL) {
+    try {
+      const start = Date.now();
+      await axios.get(`${process.env.PROXMOX_URL}/api2/json/version`, {
+        httpsAgent,
+        headers: {
+          Authorization: `PVEAPIToken=${process.env.PROXMOX_USER}!${process.env.PROXMOX_TOKEN_ID}=${process.env.PROXMOX_TOKEN_SECRET}`,
+        },
+        timeout: 5000,
+      });
+      services.push({
+        name: 'proxmox',
+        status: 'online',
+        message: 'Proxmox VE tilgjengelig',
+        responseTime: Date.now() - start,
+      });
+    } catch (error) {
+      services.push({
+        name: 'proxmox',
+        status: 'offline',
+        message: error.message,
+      });
+    }
+  }
+  
+  // Check OpenVAS
+  if (process.env.OPENVAS_URL) {
+    try {
+      const start = Date.now();
+      await axios.get(`${process.env.OPENVAS_URL}/api/version`, { timeout: 5000 });
+      services.push({
+        name: 'openvas',
+        status: 'online',
+        message: 'OpenVAS/Greenbone tilgjengelig',
+        responseTime: Date.now() - start,
+      });
+    } catch (error) {
+      services.push({
+        name: 'openvas',
+        status: 'offline',
+        message: error.message,
+      });
+    }
+  }
+  
+  // Check Docker
+  try {
+    const start = Date.now();
+    await execAsync('docker info', { timeout: 5000 });
+    services.push({
+      name: 'docker',
+      status: 'online',
+      message: 'Docker daemon kjører',
+      responseTime: Date.now() - start,
+    });
+  } catch (error) {
+    services.push({
+      name: 'docker',
+      status: 'offline',
+      message: 'Docker ikke tilgjengelig',
+    });
+  }
+  
+  // System info
+  const uptime = os.uptime();
+  const days = Math.floor(uptime / 86400);
+  const hours = Math.floor((uptime % 86400) / 3600);
+  const minutes = Math.floor((uptime % 3600) / 60);
+  
+  res.json({
+    services,
+    system: {
+      uptime: days > 0 ? `${days}d ${hours}t` : `${hours}t ${minutes}m`,
+      load: os.loadavg(),
+      memory: {
+        used: os.totalmem() - os.freemem(),
+        total: os.totalmem(),
+      },
+      disk: { used: 0, total: 0 }, // Would need df command for this
+    },
+  });
+});
+
+// ============================================
+// Docker Management
+// ============================================
+
+app.get('/api/docker/containers', async (req, res) => {
+  try {
+    const { stdout } = await execAsync('docker ps -a --format "{{json .}}"');
+    const containers = stdout.trim().split('\n').filter(Boolean).map(line => {
+      const c = JSON.parse(line);
+      return {
+        id: c.ID,
+        name: c.Names,
+        image: c.Image,
+        status: c.Status,
+        state: c.State.toLowerCase(),
+        ports: c.Ports ? c.Ports.split(', ').filter(Boolean) : [],
+        created: c.CreatedAt,
+        uptime: c.Status.includes('Up') ? c.Status.replace('Up ', '') : null,
+      };
+    });
+    res.json({ containers });
+  } catch (error) {
+    res.status(500).json({ error: error.message, containers: [] });
+  }
+});
+
+app.post('/api/docker/containers/:id/start', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await execAsync(`docker start ${id}`);
+    res.json({ success: true, message: 'Container startet' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/docker/containers/:id/stop', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await execAsync(`docker stop ${id}`);
+    res.json({ success: true, message: 'Container stoppet' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/docker/containers/:id/restart', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await execAsync(`docker restart ${id}`);
+    res.json({ success: true, message: 'Container restartet' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log(`NetGuard API kjører på port ${PORT}`);
