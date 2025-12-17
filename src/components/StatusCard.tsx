@@ -1,5 +1,6 @@
+import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { LucideIcon } from "lucide-react";
+import { LucideIcon, ChevronRight } from "lucide-react";
 
 interface StatusCardProps {
   title: string;
@@ -7,6 +8,7 @@ interface StatusCardProps {
   icon: LucideIcon;
   value?: string;
   subtitle?: string;
+  href?: string;
   className?: string;
 }
 
@@ -43,17 +45,13 @@ export function StatusCard({
   icon: Icon,
   value,
   subtitle,
+  href,
   className,
 }: StatusCardProps) {
   const config = statusConfig[status];
 
-  return (
-    <div
-      className={cn(
-        "relative overflow-hidden rounded-lg border border-border bg-card p-5 transition-all duration-300 hover:border-primary/50",
-        className
-      )}
-    >
+  const content = (
+    <>
       <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent" />
       <div className="relative z-10">
         <div className="flex items-start justify-between">
@@ -86,7 +84,38 @@ export function StatusCard({
             <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
           )}
         </div>
+        {href && (
+          <div className="mt-3 flex items-center text-xs text-primary opacity-0 group-hover:opacity-100 transition-opacity">
+            <span>Se detaljer</span>
+            <ChevronRight className="h-3 w-3 ml-1" />
+          </div>
+        )}
       </div>
+    </>
+  );
+
+  if (href) {
+    return (
+      <Link
+        to={href}
+        className={cn(
+          "group relative overflow-hidden rounded-lg border border-border bg-card p-5 transition-all duration-300 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10 cursor-pointer block",
+          className
+        )}
+      >
+        {content}
+      </Link>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "relative overflow-hidden rounded-lg border border-border bg-card p-5 transition-all duration-300 hover:border-primary/50",
+        className
+      )}
+    >
+      {content}
     </div>
   );
 }
