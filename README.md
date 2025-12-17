@@ -1,3 +1,37 @@
+# NetGuard Dashboard
+
+Nettverkssikkerhets- og infrastruktur-dashboard for hjemmelab/SMB. Integrerer med UniFi Controller, TrueNAS, Proxmox VE og OpenVAS.
+
+## Funksjoner
+
+- **UniFi IDS/IPS**: Sanntids-visning av sikkerhetsalerts med GeoIP og angrepskart
+- **TrueNAS**: Overvåking av storage pools, datasets og snapshots
+- **Proxmox VE**: VM og container-administrasjon med start/stopp
+- **OpenVAS**: Sikkerhetsskanning og sårbarhetsrapporter
+- **Nmap**: Nettverksskanning direkte fra dashboardet
+
+## Installasjon
+
+Se [INSTALL.md](INSTALL.md) for fullstendig installasjonsveiledning.
+
+### Rask start
+
+```bash
+git clone https://github.com/DITT_BRUKERNAVN/DITT_REPO.git
+cd DITT_REPO
+chmod +x scripts/install.sh
+sudo ./scripts/install.sh
+```
+
+## Utvikling
+
+```bash
+npm install
+npm run dev
+```
+
+---
+
 # Welcome to your Lovable project
 
 ## Project info
