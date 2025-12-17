@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
+import { ScanReportDialog } from "@/components/security/ScanReportDialog";
 import { 
   Radar, Shield, Search, Clock, AlertTriangle, CheckCircle,
   Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle
@@ -120,6 +121,10 @@ export default function Security() {
   const [newScanName, setNewScanName] = useState("");
   const [newScanConfig, setNewScanConfig] = useState("full");
   const [isStartingOpenvasScan, setIsStartingOpenvasScan] = useState(false);
+  
+  // Scan report dialog
+  const [reportDialogOpen, setReportDialogOpen] = useState(false);
+  const [selectedScan, setSelectedScan] = useState<OpenVASScan | null>(null);
 
   // Stats
   const stats = {
@@ -564,7 +569,14 @@ export default function Security() {
                   ) : (
                     <div className="divide-y divide-border">
                       {openvasScans.map((scan) => (
-                        <div key={scan.id} className="p-4 hover:bg-muted/50 transition-colors cursor-pointer">
+                        <div 
+                          key={scan.id} 
+                          className="p-4 hover:bg-muted/50 transition-colors cursor-pointer"
+                          onClick={() => {
+                            setSelectedScan(scan);
+                            setReportDialogOpen(true);
+                          }}
+                        >
                           <div className="flex items-center justify-between mb-2">
                             <div>
                               <p className="font-medium text-foreground">{scan.name}</p>
@@ -651,6 +663,14 @@ export default function Security() {
             </Card>
           </TabsContent>
         </Tabs>
+
+        {/* Scan Report Dialog */}
+        <ScanReportDialog
+          open={reportDialogOpen}
+          onOpenChange={setReportDialogOpen}
+          scan={selectedScan}
+          vulnerabilities={vulnerabilities}
+        />
       </main>
     </div>
   );

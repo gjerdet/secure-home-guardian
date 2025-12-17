@@ -134,6 +134,68 @@ OPENVAS_PASSWORD=your_password
 MAXMIND_LICENSE_KEY=your_license_key
 ```
 
+## Sikkerhetsskanning (OpenVAS & Nmap)
+
+### Nmap oppsett
+
+Nmap brukes for nettverksskanning og port-oppdagelse. Det kreves ingen spesiell konfigurasjon.
+
+```bash
+# Installer nmap
+sudo apt install -y nmap
+
+# Verifiser installasjon
+nmap --version
+```
+
+**Merk:** Backend kjører nmap-kommandoer direkte, så brukeren som kjører backend-tjenesten må ha tilgang til nmap.
+
+### OpenVAS / Greenbone oppsett
+
+OpenVAS er en fullverdig sårbarhetsskanner. Den enkleste måten å installere på er via Docker:
+
+```bash
+# Installer Docker først
+sudo apt install -y docker.io docker-compose
+
+# Start Greenbone Community Edition
+docker run -d \
+  --name openvas \
+  -p 9392:9392 \
+  -v openvas-data:/var/lib/openvas \
+  greenbone/gsm-community:stable
+
+# Vent 5-10 minutter for første oppstart
+docker logs -f openvas
+```
+
+Alternativt, installer direkte:
+```bash
+# Legg til Greenbone repository
+sudo add-apt-repository ppa:mrazavi/gvm
+
+# Installer
+sudo apt install -y gvm
+
+# Kjør oppsett
+sudo gvm-setup
+
+# Verifiser
+sudo gvm-check-setup
+```
+
+**Standard pålogging:**
+- URL: `http://localhost:9392`
+- Bruker: `admin`
+- Passord: Genereres under installasjon (sjekk `docker logs openvas`)
+
+Oppdater `backend/.env`:
+```env
+OPENVAS_URL=http://localhost:9392
+OPENVAS_USERNAME=admin
+OPENVAS_PASSWORD=ditt_passord
+```
+
 ### Nginx konfigurasjon
 
 Standard konfigurasjon serverer på port 80. For HTTPS, se `scripts/nginx-ssl.conf`.
