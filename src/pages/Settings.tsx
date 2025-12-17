@@ -11,16 +11,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { 
   Settings as SettingsIcon, Server, Wifi, HardDrive, Shield,
-  Save, TestTube, CheckCircle, XCircle, Users, UserPlus, Pencil, Trash2, User
+  Save, TestTube, CheckCircle, XCircle, Users, UserPlus, Pencil, Trash2, User, Loader2, RefreshCw
 } from "lucide-react";
 import { toast } from "sonner";
 
-const endpoints = [
-  { name: "UniFi Controller", key: "unifi", url: "https://192.168.1.1:8443", status: "connected" },
-  { name: "TrueNAS API", key: "truenas", url: "http://192.168.1.20/api/v2.0", status: "connected" },
-  { name: "Proxmox API", key: "proxmox", url: "https://192.168.1.30:8006/api2/json", status: "connected" },
-  { name: "OpenVAS", key: "openvas", url: "http://192.168.1.40:9392", status: "disconnected" },
-];
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 type UserRole = "admin" | "moderator" | "user";
 
@@ -31,6 +26,12 @@ interface SystemUser {
   role: UserRole;
   lastLogin: string;
   status: "active" | "inactive";
+}
+
+interface ConnectionStatus {
+  status: 'idle' | 'testing' | 'success' | 'error';
+  message?: string;
+  responseTime?: number;
 }
 
 const initialUsers: SystemUser[] = [
@@ -58,6 +59,102 @@ export default function Settings() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<SystemUser | null>(null);
   const [newUser, setNewUser] = useState({ username: "", email: "", password: "", role: "user" as UserRole });
+  
+  // Connection testing state
+  const [connectionStatus, setConnectionStatus] = useState<Record<string, ConnectionStatus>>({
+    unifi: { status: 'idle' },
+    truenas: { status: 'idle' },
+    proxmox: { status: 'idle' },
+    openvas: { status: 'idle' },
+    backend: { status: 'idle' },
+  });
+
+  // Test individual connection
+  const testConnection = async (service: string) => {
+    setConnectionStatus(prev => ({
+      ...prev,
+      [service]: { status: 'testing' }
+    }));
+
+    try {
+      const start = Date.now();
+      const response = await fetch(`${API_BASE}/api/health/test/${service}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const responseTime = Date.now() - start;
+
+      if (response.ok) {
+        const data = await response.json();
+        setConnectionStatus(prev => ({
+          ...prev,
+          [service]: { 
+            status: data.success ? 'success' : 'error',
+            message: data.message,
+            responseTime
+          }
+        }));
+        if (data.success) {
+          toast.success(`${service} tilkobling OK (${responseTime}ms)`);
+        } else {
+          toast.error(`${service}: ${data.message}`);
+        }
+      } else {
+        throw new Error('Tilkoblingsfeil');
+      }
+    } catch (error) {
+      setConnectionStatus(prev => ({
+        ...prev,
+        [service]: { 
+          status: 'error',
+          message: error instanceof Error ? error.message : 'Ukjent feil'
+        }
+      }));
+      toast.error(`Kunne ikke teste ${service}: ${error instanceof Error ? error.message : 'Ukjent feil'}`);
+    }
+  };
+
+  // Test all connections
+  const testAllConnections = async () => {
+    const services = ['backend', 'unifi', 'truenas', 'proxmox', 'openvas'];
+    for (const service of services) {
+      await testConnection(service);
+    }
+  };
+
+  const getStatusBadge = (service: string) => {
+    const status = connectionStatus[service];
+    if (status.status === 'testing') {
+      return (
+        <Badge className="bg-primary/10 text-primary">
+          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+          Tester...
+        </Badge>
+      );
+    }
+    if (status.status === 'success') {
+      return (
+        <Badge className="bg-success/10 text-success">
+          <CheckCircle className="h-3 w-3 mr-1" />
+          Tilkoblet {status.responseTime && `(${status.responseTime}ms)`}
+        </Badge>
+      );
+    }
+    if (status.status === 'error') {
+      return (
+        <Badge className="bg-destructive/10 text-destructive">
+          <XCircle className="h-3 w-3 mr-1" />
+          Feil
+        </Badge>
+      );
+    }
+    return (
+      <Badge className="bg-muted text-muted-foreground">
+        Ikke testet
+      </Badge>
+    );
+  };
 
   const handleAddUser = () => {
     if (!newUser.username || !newUser.email || !newUser.password) {
@@ -137,6 +234,14 @@ export default function Settings() {
 
           <TabsContent value="endpoints">
             <div className="space-y-4">
+              {/* Test All Button */}
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={testAllConnections}>
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Test alle tilkoblinger
+                </Button>
+              </div>
+
               {/* UniFi */}
               <Card className="bg-card border-border">
                 <CardHeader className="border-b border-border">
@@ -145,10 +250,7 @@ export default function Settings() {
                       <Wifi className="h-5 w-5 text-primary" />
                       UniFi Controller
                     </div>
-                    <Badge className={endpoints[0].status === "connected" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}>
-                      {endpoints[0].status === "connected" ? <CheckCircle className="h-3 w-3 mr-1" /> : <XCircle className="h-3 w-3 mr-1" />}
-                      {endpoints[0].status === "connected" ? "Tilkoblet" : "Frakoblet"}
-                    </Badge>
+                    {getStatusBadge('unifi')}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-4 space-y-4">
@@ -171,9 +273,25 @@ export default function Settings() {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <Button variant="outline"><TestTube className="h-4 w-4 mr-2" />Test Tilkobling</Button>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => testConnection('unifi')}
+                      disabled={connectionStatus.unifi.status === 'testing'}
+                    >
+                      {connectionStatus.unifi.status === 'testing' ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <TestTube className="h-4 w-4 mr-2" />
+                      )}
+                      Test Tilkobling
+                    </Button>
                     <Button className="bg-primary text-primary-foreground"><Save className="h-4 w-4 mr-2" />Lagre</Button>
                   </div>
+                  {connectionStatus.unifi.message && (
+                    <p className={`text-xs ${connectionStatus.unifi.status === 'error' ? 'text-destructive' : 'text-success'}`}>
+                      {connectionStatus.unifi.message}
+                    </p>
+                  )}
                 </CardContent>
               </Card>
 
@@ -185,9 +303,7 @@ export default function Settings() {
                       <HardDrive className="h-5 w-5 text-primary" />
                       TrueNAS Scale
                     </div>
-                    <Badge className="bg-success/10 text-success">
-                      <CheckCircle className="h-3 w-3 mr-1" />Tilkoblet
-                    </Badge>
+                    {getStatusBadge('truenas')}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-4 space-y-4">
@@ -202,9 +318,25 @@ export default function Settings() {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <Button variant="outline"><TestTube className="h-4 w-4 mr-2" />Test Tilkobling</Button>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => testConnection('truenas')}
+                      disabled={connectionStatus.truenas.status === 'testing'}
+                    >
+                      {connectionStatus.truenas.status === 'testing' ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <TestTube className="h-4 w-4 mr-2" />
+                      )}
+                      Test Tilkobling
+                    </Button>
                     <Button className="bg-primary text-primary-foreground"><Save className="h-4 w-4 mr-2" />Lagre</Button>
                   </div>
+                  {connectionStatus.truenas.message && (
+                    <p className={`text-xs ${connectionStatus.truenas.status === 'error' ? 'text-destructive' : 'text-success'}`}>
+                      {connectionStatus.truenas.message}
+                    </p>
+                  )}
                 </CardContent>
               </Card>
 
@@ -216,9 +348,7 @@ export default function Settings() {
                       <Server className="h-5 w-5 text-primary" />
                       Proxmox VE
                     </div>
-                    <Badge className="bg-success/10 text-success">
-                      <CheckCircle className="h-3 w-3 mr-1" />Tilkoblet
-                    </Badge>
+                    {getStatusBadge('proxmox')}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-4 space-y-4">
@@ -241,9 +371,25 @@ export default function Settings() {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <Button variant="outline"><TestTube className="h-4 w-4 mr-2" />Test Tilkobling</Button>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => testConnection('proxmox')}
+                      disabled={connectionStatus.proxmox.status === 'testing'}
+                    >
+                      {connectionStatus.proxmox.status === 'testing' ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <TestTube className="h-4 w-4 mr-2" />
+                      )}
+                      Test Tilkobling
+                    </Button>
                     <Button className="bg-primary text-primary-foreground"><Save className="h-4 w-4 mr-2" />Lagre</Button>
                   </div>
+                  {connectionStatus.proxmox.message && (
+                    <p className={`text-xs ${connectionStatus.proxmox.status === 'error' ? 'text-destructive' : 'text-success'}`}>
+                      {connectionStatus.proxmox.message}
+                    </p>
+                  )}
                 </CardContent>
               </Card>
 
@@ -255,9 +401,7 @@ export default function Settings() {
                       <Shield className="h-5 w-5 text-primary" />
                       OpenVAS / Greenbone
                     </div>
-                    <Badge className="bg-destructive/10 text-destructive">
-                      <XCircle className="h-3 w-3 mr-1" />Frakoblet
-                    </Badge>
+                    {getStatusBadge('openvas')}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-4 space-y-4">
@@ -276,9 +420,25 @@ export default function Settings() {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <Button variant="outline"><TestTube className="h-4 w-4 mr-2" />Test Tilkobling</Button>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => testConnection('openvas')}
+                      disabled={connectionStatus.openvas.status === 'testing'}
+                    >
+                      {connectionStatus.openvas.status === 'testing' ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <TestTube className="h-4 w-4 mr-2" />
+                      )}
+                      Test Tilkobling
+                    </Button>
                     <Button className="bg-primary text-primary-foreground"><Save className="h-4 w-4 mr-2" />Lagre</Button>
                   </div>
+                  {connectionStatus.openvas.message && (
+                    <p className={`text-xs ${connectionStatus.openvas.status === 'error' ? 'text-destructive' : 'text-success'}`}>
+                      {connectionStatus.openvas.message}
+                    </p>
+                  )}
                 </CardContent>
               </Card>
             </div>

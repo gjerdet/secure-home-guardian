@@ -511,6 +511,90 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Test individual service connection
+app.post('/api/health/test/:service', async (req, res) => {
+  const { service } = req.params;
+  
+  try {
+    let success = false;
+    let message = '';
+    const start = Date.now();
+    
+    switch (service) {
+      case 'backend':
+        success = true;
+        message = 'Backend API kjører normalt';
+        break;
+        
+      case 'unifi':
+        if (!process.env.UNIFI_CONTROLLER_URL) {
+          message = 'UniFi URL ikke konfigurert i .env';
+          break;
+        }
+        await axios.get(`${process.env.UNIFI_CONTROLLER_URL}/status`, { 
+          httpsAgent, 
+          timeout: 10000 
+        });
+        success = true;
+        message = 'UniFi Controller tilgjengelig';
+        break;
+        
+      case 'truenas':
+        if (!process.env.TRUENAS_URL) {
+          message = 'TrueNAS URL ikke konfigurert i .env';
+          break;
+        }
+        await axios.get(`${process.env.TRUENAS_URL}/api/v2.0/system/info`, {
+          headers: { Authorization: `Bearer ${process.env.TRUENAS_API_KEY}` },
+          timeout: 10000,
+        });
+        success = true;
+        message = 'TrueNAS API tilgjengelig';
+        break;
+        
+      case 'proxmox':
+        if (!process.env.PROXMOX_URL) {
+          message = 'Proxmox URL ikke konfigurert i .env';
+          break;
+        }
+        await axios.get(`${process.env.PROXMOX_URL}/api2/json/version`, {
+          httpsAgent,
+          headers: {
+            Authorization: `PVEAPIToken=${process.env.PROXMOX_USER}!${process.env.PROXMOX_TOKEN_ID}=${process.env.PROXMOX_TOKEN_SECRET}`,
+          },
+          timeout: 10000,
+        });
+        success = true;
+        message = 'Proxmox VE tilgjengelig';
+        break;
+        
+      case 'openvas':
+        if (!process.env.OPENVAS_URL) {
+          message = 'OpenVAS URL ikke konfigurert i .env';
+          break;
+        }
+        await axios.get(`${process.env.OPENVAS_URL}/api/version`, { timeout: 10000 });
+        success = true;
+        message = 'OpenVAS/Greenbone tilgjengelig';
+        break;
+        
+      default:
+        message = `Ukjent tjeneste: ${service}`;
+    }
+    
+    res.json({ 
+      success, 
+      message,
+      responseTime: Date.now() - start
+    });
+  } catch (error) {
+    res.json({ 
+      success: false, 
+      message: error.message || 'Tilkoblingsfeil'
+    });
+  }
+});
+
 // Comprehensive health check for all services
 app.get('/api/health/all', async (req, res) => {
   const services = [];
