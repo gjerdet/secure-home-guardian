@@ -6,10 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
+import { ContainerLogsDialog } from "@/components/status/ContainerLogsDialog";
 import { 
   Activity, Box, CheckCircle, XCircle, RefreshCw, Loader2,
   Play, Square, RotateCcw, Server, Database, Shield, Wifi,
-  HardDrive, Cpu, MemoryStick, Clock, AlertTriangle
+  HardDrive, Cpu, MemoryStick, Clock, AlertTriangle, FileText
 } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -74,6 +75,10 @@ export default function Status() {
   const [containers, setContainers] = useState<DockerContainer[]>([]);
   const [systemInfo, setSystemInfo] = useState<SystemHealth['system'] | null>(null);
   const [containerAction, setContainerAction] = useState<string | null>(null);
+  
+  // Logs dialog state
+  const [logsDialogOpen, setLogsDialogOpen] = useState(false);
+  const [selectedContainer, setSelectedContainer] = useState<DockerContainer | null>(null);
 
   const fetchStatus = async (showRefresh = false) => {
     if (showRefresh) setIsRefreshing(true);
@@ -376,6 +381,17 @@ export default function Status() {
                               Start
                             </Button>
                           )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setSelectedContainer(container);
+                              setLogsDialogOpen(true);
+                            }}
+                          >
+                            <FileText className="h-3 w-3 mr-1" />
+                            Logs
+                          </Button>
                           {container.uptime && (
                             <span className="text-xs text-muted-foreground ml-auto">
                               Oppe i {container.uptime}
@@ -436,6 +452,13 @@ export default function Status() {
             </CardContent>
           </Card>
         )}
+
+        {/* Container Logs Dialog */}
+        <ContainerLogsDialog
+          open={logsDialogOpen}
+          onOpenChange={setLogsDialogOpen}
+          container={selectedContainer}
+        />
       </main>
     </div>
   );
