@@ -13,7 +13,8 @@ import {
   Wifi, Shield, ShieldAlert, AlertTriangle, Activity, 
   Users, Globe, Clock, ArrowUpRight, ArrowDownRight,
   Monitor, Smartphone, Laptop, Router, Radio, Network,
-  ArrowUpDown, Download, FileJson, FileSpreadsheet, RefreshCw
+  ArrowUpDown, Download, FileJson, FileSpreadsheet, RefreshCw,
+  Ban, CheckCircle, Filter
 } from "lucide-react";
 
 interface IdsAlert {
@@ -66,6 +67,35 @@ const networkDevices = {
   gateway: { name: "UDM-Pro", status: "online", wanIp: "85.123.45.67", uptime: "45d 12h" },
 };
 
+interface FirewallLog {
+  id: string;
+  timestamp: string;
+  action: "block" | "allow";
+  rule: string;
+  protocol: string;
+  srcIp: string;
+  srcPort: number;
+  dstIp: string;
+  dstPort: number;
+  interface: string;
+  bytes: number;
+}
+
+const firewallLogs: FirewallLog[] = [
+  { id: "fw1", timestamp: "2024-12-17 14:35:12", action: "block", rule: "Block Incoming SSH", protocol: "TCP", srcIp: "45.33.32.156", srcPort: 54321, dstIp: "192.168.1.1", dstPort: 22, interface: "WAN", bytes: 64 },
+  { id: "fw2", timestamp: "2024-12-17 14:34:58", action: "allow", rule: "LAN to WAN", protocol: "TCP", srcIp: "192.168.1.10", srcPort: 52341, dstIp: "142.250.185.78", dstPort: 443, interface: "LAN", bytes: 1420 },
+  { id: "fw3", timestamp: "2024-12-17 14:34:45", action: "block", rule: "Block P2P", protocol: "UDP", srcIp: "192.168.1.45", srcPort: 6881, dstIp: "83.129.12.45", dstPort: 6881, interface: "LAN", bytes: 128 },
+  { id: "fw4", timestamp: "2024-12-17 14:34:30", action: "allow", rule: "DNS Allow", protocol: "UDP", srcIp: "192.168.1.52", srcPort: 53421, dstIp: "8.8.8.8", dstPort: 53, interface: "LAN", bytes: 64 },
+  { id: "fw5", timestamp: "2024-12-17 14:34:15", action: "block", rule: "GeoIP Block Russia", protocol: "TCP", srcIp: "91.189.88.142", srcPort: 45678, dstIp: "192.168.1.1", dstPort: 443, interface: "WAN", bytes: 60 },
+  { id: "fw6", timestamp: "2024-12-17 14:34:00", action: "allow", rule: "Established/Related", protocol: "TCP", srcIp: "142.250.185.78", srcPort: 443, dstIp: "192.168.1.10", dstPort: 52341, interface: "WAN", bytes: 8920 },
+  { id: "fw7", timestamp: "2024-12-17 14:33:45", action: "block", rule: "Block ICMP Flood", protocol: "ICMP", srcIp: "103.21.244.15", srcPort: 0, dstIp: "192.168.1.1", dstPort: 0, interface: "WAN", bytes: 84 },
+  { id: "fw8", timestamp: "2024-12-17 14:33:30", action: "allow", rule: "IoT VLAN to DNS", protocol: "UDP", srcIp: "192.168.10.25", srcPort: 42567, dstIp: "192.168.1.1", dstPort: 53, interface: "IoT", bytes: 48 },
+  { id: "fw9", timestamp: "2024-12-17 14:33:15", action: "block", rule: "Block Telnet", protocol: "TCP", srcIp: "5.188.86.172", srcPort: 56789, dstIp: "192.168.1.1", dstPort: 23, interface: "WAN", bytes: 60 },
+  { id: "fw10", timestamp: "2024-12-17 14:33:00", action: "allow", rule: "HTTPS Allow", protocol: "TCP", srcIp: "192.168.1.20", srcPort: 58234, dstIp: "104.26.10.123", dstPort: 443, interface: "LAN", bytes: 2048 },
+  { id: "fw11", timestamp: "2024-12-17 14:32:45", action: "block", rule: "Block Port Scan", protocol: "TCP", srcIp: "185.220.101.1", srcPort: 12345, dstIp: "192.168.1.1", dstPort: 8080, interface: "WAN", bytes: 60 },
+  { id: "fw12", timestamp: "2024-12-17 14:32:30", action: "allow", rule: "VPN Clients", protocol: "UDP", srcIp: "82.45.123.89", srcPort: 54321, dstIp: "192.168.1.1", dstPort: 1194, interface: "WAN", bytes: 512 },
+];
+
 const trafficStats = {
   totalDownload: "1.2 TB",
   totalUpload: "342 GB",
@@ -96,6 +126,7 @@ const DeviceIcon = ({ type }: { type: string }) => {
 export default function UniFi() {
   const [sortBy, setSortBy] = useState<string>("time");
   const [filterSeverity, setFilterSeverity] = useState<string>("all");
+  const [filterFirewall, setFilterFirewall] = useState<string>("all");
   const [idsAlerts, setIdsAlerts] = useState<IdsAlert[]>(initialAlerts);
   const [isLookingUp, setIsLookingUp] = useState(false);
   const { toast } = useToast();
@@ -363,6 +394,10 @@ export default function UniFi() {
               <ShieldAlert className="h-4 w-4 mr-2" />
               IDS/IPS Alerts
             </TabsTrigger>
+            <TabsTrigger value="firewall" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <Shield className="h-4 w-4 mr-2" />
+              Firewall Logger
+            </TabsTrigger>
             <TabsTrigger value="map" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               <Globe className="h-4 w-4 mr-2" />
               Angreps-kart
@@ -471,6 +506,94 @@ export default function UniFi() {
                               <p className="font-mono text-foreground">{alert.isp}</p>
                             </div>
                           )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="firewall">
+            <Card className="bg-card border-border">
+              <CardHeader className="border-b border-border">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <CardTitle className="flex items-center gap-2">
+                    <Shield className="h-5 w-5 text-primary" />
+                    Firewall Logger
+                  </CardTitle>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="flex items-center gap-1">
+                        <Ban className="h-3 w-3 text-destructive" />
+                        Blokkert: {firewallLogs.filter(l => l.action === "block").length}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <CheckCircle className="h-3 w-3 text-success" />
+                        Tillatt: {firewallLogs.filter(l => l.action === "allow").length}
+                      </span>
+                    </div>
+                    <Select value={filterFirewall} onValueChange={setFilterFirewall}>
+                      <SelectTrigger className="w-[120px] h-8 text-xs bg-muted border-border">
+                        <Filter className="h-3 w-3 mr-1" />
+                        <SelectValue placeholder="Filter" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-card border-border">
+                        <SelectItem value="all">Alle</SelectItem>
+                        <SelectItem value="block">Blokkert</SelectItem>
+                        <SelectItem value="allow">Tillatt</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                <ScrollArea className="h-[500px]">
+                  <div className="divide-y divide-border">
+                    {firewallLogs
+                      .filter(log => filterFirewall === "all" || log.action === filterFirewall)
+                      .map((log) => (
+                      <div key={log.id} className="p-4 hover:bg-muted/50 transition-colors">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge className={log.action === "block" ? "bg-destructive/10 text-destructive" : "bg-success/10 text-success"}>
+                              {log.action === "block" ? (
+                                <><Ban className="h-3 w-3 mr-1" />BLOCK</>
+                              ) : (
+                                <><CheckCircle className="h-3 w-3 mr-1" />ALLOW</>
+                              )}
+                            </Badge>
+                            <Badge variant="outline" className="font-mono text-xs">
+                              {log.protocol}
+                            </Badge>
+                            <Badge variant="secondary" className="text-xs">
+                              {log.interface}
+                            </Badge>
+                          </div>
+                          <span className="text-xs text-muted-foreground font-mono flex items-center gap-1 shrink-0">
+                            <Clock className="h-3 w-3" />
+                            {log.timestamp}
+                          </span>
+                        </div>
+                        <p className="text-sm font-medium text-foreground mb-2">{log.rule}</p>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                          <div>
+                            <span className="text-muted-foreground">Kilde:</span>
+                            <p className="font-mono text-foreground">{log.srcIp}{log.srcPort > 0 ? `:${log.srcPort}` : ""}</p>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Destinasjon:</span>
+                            <p className="font-mono text-foreground">{log.dstIp}{log.dstPort > 0 ? `:${log.dstPort}` : ""}</p>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Bytes:</span>
+                            <p className="font-mono text-foreground">{log.bytes.toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Interface:</span>
+                            <p className="font-mono text-foreground">{log.interface}</p>
+                          </div>
                         </div>
                       </div>
                     ))}
