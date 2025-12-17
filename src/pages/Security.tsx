@@ -1,16 +1,19 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Header } from "@/components/Header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { 
   Radar, Shield, Search, Clock, AlertTriangle, CheckCircle,
-  Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw
+  Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle
 } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -43,6 +46,13 @@ interface NmapHost {
   status: string;
   ports: number[];
   os: string;
+}
+
+interface NmapProgress {
+  percent: number;
+  hostsFound: number;
+  status: 'idle' | 'scanning' | 'complete' | 'error';
+  message?: string;
 }
 
 const severityColors = {
@@ -92,12 +102,24 @@ function parseNmapXML(xmlString: string): NmapHost[] {
 export default function Security() {
   const [nmapTarget, setNmapTarget] = useState("192.168.1.0/24");
   const [nmapScanType, setNmapScanType] = useState("quick");
-  const [isNmapScanning, setIsNmapScanning] = useState(false);
   const [nmapResults, setNmapResults] = useState<NmapHost[]>([]);
+  const [nmapProgress, setNmapProgress] = useState<NmapProgress>({
+    percent: 0,
+    hostsFound: 0,
+    status: 'idle'
+  });
+  const eventSourceRef = useRef<EventSource | null>(null);
   
   const [openvasScans, setOpenvasScans] = useState<OpenVASScan[]>([]);
   const [vulnerabilities, setVulnerabilities] = useState<Vulnerability[]>([]);
   const [isLoadingOpenvas, setIsLoadingOpenvas] = useState(false);
+  
+  // OpenVAS new scan dialog
+  const [openvasDialogOpen, setOpenvasDialogOpen] = useState(false);
+  const [newScanTarget, setNewScanTarget] = useState("");
+  const [newScanName, setNewScanName] = useState("");
+  const [newScanConfig, setNewScanConfig] = useState("full");
+  const [isStartingOpenvasScan, setIsStartingOpenvasScan] = useState(false);
 
   // Stats
   const stats = {
@@ -127,50 +149,124 @@ export default function Security() {
       }
     } catch (error) {
       console.error("OpenVAS fetch error:", error);
-      toast.error("Kunne ikke koble til OpenVAS. Sjekk at backend kjører og OpenVAS er konfigurert.");
+      toast.error("Kunne ikke koble til OpenVAS. Sjekk at backend kjører.");
     } finally {
       setIsLoadingOpenvas(false);
     }
   };
 
-  // Run Nmap scan
-  const handleNmapScan = async () => {
-    // Validate target
+  // Run Nmap scan with streaming
+  const handleNmapScan = () => {
     const ipRegex = /^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/;
     if (!ipRegex.test(nmapTarget)) {
       toast.error("Ugyldig mål-format. Bruk IP-adresse eller CIDR (f.eks. 192.168.1.0/24)");
       return;
     }
 
-    setIsNmapScanning(true);
+    // Close existing connection
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+    }
+
+    setNmapProgress({ percent: 0, hostsFound: 0, status: 'scanning' });
+    setNmapResults([]);
+
+    const url = `${API_BASE}/api/nmap/scan-stream?target=${encodeURIComponent(nmapTarget)}&scanType=${nmapScanType}`;
+    const eventSource = new EventSource(url);
+    eventSourceRef.current = eventSource;
+
+    eventSource.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      
+      switch (data.type) {
+        case 'started':
+          toast.info(`Starter scan av ${data.target}...`);
+          break;
+        case 'progress':
+          setNmapProgress(prev => ({ ...prev, percent: data.percent }));
+          break;
+        case 'hosts_update':
+          setNmapProgress(prev => ({ ...prev, hostsFound: data.count }));
+          break;
+        case 'complete':
+          const hosts = parseNmapXML(data.result);
+          setNmapResults(hosts);
+          setNmapProgress({ percent: 100, hostsFound: hosts.length, status: 'complete' });
+          toast.success(`Scan fullført! Fant ${hosts.length} host(s)`);
+          eventSource.close();
+          break;
+        case 'error':
+          setNmapProgress(prev => ({ ...prev, status: 'error', message: data.message }));
+          toast.error(`Scan feilet: ${data.message}`);
+          eventSource.close();
+          break;
+      }
+    };
+
+    eventSource.onerror = () => {
+      setNmapProgress(prev => ({ ...prev, status: 'error', message: 'Forbindelsen ble avbrutt' }));
+      toast.error("Forbindelse til server tapt");
+      eventSource.close();
+    };
+  };
+
+  // Stop Nmap scan
+  const handleStopNmapScan = () => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+      setNmapProgress(prev => ({ ...prev, status: 'idle' }));
+      toast.info("Scan avbrutt");
+    }
+  };
+
+  // Start OpenVAS scan
+  const handleStartOpenvasScan = async () => {
+    if (!newScanTarget || !newScanName) {
+      toast.error("Fyll ut alle feltene");
+      return;
+    }
+
+    setIsStartingOpenvasScan(true);
     try {
-      const response = await fetch(`${API_BASE}/api/nmap/scan`, {
+      const response = await fetch(`${API_BASE}/api/openvas/scan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ target: nmapTarget, scanType: nmapScanType }),
+        body: JSON.stringify({
+          target: newScanTarget,
+          name: newScanName,
+          scanConfig: newScanConfig
+        }),
       });
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || "Scan feilet");
+        throw new Error(error.error || "Kunne ikke starte scan");
       }
 
-      const data = await response.json();
-      const hosts = parseNmapXML(data.result);
-      setNmapResults(hosts);
-      toast.success(`Scan fullført! Fant ${hosts.length} host(s)`);
+      toast.success("OpenVAS scan startet!");
+      setOpenvasDialogOpen(false);
+      setNewScanTarget("");
+      setNewScanName("");
+      fetchOpenvasData();
     } catch (error) {
-      console.error("Nmap scan error:", error);
-      toast.error(`Nmap scan feilet: ${error instanceof Error ? error.message : "Ukjent feil"}`);
+      toast.error(`Feil: ${error instanceof Error ? error.message : "Ukjent feil"}`);
     } finally {
-      setIsNmapScanning(false);
+      setIsStartingOpenvasScan(false);
     }
   };
 
   // Initial load
   useEffect(() => {
     fetchOpenvasData();
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+    };
   }, []);
+
+  const isScanning = nmapProgress.status === 'scanning';
 
   return (
     <div className="min-h-screen bg-background cyber-grid">
@@ -248,15 +344,16 @@ export default function Security() {
                     Nmap Skanning
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="p-4">
+                <CardContent className="p-4 space-y-4">
                   <div className="flex gap-4">
                     <Input 
                       placeholder="Mål (IP eller subnet, f.eks. 192.168.1.0/24)"
                       value={nmapTarget}
                       onChange={(e) => setNmapTarget(e.target.value)}
                       className="flex-1 bg-muted border-border font-mono"
+                      disabled={isScanning}
                     />
-                    <Select value={nmapScanType} onValueChange={setNmapScanType}>
+                    <Select value={nmapScanType} onValueChange={setNmapScanType} disabled={isScanning}>
                       <SelectTrigger className="w-[140px]">
                         <SelectValue />
                       </SelectTrigger>
@@ -266,25 +363,46 @@ export default function Security() {
                         <SelectItem value="full">Full Scan</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Button 
-                      onClick={handleNmapScan}
-                      disabled={isNmapScanning}
-                      className="bg-primary text-primary-foreground"
-                    >
-                      {isNmapScanning ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Skanner...
-                        </>
-                      ) : (
-                        <>
-                          <Search className="h-4 w-4 mr-2" />
-                          Start Scan
-                        </>
-                      )}
-                    </Button>
+                    {isScanning ? (
+                      <Button 
+                        onClick={handleStopNmapScan}
+                        variant="destructive"
+                      >
+                        <StopCircle className="h-4 w-4 mr-2" />
+                        Stopp
+                      </Button>
+                    ) : (
+                      <Button 
+                        onClick={handleNmapScan}
+                        className="bg-primary text-primary-foreground"
+                      >
+                        <Search className="h-4 w-4 mr-2" />
+                        Start Scan
+                      </Button>
+                    )}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-2">
+                  
+                  {/* Progress indicator */}
+                  {isScanning && (
+                    <div className="space-y-2 animate-in fade-in">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Skanner...
+                        </span>
+                        <span className="font-mono text-primary">
+                          {nmapProgress.percent.toFixed(0)}%
+                        </span>
+                      </div>
+                      <Progress value={nmapProgress.percent} className="h-2" />
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Hosts funnet: {nmapProgress.hostsFound}</span>
+                        <span>Mål: {nmapTarget}</span>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <p className="text-xs text-muted-foreground">
                     Kommando: nmap {nmapScanType === 'quick' ? '-sn' : nmapScanType === 'ports' ? '-sT -F' : '-sV -sC'} {nmapTarget}
                   </p>
                 </CardContent>
@@ -341,8 +459,73 @@ export default function Security() {
 
           <TabsContent value="openvas">
             <div className="grid gap-4">
-              {/* Refresh button */}
-              <div className="flex justify-end">
+              {/* Actions */}
+              <div className="flex justify-end gap-2">
+                <Dialog open={openvasDialogOpen} onOpenChange={setOpenvasDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="default">
+                      <Plus className="h-4 w-4 mr-2" />
+                      Ny Scan
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Start OpenVAS Scan</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="scan-name">Scan Navn</Label>
+                        <Input
+                          id="scan-name"
+                          placeholder="F.eks. Nettverksscan Q4"
+                          value={newScanName}
+                          onChange={(e) => setNewScanName(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="scan-target">Mål (IP/Hostname/Range)</Label>
+                        <Input
+                          id="scan-target"
+                          placeholder="192.168.1.0/24 eller server.local"
+                          value={newScanTarget}
+                          onChange={(e) => setNewScanTarget(e.target.value)}
+                          className="font-mono"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Scan Konfigurasjon</Label>
+                        <Select value={newScanConfig} onValueChange={setNewScanConfig}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="discovery">Host Discovery (rask)</SelectItem>
+                            <SelectItem value="system">System Discovery</SelectItem>
+                            <SelectItem value="full">Full and Fast (anbefalt)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setOpenvasDialogOpen(false)}>
+                        Avbryt
+                      </Button>
+                      <Button onClick={handleStartOpenvasScan} disabled={isStartingOpenvasScan}>
+                        {isStartingOpenvasScan ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Starter...
+                          </>
+                        ) : (
+                          <>
+                            <Play className="h-4 w-4 mr-2" />
+                            Start Scan
+                          </>
+                        )}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
                 <Button 
                   variant="outline" 
                   size="sm" 
@@ -376,7 +559,7 @@ export default function Security() {
                     <div className="p-8 text-center text-muted-foreground">
                       <Shield className="h-12 w-12 mx-auto mb-3 opacity-50" />
                       <p>Ingen OpenVAS scans funnet.</p>
-                      <p className="text-xs mt-1">Sjekk at OpenVAS er konfigurert i backend.</p>
+                      <p className="text-xs mt-1">Start en ny scan med knappen over.</p>
                     </div>
                   ) : (
                     <div className="divide-y divide-border">
@@ -388,8 +571,12 @@ export default function Security() {
                               <p className="text-xs text-muted-foreground font-mono">{scan.target}</p>
                             </div>
                             <div className="flex items-center gap-2">
-                              <Badge className="bg-success/10 text-success border-success/20">
-                                <CheckCircle className="h-3 w-3 mr-1" />
+                              <Badge className={scan.status === 'Running' ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success border-success/20'}>
+                                {scan.status === 'Running' ? (
+                                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                ) : (
+                                  <CheckCircle className="h-3 w-3 mr-1" />
+                                )}
                                 {scan.status}
                               </Badge>
                               <ChevronRight className="h-4 w-4 text-muted-foreground" />
