@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { Shield, Bell, Settings, Terminal, Home, Wifi, HardDrive, Server, Radar } from "lucide-react";
+import { Shield, Bell, Settings, Terminal, Home, Wifi, HardDrive, Server, Radar, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -9,6 +9,7 @@ const navItems = [
   { href: "/truenas", label: "TrueNAS", icon: HardDrive },
   { href: "/proxmox", label: "Proxmox", icon: Server },
   { href: "/security", label: "Sikkerhet", icon: Radar },
+  { href: "/status", label: "Status", icon: Activity },
 ];
 
 export function Header() {
