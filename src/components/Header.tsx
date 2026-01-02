@@ -1,7 +1,15 @@
-import { Link, useLocation } from "react-router-dom";
-import { Shield, Bell, Settings, Terminal, Home, Wifi, HardDrive, Server, Radar, Activity } from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Shield, Bell, Settings, Terminal, Home, Wifi, HardDrive, Server, Radar, Activity, LogOut, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: Home },
@@ -14,6 +22,13 @@ const navItems = [
 
 export function Header() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, logout } = useAuth();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
 
   return (
     <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-50">
@@ -74,6 +89,27 @@ export function Header() {
                 <Settings className="h-5 w-5" />
               </Button>
             </Link>
+            
+            {user && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
+                    <User className="h-4 w-4" />
+                    <span className="hidden sm:inline">{user.username}</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+                    {user.role === 'admin' ? 'Administrator' : 'Bruker'}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Logg ut
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </div>
       </div>
