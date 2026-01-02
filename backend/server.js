@@ -13,9 +13,26 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const https = require('https');
+const fs = require('fs');
+const path = require('path');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Data directory for persistent storage
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
+
+// Ensure data directory exists
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+// JWT secret - generate random if not set
+const JWT_SECRET = process.env.JWT_SECRET || require('crypto').randomBytes(64).toString('hex');
 
 // Middleware
 app.use(cors());
@@ -23,6 +40,315 @@ app.use(express.json());
 
 // Ignorer self-signed SSL sertifikater (for UniFi, Proxmox etc.)
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+
+// ============================================
+// Authentication & User Management
+// ============================================
+
+function loadUsers() {
+  try {
+    if (fs.existsSync(USERS_FILE)) {
+      return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+    }
+  } catch (error) {
+    console.error('Feil ved lasting av brukere:', error.message);
+  }
+  return [];
+}
+
+function saveUsers(users) {
+  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+}
+
+function loadConfig() {
+  try {
+    if (fs.existsSync(CONFIG_FILE)) {
+      return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+    }
+  } catch (error) {
+    console.error('Feil ved lasting av konfig:', error.message);
+  }
+  return { setupCompleted: false };
+}
+
+function saveConfig(config) {
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+}
+
+// Auth middleware
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  
+  if (!token) {
+    return res.status(401).json({ error: 'Ingen tilgangstoken' });
+  }
+  
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Ugyldig eller utløpt token' });
+    }
+    req.user = user;
+    next();
+  });
+}
+
+// Check if setup is required
+app.get('/api/auth/setup-status', (req, res) => {
+  const config = loadConfig();
+  const users = loadUsers();
+  res.json({ 
+    setupRequired: !config.setupCompleted || users.length === 0 
+  });
+});
+
+// Initial setup endpoint
+app.post('/api/auth/setup', async (req, res) => {
+  try {
+    const config = loadConfig();
+    const users = loadUsers();
+    
+    // Only allow setup if not already completed
+    if (config.setupCompleted && users.length > 0) {
+      return res.status(400).json({ error: 'Oppsett er allerede fullført' });
+    }
+    
+    const { admin, services } = req.body;
+    
+    if (!admin?.username || !admin?.password) {
+      return res.status(400).json({ error: 'Brukernavn og passord er påkrevd' });
+    }
+    
+    if (admin.password.length < 8) {
+      return res.status(400).json({ error: 'Passord må være minst 8 tegn' });
+    }
+    
+    // Hash password and create admin user
+    const hashedPassword = await bcrypt.hash(admin.password, 12);
+    const adminUser = {
+      id: require('crypto').randomUUID(),
+      username: admin.username,
+      password: hashedPassword,
+      role: 'admin',
+      createdAt: new Date().toISOString(),
+    };
+    
+    saveUsers([adminUser]);
+    
+    // Update .env file with service configurations
+    let envContent = fs.readFileSync(path.join(__dirname, '.env'), 'utf8').split('\n');
+    
+    const updateEnv = (key, value) => {
+      if (!value) return;
+      const index = envContent.findIndex(line => line.startsWith(`${key}=`));
+      if (index >= 0) {
+        envContent[index] = `${key}=${value}`;
+      } else {
+        envContent.push(`${key}=${value}`);
+      }
+    };
+    
+    if (services?.unifi) {
+      updateEnv('UNIFI_CONTROLLER_URL', services.unifi.url);
+      updateEnv('UNIFI_USERNAME', services.unifi.username);
+      updateEnv('UNIFI_PASSWORD', services.unifi.password);
+      updateEnv('UNIFI_SITE', services.unifi.site || 'default');
+    }
+    
+    if (services?.truenas) {
+      updateEnv('TRUENAS_URL', services.truenas.url);
+      updateEnv('TRUENAS_API_KEY', services.truenas.apiKey);
+    }
+    
+    if (services?.proxmox) {
+      updateEnv('PROXMOX_URL', services.proxmox.url);
+      updateEnv('PROXMOX_USER', services.proxmox.user);
+      updateEnv('PROXMOX_TOKEN_ID', services.proxmox.tokenId);
+      updateEnv('PROXMOX_TOKEN_SECRET', services.proxmox.tokenSecret);
+    }
+    
+    if (services?.openvas) {
+      updateEnv('OPENVAS_URL', services.openvas.url);
+      updateEnv('OPENVAS_USERNAME', services.openvas.username);
+      updateEnv('OPENVAS_PASSWORD', services.openvas.password);
+    }
+    
+    fs.writeFileSync(path.join(__dirname, '.env'), envContent.join('\n'));
+    
+    // Mark setup as completed
+    saveConfig({ setupCompleted: true, setupDate: new Date().toISOString() });
+    
+    // Reload environment variables
+    require('dotenv').config();
+    
+    res.json({ success: true, message: 'Oppsett fullført' });
+  } catch (error) {
+    console.error('Setup feilet:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Login endpoint
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Brukernavn og passord er påkrevd' });
+    }
+    
+    const users = loadUsers();
+    const user = users.find(u => u.username === username);
+    
+    if (!user) {
+      return res.status(401).json({ error: 'Ugyldig brukernavn eller passord' });
+    }
+    
+    const validPassword = await bcrypt.compare(password, user.password);
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Ugyldig brukernavn eller passord' });
+    }
+    
+    const token = jwt.sign(
+      { id: user.id, username: user.username, role: user.role },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+    
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    console.error('Login feilet:', error);
+    res.status(500).json({ error: 'Innlogging feilet' });
+  }
+});
+
+// Validate token endpoint
+app.get('/api/auth/validate', authenticateToken, (req, res) => {
+  res.json({ valid: true, user: req.user });
+});
+
+// Get all users (admin only)
+app.get('/api/auth/users', authenticateToken, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Kun administratorer har tilgang' });
+  }
+  
+  const users = loadUsers().map(u => ({
+    id: u.id,
+    username: u.username,
+    role: u.role,
+    createdAt: u.createdAt,
+  }));
+  
+  res.json({ users });
+});
+
+// Create new user (admin only)
+app.post('/api/auth/users', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Kun administratorer har tilgang' });
+  }
+  
+  try {
+    const { username, password, role = 'user' } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Brukernavn og passord er påkrevd' });
+    }
+    
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Passord må være minst 8 tegn' });
+    }
+    
+    const users = loadUsers();
+    
+    if (users.some(u => u.username === username)) {
+      return res.status(400).json({ error: 'Brukernavn er allerede i bruk' });
+    }
+    
+    const hashedPassword = await bcrypt.hash(password, 12);
+    const newUser = {
+      id: require('crypto').randomUUID(),
+      username,
+      password: hashedPassword,
+      role: role === 'admin' ? 'admin' : 'user',
+      createdAt: new Date().toISOString(),
+    };
+    
+    users.push(newUser);
+    saveUsers(users);
+    
+    res.json({
+      user: {
+        id: newUser.id,
+        username: newUser.username,
+        role: newUser.role,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete user (admin only)
+app.delete('/api/auth/users/:id', authenticateToken, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Kun administratorer har tilgang' });
+  }
+  
+  const { id } = req.params;
+  
+  if (id === req.user.id) {
+    return res.status(400).json({ error: 'Du kan ikke slette din egen konto' });
+  }
+  
+  let users = loadUsers();
+  users = users.filter(u => u.id !== id);
+  saveUsers(users);
+  
+  res.json({ success: true });
+});
+
+// Change password
+app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Begge passord er påkrevd' });
+    }
+    
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'Nytt passord må være minst 8 tegn' });
+    }
+    
+    const users = loadUsers();
+    const user = users.find(u => u.id === req.user.id);
+    
+    if (!user) {
+      return res.status(404).json({ error: 'Bruker ikke funnet' });
+    }
+    
+    const validPassword = await bcrypt.compare(currentPassword, user.password);
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Nåværende passord er feil' });
+    }
+    
+    user.password = await bcrypt.hash(newPassword, 12);
+    saveUsers(users);
+    
+    res.json({ success: true, message: 'Passord endret' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // ============================================
 // UniFi Controller API
