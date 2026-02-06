@@ -106,7 +106,10 @@ export default function Settings() {
       const start = Date.now();
       const response = await fetch(`${API_BASE}/api/health/test/${service}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
       });
 
       const responseTime = Date.now() - start;

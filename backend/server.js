@@ -136,7 +136,11 @@ app.post('/api/auth/setup', async (req, res) => {
     saveUsers([adminUser]);
     
     // Update .env file with service configurations
-    let envContent = fs.readFileSync(path.join(__dirname, '.env'), 'utf8').split('\n');
+    const envPath = path.join(__dirname, '.env');
+    let envContent = [];
+    if (fs.existsSync(envPath)) {
+      envContent = fs.readFileSync(envPath, 'utf8').split('\n');
+    }
     
     const updateEnv = (key, value) => {
       if (!value) return;
@@ -173,7 +177,7 @@ app.post('/api/auth/setup', async (req, res) => {
       updateEnv('OPENVAS_PASSWORD', services.openvas.password);
     }
     
-    fs.writeFileSync(path.join(__dirname, '.env'), envContent.join('\n'));
+    fs.writeFileSync(envPath, envContent.join('\n'));
     
     // Mark setup as completed
     saveConfig({ setupCompleted: true, setupDate: new Date().toISOString() });
@@ -838,7 +842,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Test individual service connection
-app.post('/api/health/test/:service', async (req, res) => {
+app.post('/api/health/test/:service', authenticateToken, async (req, res) => {
   const { service } = req.params;
   
   try {
@@ -1068,7 +1072,7 @@ app.get('/api/health/all', async (req, res) => {
 // Docker Management
 // ============================================
 
-app.get('/api/docker/containers', async (req, res) => {
+app.get('/api/docker/containers', authenticateToken, async (req, res) => {
   try {
     const { stdout } = await execAsync('docker ps -a --format "{{json .}}"');
     const containers = stdout.trim().split('\n').filter(Boolean).map(line => {
@@ -1090,7 +1094,7 @@ app.get('/api/docker/containers', async (req, res) => {
   }
 });
 
-app.post('/api/docker/containers/:id/start', async (req, res) => {
+app.post('/api/docker/containers/:id/start', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     await execAsync(`docker start ${id}`);
@@ -1100,7 +1104,7 @@ app.post('/api/docker/containers/:id/start', async (req, res) => {
   }
 });
 
-app.post('/api/docker/containers/:id/stop', async (req, res) => {
+app.post('/api/docker/containers/:id/stop', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     await execAsync(`docker stop ${id}`);
@@ -1110,7 +1114,7 @@ app.post('/api/docker/containers/:id/stop', async (req, res) => {
   }
 });
 
-app.post('/api/docker/containers/:id/restart', async (req, res) => {
+app.post('/api/docker/containers/:id/restart', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     await execAsync(`docker restart ${id}`);
@@ -1120,7 +1124,7 @@ app.post('/api/docker/containers/:id/restart', async (req, res) => {
   }
 });
 
-app.get('/api/docker/containers/:id/logs', async (req, res) => {
+app.get('/api/docker/containers/:id/logs', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     const { tail = 100 } = req.query;
