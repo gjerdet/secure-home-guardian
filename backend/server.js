@@ -1240,6 +1240,179 @@ app.get('/api/docker/containers/:id/logs', authenticateToken, async (req, res) =
   }
 });
 
+// ============================================
+// System Installation Management
+// ============================================
+
+// Check status of all installable services
+app.get('/api/system/services', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Kun administratorer har tilgang' });
+  }
+
+  const checks = [
+    { id: 'nodejs', name: 'Node.js', cmd: 'node --version', activeCmd: null },
+    { id: 'nginx', name: 'Nginx', cmd: 'nginx -v 2>&1', activeCmd: 'systemctl is-active nginx' },
+    { id: 'docker', name: 'Docker', cmd: 'docker --version', activeCmd: 'systemctl is-active docker' },
+    { id: 'nmap', name: 'Nmap', cmd: 'nmap --version 2>&1 | head -n1', activeCmd: null },
+    { id: 'openvas', name: 'OpenVAS/Greenbone', cmd: 'docker inspect openvas --format="{{.Config.Image}}" 2>/dev/null', activeCmd: 'docker inspect openvas --format="{{.State.Status}}" 2>/dev/null' },
+  ];
+
+  const results = await Promise.all(checks.map(async (svc) => {
+    let installed = false;
+    let version = '';
+    let running = null;
+
+    try {
+      const { stdout } = await execAsync(svc.cmd, { timeout: 5000 });
+      installed = true;
+      version = stdout.trim().replace(/^[a-zA-Z\s:]+/, '').trim();
+    } catch {}
+
+    if (svc.activeCmd) {
+      try {
+        const { stdout } = await execAsync(svc.activeCmd, { timeout: 5000 });
+        const status = stdout.trim();
+        running = status === 'active' || status === 'running';
+      } catch {
+        running = false;
+      }
+    }
+
+    return { id: svc.id, name: svc.name, installed, version, running };
+  }));
+
+  res.json({ services: results });
+});
+
+// Install a service (admin only) - streams progress via SSE
+app.post('/api/system/install/:serviceId', authenticateToken, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Kun administratorer har tilgang' });
+  }
+
+  const { serviceId } = req.params;
+
+  // Map service IDs to install commands
+  const installScripts = {
+    nodejs: [
+      'curl -fsSL https://deb.nodesource.com/setup_20.x | bash -',
+      'apt install -y nodejs',
+    ],
+    nginx: [
+      'apt install -y nginx',
+      'systemctl enable nginx',
+      'systemctl start nginx',
+    ],
+    docker: [
+      'apt install -y apt-transport-https ca-certificates curl gnupg lsb-release',
+      'curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg 2>/dev/null || true',
+      'echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null',
+      'apt update',
+      'apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin',
+      'systemctl enable docker',
+      'systemctl start docker',
+    ],
+    nmap: [
+      'apt install -y nmap',
+    ],
+    openvas: [
+      'docker volume create openvas-data 2>/dev/null || true',
+      'docker stop openvas 2>/dev/null || true',
+      'docker rm openvas 2>/dev/null || true',
+      'docker run -d --name openvas --restart unless-stopped -p 9392:9392 -v openvas-data:/var/lib/openvas greenbone/gsm-community:stable',
+    ],
+  };
+
+  const commands = installScripts[serviceId];
+  if (!commands) {
+    return res.status(400).json({ error: `Ukjent tjeneste: ${serviceId}` });
+  }
+
+  // SSE response for streaming progress
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+  });
+
+  const sendEvent = (data) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  sendEvent({ type: 'start', message: `Starter installasjon av ${serviceId}...`, total: commands.length });
+
+  let step = 0;
+  const runNext = () => {
+    if (step >= commands.length) {
+      sendEvent({ type: 'complete', message: `${serviceId} installert!` });
+      res.end();
+      return;
+    }
+
+    const cmd = commands[step];
+    sendEvent({ type: 'progress', step: step + 1, total: commands.length, message: `Kjører: ${cmd.substring(0, 80)}...` });
+
+    const child = require('child_process').exec(cmd, { timeout: 300000, maxBuffer: 50 * 1024 * 1024 });
+
+    child.stdout?.on('data', (data) => {
+      sendEvent({ type: 'log', message: data.toString().trim() });
+    });
+
+    child.stderr?.on('data', (data) => {
+      sendEvent({ type: 'log', message: data.toString().trim() });
+    });
+
+    child.on('close', (code) => {
+      if (code !== 0 && code !== null) {
+        sendEvent({ type: 'error', message: `Kommando feilet med kode ${code}: ${cmd}` });
+        // Continue anyway for non-critical failures
+      }
+      step++;
+      runNext();
+    });
+
+    child.on('error', (err) => {
+      sendEvent({ type: 'error', message: `Feil: ${err.message}` });
+      step++;
+      runNext();
+    });
+  };
+
+  req.on('close', () => {
+    // Client disconnected
+  });
+
+  runNext();
+});
+
+// Restart a system service (admin only)
+app.post('/api/system/restart/:serviceId', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Kun administratorer har tilgang' });
+  }
+
+  const { serviceId } = req.params;
+  const restartCmds = {
+    nginx: 'systemctl restart nginx',
+    docker: 'systemctl restart docker',
+    openvas: 'docker restart openvas',
+    'netguard-api': 'systemctl restart netguard-api',
+  };
+
+  const cmd = restartCmds[serviceId];
+  if (!cmd) {
+    return res.status(400).json({ error: `Kan ikke restarte: ${serviceId}` });
+  }
+
+  try {
+    await execAsync(cmd, { timeout: 30000 });
+    res.json({ success: true, message: `${serviceId} restartet` });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log(`NetGuard API kjører på port ${PORT}`);

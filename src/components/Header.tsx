@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Shield, Bell, Settings, Terminal, Home, Wifi, HardDrive, Server, Radar, Activity, LogOut, User } from "lucide-react";
+import { Shield, Bell, Settings, Terminal, Home, Wifi, HardDrive, Server, Radar, Activity, LogOut, User, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -18,6 +18,7 @@ const navItems = [
   { href: "/proxmox", label: "Proxmox", icon: Server },
   { href: "/security", label: "Sikkerhet", icon: Radar },
   { href: "/status", label: "Status", icon: Activity },
+  { href: "/installer", label: "Installer", icon: Download },
 ];
 
 export function Header() {
