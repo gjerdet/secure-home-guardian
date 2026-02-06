@@ -12,6 +12,7 @@ import Proxmox from "./pages/Proxmox";
 import Security from "./pages/Security";
 import Status from "./pages/Status";
 import Settings from "./pages/Settings";
+import Installer from "./pages/Installer";
 import Login from "./pages/Login";
 import Setup from "./pages/Setup";
 import NotFound from "./pages/NotFound";
@@ -35,6 +36,7 @@ const App = () => (
             <Route path="/security" element={<ProtectedRoute><Security /></ProtectedRoute>} />
             <Route path="/status" element={<ProtectedRoute><Status /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+            <Route path="/installer" element={<ProtectedRoute><Installer /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
