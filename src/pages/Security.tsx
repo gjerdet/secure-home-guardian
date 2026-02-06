@@ -12,9 +12,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { ScanReportDialog } from "@/components/security/ScanReportDialog";
+import { AttackMap } from "@/components/AttackMap";
+import { batchLookupGeoIP } from "@/lib/ids-utils";
 import { 
   Radar, Shield, Search, Clock, AlertTriangle, CheckCircle,
-  Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle
+  Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin
 } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -126,6 +128,10 @@ export default function Security() {
   const [reportDialogOpen, setReportDialogOpen] = useState(false);
   const [selectedScan, setSelectedScan] = useState<OpenVASScan | null>(null);
 
+  // Geo map state for scan results
+  const [scanGeoLocations, setScanGeoLocations] = useState<Array<{ lat: number; lng: number; severity: string; country: string }>>([]);
+  const [isGeoLookingUp, setIsGeoLookingUp] = useState(false);
+
   // Stats
   const stats = {
     high: vulnerabilities.filter(v => v.severity === "high").length,
@@ -222,6 +228,55 @@ export default function Security() {
       eventSourceRef.current = null;
       setNmapProgress(prev => ({ ...prev, status: 'idle' }));
       toast.info("Scan avbrutt");
+    }
+  };
+
+  // GeoIP lookup for scan results (nmap hosts + vulnerability hosts)
+  const handleScanGeoLookup = async () => {
+    setIsGeoLookingUp(true);
+    toast.info("Henter GeoIP data for scan-resultater...");
+    try {
+      const ips = [
+        ...nmapResults.map(h => h.host),
+        ...vulnerabilities.map(v => v.host),
+        ...openvasScans.map(s => s.target),
+      ];
+      const uniqueIps = [...new Set(ips)];
+      const results = await batchLookupGeoIP(uniqueIps);
+
+      const locations: Array<{ lat: number; lng: number; severity: string; country: string }> = [];
+      
+      // Add vulnerability hosts
+      vulnerabilities.forEach(v => {
+        const geo = results.get(v.host);
+        if (geo) {
+          locations.push({ lat: geo.lat, lng: geo.lng, severity: v.severity, country: geo.countryCode });
+        }
+      });
+
+      // Add nmap hosts
+      nmapResults.forEach(h => {
+        const geo = results.get(h.host);
+        if (geo) {
+          locations.push({ lat: geo.lat, lng: geo.lng, severity: 'medium', country: geo.countryCode });
+        }
+      });
+
+      // Add scan targets
+      openvasScans.forEach(s => {
+        const geo = results.get(s.target);
+        if (geo) {
+          const severity = s.high > 0 ? 'high' : s.medium > 0 ? 'medium' : 'low';
+          locations.push({ lat: geo.lat, lng: geo.lng, severity, country: geo.countryCode });
+        }
+      });
+
+      setScanGeoLocations(locations);
+      toast.success(`GeoIP fullført! ${locations.length} lokasjoner kartlagt`);
+    } catch {
+      toast.error("Kunne ikke hente GeoIP data");
+    } finally {
+      setIsGeoLookingUp(false);
     }
   };
 
@@ -337,6 +392,10 @@ export default function Security() {
             <TabsTrigger value="vulnerabilities" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               <AlertTriangle className="h-4 w-4 mr-2" />
               Sårbarheter ({vulnerabilities.length})
+            </TabsTrigger>
+            <TabsTrigger value="map" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <MapPin className="h-4 w-4 mr-2" />
+              Geo-kart
             </TabsTrigger>
           </TabsList>
 
@@ -662,6 +721,34 @@ export default function Security() {
               </CardContent>
             </Card>
           </TabsContent>
+          <TabsContent value="map">
+            <Card className="bg-card border-border">
+              <CardHeader className="border-b border-border">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <Globe className="h-5 w-5 text-primary" />
+                    Scan Geolokasjon
+                  </CardTitle>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleScanGeoLookup}
+                    disabled={isGeoLookingUp}
+                  >
+                    <RefreshCw className={`h-4 w-4 mr-2 ${isGeoLookingUp ? 'animate-spin' : ''}`} />
+                    Oppdater GeoIP
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Viser geografisk lokasjon for nmap-hosts, OpenVAS-mål og sårbarheter med eksterne IP-adresser.
+                </p>
+              </CardHeader>
+              <CardContent className="p-0">
+                <AttackMap attacks={scanGeoLocations} />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
         </Tabs>
 
         {/* Scan Report Dialog */}
