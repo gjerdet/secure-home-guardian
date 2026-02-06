@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/Header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -33,6 +33,13 @@ interface ConnectionStatus {
   responseTime?: number;
 }
 
+interface ServiceConfigs {
+  unifi: { url: string; username: string; password: string; site: string };
+  truenas: { url: string; apiKey: string };
+  proxmox: { url: string; user: string; tokenId: string; tokenSecret: string };
+  openvas: { url: string; username: string; password: string };
+}
+
 const roleLabels: Record<UserRole, string> = {
   admin: "Administrator",
   user: "Bruker",
@@ -43,18 +50,27 @@ const roleBadgeClass: Record<UserRole, string> = {
   user: "bg-primary/10 text-primary",
 };
 
+const defaultConfigs: ServiceConfigs = {
+  unifi: { url: '', username: '', password: '', site: 'default' },
+  truenas: { url: '', apiKey: '' },
+  proxmox: { url: '', user: 'root@pam', tokenId: '', tokenSecret: '' },
+  openvas: { url: '', username: 'admin', password: '' },
+};
+
 export default function Settings() {
   const { user: currentUser, token } = useAuth();
   const [users, setUsers] = useState<SystemUser[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [editingUser, setEditingUser] = useState<SystemUser | null>(null);
   const [newUser, setNewUser] = useState({ username: "", password: "", role: "user" as UserRole });
   const [isCreating, setIsCreating] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState<string | null>(null);
   
-  // Connection testing state
+  // Service configurations (controlled state)
+  const [configs, setConfigs] = useState<ServiceConfigs>(defaultConfigs);
+  const [isLoadingConfigs, setIsLoadingConfigs] = useState(false);
+
   const [connectionStatus, setConnectionStatus] = useState<Record<string, ConnectionStatus>>({
     unifi: { status: 'idle' },
     truenas: { status: 'idle' },
@@ -65,16 +81,32 @@ export default function Settings() {
 
   const isAdmin = currentUser?.role === 'admin';
 
-  // Fetch users from backend
-  const fetchUsers = async () => {
+  // Fetch service configs from backend
+  const fetchConfigs = useCallback(async () => {
     if (!token || !isAdmin) return;
-    
+    setIsLoadingConfigs(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/config/services`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setConfigs(data);
+      }
+    } catch {
+      // Silent fail - configs stay at defaults
+    } finally {
+      setIsLoadingConfigs(false);
+    }
+  }, [token, isAdmin]);
+
+  const fetchUsers = useCallback(async () => {
+    if (!token || !isAdmin) return;
     setIsLoadingUsers(true);
     try {
       const res = await fetch(`${API_BASE}/api/auth/users`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
       if (res.ok) {
         const data = await res.json();
         setUsers(data.users || []);
@@ -82,133 +114,118 @@ export default function Settings() {
         const error = await res.json();
         toast.error(error.error || 'Kunne ikke hente brukere');
       }
-    } catch (error) {
+    } catch {
       toast.error('Kunne ikke koble til server');
     } finally {
       setIsLoadingUsers(false);
     }
-  };
+  }, [token, isAdmin]);
 
   useEffect(() => {
     if (isAdmin) {
       fetchUsers();
+      fetchConfigs();
     }
-  }, [isAdmin, token]);
+  }, [isAdmin, fetchUsers, fetchConfigs]);
 
-  // Test individual connection
-  const testConnection = async (service: string) => {
-    setConnectionStatus(prev => ({
+  // Save service config
+  const saveServiceConfig = async (service: keyof ServiceConfigs) => {
+    setIsSaving(service);
+    try {
+      const res = await fetch(`${API_BASE}/api/config/services`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ service, config: configs[service] }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(data.message || `${service} lagret`);
+      } else {
+        toast.error(data.error || 'Lagring feilet');
+      }
+    } catch {
+      toast.error('Kunne ikke koble til server');
+    } finally {
+      setIsSaving(null);
+    }
+  };
+
+  const updateConfig = <S extends keyof ServiceConfigs>(
+    service: S,
+    field: keyof ServiceConfigs[S],
+    value: string
+  ) => {
+    setConfigs(prev => ({
       ...prev,
-      [service]: { status: 'testing' }
+      [service]: { ...prev[service], [field]: value },
     }));
+  };
 
+  // Test connection
+  const testConnection = async (service: string) => {
+    setConnectionStatus(prev => ({ ...prev, [service]: { status: 'testing' } }));
     try {
       const start = Date.now();
       const response = await fetch(`${API_BASE}/api/health/test/${service}`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
       });
-
       const responseTime = Date.now() - start;
-
       if (response.ok) {
         const data = await response.json();
         setConnectionStatus(prev => ({
           ...prev,
-          [service]: { 
+          [service]: {
             status: data.success ? 'success' : 'error',
             message: data.message,
-            responseTime
+            responseTime,
           }
         }));
-        if (data.success) {
-          toast.success(`${service} tilkobling OK (${responseTime}ms)`);
-        } else {
-          toast.error(`${service}: ${data.message}`);
-        }
+        if (data.success) toast.success(`${service} tilkobling OK (${responseTime}ms)`);
+        else toast.error(`${service}: ${data.message}`);
       } else {
         throw new Error('Tilkoblingsfeil');
       }
     } catch (error) {
       setConnectionStatus(prev => ({
         ...prev,
-        [service]: { 
-          status: 'error',
-          message: error instanceof Error ? error.message : 'Ukjent feil'
-        }
+        [service]: { status: 'error', message: error instanceof Error ? error.message : 'Ukjent feil' }
       }));
-      toast.error(`Kunne ikke teste ${service}: ${error instanceof Error ? error.message : 'Ukjent feil'}`);
+      toast.error(`Kunne ikke teste ${service}`);
     }
   };
 
-  // Test all connections
   const testAllConnections = async () => {
-    const services = ['backend', 'unifi', 'truenas', 'proxmox', 'openvas'];
-    for (const service of services) {
+    for (const service of ['backend', 'unifi', 'truenas', 'proxmox', 'openvas']) {
       await testConnection(service);
     }
   };
 
   const getStatusBadge = (service: string) => {
     const status = connectionStatus[service];
-    if (status.status === 'testing') {
-      return (
-        <Badge className="bg-primary/10 text-primary">
-          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-          Tester...
-        </Badge>
-      );
-    }
-    if (status.status === 'success') {
-      return (
-        <Badge className="bg-success/10 text-success">
-          <CheckCircle className="h-3 w-3 mr-1" />
-          Tilkoblet {status.responseTime && `(${status.responseTime}ms)`}
-        </Badge>
-      );
-    }
-    if (status.status === 'error') {
-      return (
-        <Badge className="bg-destructive/10 text-destructive">
-          <XCircle className="h-3 w-3 mr-1" />
-          Feil
-        </Badge>
-      );
-    }
-    return (
-      <Badge className="bg-muted text-muted-foreground">
-        Ikke testet
-      </Badge>
-    );
+    if (status.status === 'testing') return <Badge className="bg-primary/10 text-primary"><Loader2 className="h-3 w-3 mr-1 animate-spin" />Tester...</Badge>;
+    if (status.status === 'success') return <Badge className="bg-success/10 text-success"><CheckCircle className="h-3 w-3 mr-1" />Tilkoblet {status.responseTime && `(${status.responseTime}ms)`}</Badge>;
+    if (status.status === 'error') return <Badge className="bg-destructive/10 text-destructive"><XCircle className="h-3 w-3 mr-1" />Feil</Badge>;
+    return <Badge className="bg-muted text-muted-foreground">Ikke testet</Badge>;
   };
 
   const handleAddUser = async () => {
-    if (!newUser.username || !newUser.password) {
-      toast.error("Brukernavn og passord er påkrevd");
-      return;
-    }
-    
-    if (newUser.password.length < 6) {
-      toast.error("Passord må være minst 6 tegn");
-      return;
-    }
-
+    if (!newUser.username || !newUser.password) { toast.error("Brukernavn og passord er påkrevd"); return; }
+    if (newUser.password.length < 6) { toast.error("Passord må være minst 6 tegn"); return; }
     setIsCreating(true);
     try {
       const res = await fetch(`${API_BASE}/api/auth/users`, {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}` 
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(newUser),
       });
-      
       const data = await res.json();
-      
       if (res.ok) {
         toast.success(`Bruker "${newUser.username}" ble opprettet`);
         setNewUser({ username: "", password: "", role: "user" });
@@ -217,49 +234,60 @@ export default function Settings() {
       } else {
         toast.error(data.error || 'Kunne ikke opprette bruker');
       }
-    } catch (error) {
-      toast.error('Kunne ikke koble til server');
-    } finally {
-      setIsCreating(false);
-    }
+    } catch { toast.error('Kunne ikke koble til server'); }
+    finally { setIsCreating(false); }
   };
 
   const handleDeleteUser = async (user: SystemUser) => {
-    if (user.id === currentUser?.id) {
-      toast.error("Du kan ikke slette din egen bruker");
-      return;
-    }
-    
+    if (user.id === currentUser?.id) { toast.error("Du kan ikke slette din egen bruker"); return; }
     setIsDeleting(user.id);
     try {
       const res = await fetch(`${API_BASE}/api/auth/users/${user.id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
-      
-      if (res.ok) {
-        toast.success(`Bruker "${user.username}" ble slettet`);
-        fetchUsers();
-      } else {
-        const data = await res.json();
-        toast.error(data.error || 'Kunne ikke slette bruker');
-      }
-    } catch (error) {
-      toast.error('Kunne ikke koble til server');
-    } finally {
-      setIsDeleting(null);
-    }
+      if (res.ok) { toast.success(`Bruker "${user.username}" ble slettet`); fetchUsers(); }
+      else { const data = await res.json(); toast.error(data.error || 'Kunne ikke slette bruker'); }
+    } catch { toast.error('Kunne ikke koble til server'); }
+    finally { setIsDeleting(null); }
+  };
+
+  const renderSaveButton = (service: keyof ServiceConfigs) => (
+    <Button
+      className="bg-primary text-primary-foreground"
+      onClick={() => saveServiceConfig(service)}
+      disabled={isSaving === service}
+    >
+      {isSaving === service ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+      Lagre
+    </Button>
+  );
+
+  const renderTestButton = (service: string) => (
+    <Button
+      variant="outline"
+      onClick={() => testConnection(service)}
+      disabled={connectionStatus[service]?.status === 'testing'}
+    >
+      {connectionStatus[service]?.status === 'testing'
+        ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+        : <TestTube className="h-4 w-4 mr-2" />}
+      Test Tilkobling
+    </Button>
+  );
+
+  const renderStatusMessage = (service: string) => {
+    const s = connectionStatus[service];
+    if (!s?.message) return null;
+    return <p className={`text-xs ${s.status === 'error' ? 'text-destructive' : 'text-success'}`}>{s.message}</p>;
   };
 
   return (
     <div className="min-h-screen bg-background cyber-grid">
       <Header />
-      
       <main className="container mx-auto px-4 py-6">
         <div className="flex items-center gap-3 mb-6">
-          <div className="rounded-lg bg-primary/10 p-3">
-            <SettingsIcon className="h-6 w-6 text-primary" />
-          </div>
+          <div className="rounded-lg bg-primary/10 p-3"><SettingsIcon className="h-6 w-6 text-primary" /></div>
           <div>
             <h1 className="text-2xl font-bold text-foreground">Innstillinger</h1>
             <p className="text-sm text-muted-foreground">Konfigurer API-endepunkter og tilkoblinger</p>
@@ -269,26 +297,21 @@ export default function Settings() {
         <Tabs defaultValue="endpoints" className="space-y-4">
           <TabsList className="bg-muted">
             <TabsTrigger value="endpoints" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-              <Server className="h-4 w-4 mr-2" />
-              API Endepunkter
+              <Server className="h-4 w-4 mr-2" />API Endepunkter
             </TabsTrigger>
             <TabsTrigger value="users" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-              <Users className="h-4 w-4 mr-2" />
-              Brukere
+              <Users className="h-4 w-4 mr-2" />Brukere
             </TabsTrigger>
             <TabsTrigger value="backend" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-              <Shield className="h-4 w-4 mr-2" />
-              Backend Setup
+              <Shield className="h-4 w-4 mr-2" />Backend Setup
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="endpoints">
             <div className="space-y-4">
-              {/* Test All Button */}
               <div className="flex justify-end">
                 <Button variant="outline" onClick={testAllConnections}>
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Test alle tilkoblinger
+                  <RefreshCw className="h-4 w-4 mr-2" />Test alle tilkoblinger
                 </Button>
               </div>
 
@@ -296,10 +319,7 @@ export default function Settings() {
               <Card className="bg-card border-border">
                 <CardHeader className="border-b border-border">
                   <CardTitle className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Wifi className="h-5 w-5 text-primary" />
-                      UniFi Controller
-                    </div>
+                    <div className="flex items-center gap-2"><Wifi className="h-5 w-5 text-primary" />UniFi Controller</div>
                     {getStatusBadge('unifi')}
                   </CardTitle>
                 </CardHeader>
@@ -307,41 +327,26 @@ export default function Settings() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <Label>Controller URL</Label>
-                      <Input defaultValue="https://192.168.1.1:8443" className="bg-muted border-border font-mono mt-1" />
+                      <Input value={configs.unifi.url} onChange={e => updateConfig('unifi', 'url', e.target.value)} placeholder="https://192.168.1.1:8443" className="bg-muted border-border font-mono mt-1" />
                     </div>
                     <div>
                       <Label>Site Name</Label>
-                      <Input defaultValue="default" className="bg-muted border-border font-mono mt-1" />
+                      <Input value={configs.unifi.site} onChange={e => updateConfig('unifi', 'site', e.target.value)} placeholder="default" className="bg-muted border-border font-mono mt-1" />
                     </div>
                     <div>
                       <Label>Brukernavn</Label>
-                      <Input defaultValue="admin" className="bg-muted border-border mt-1" />
+                      <Input value={configs.unifi.username} onChange={e => updateConfig('unifi', 'username', e.target.value)} placeholder="admin" className="bg-muted border-border mt-1" />
                     </div>
                     <div>
                       <Label>Passord</Label>
-                      <Input type="password" defaultValue="********" className="bg-muted border-border mt-1" />
+                      <Input type="password" value={configs.unifi.password} onChange={e => updateConfig('unifi', 'password', e.target.value)} className="bg-muted border-border mt-1" />
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <Button 
-                      variant="outline" 
-                      onClick={() => testConnection('unifi')}
-                      disabled={connectionStatus.unifi.status === 'testing'}
-                    >
-                      {connectionStatus.unifi.status === 'testing' ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <TestTube className="h-4 w-4 mr-2" />
-                      )}
-                      Test Tilkobling
-                    </Button>
-                    <Button className="bg-primary text-primary-foreground"><Save className="h-4 w-4 mr-2" />Lagre</Button>
+                    {renderTestButton('unifi')}
+                    {renderSaveButton('unifi')}
                   </div>
-                  {connectionStatus.unifi.message && (
-                    <p className={`text-xs ${connectionStatus.unifi.status === 'error' ? 'text-destructive' : 'text-success'}`}>
-                      {connectionStatus.unifi.message}
-                    </p>
-                  )}
+                  {renderStatusMessage('unifi')}
                 </CardContent>
               </Card>
 
@@ -349,10 +354,7 @@ export default function Settings() {
               <Card className="bg-card border-border">
                 <CardHeader className="border-b border-border">
                   <CardTitle className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <HardDrive className="h-5 w-5 text-primary" />
-                      TrueNAS Scale
-                    </div>
+                    <div className="flex items-center gap-2"><HardDrive className="h-5 w-5 text-primary" />TrueNAS Scale</div>
                     {getStatusBadge('truenas')}
                   </CardTitle>
                 </CardHeader>
@@ -360,33 +362,18 @@ export default function Settings() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <Label>API URL</Label>
-                      <Input defaultValue="http://192.168.1.20/api/v2.0" className="bg-muted border-border font-mono mt-1" />
+                      <Input value={configs.truenas.url} onChange={e => updateConfig('truenas', 'url', e.target.value)} placeholder="http://192.168.1.20" className="bg-muted border-border font-mono mt-1" />
                     </div>
                     <div>
                       <Label>API Key</Label>
-                      <Input type="password" defaultValue="********" className="bg-muted border-border font-mono mt-1" />
+                      <Input type="password" value={configs.truenas.apiKey} onChange={e => updateConfig('truenas', 'apiKey', e.target.value)} className="bg-muted border-border font-mono mt-1" />
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <Button 
-                      variant="outline" 
-                      onClick={() => testConnection('truenas')}
-                      disabled={connectionStatus.truenas.status === 'testing'}
-                    >
-                      {connectionStatus.truenas.status === 'testing' ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <TestTube className="h-4 w-4 mr-2" />
-                      )}
-                      Test Tilkobling
-                    </Button>
-                    <Button className="bg-primary text-primary-foreground"><Save className="h-4 w-4 mr-2" />Lagre</Button>
+                    {renderTestButton('truenas')}
+                    {renderSaveButton('truenas')}
                   </div>
-                  {connectionStatus.truenas.message && (
-                    <p className={`text-xs ${connectionStatus.truenas.status === 'error' ? 'text-destructive' : 'text-success'}`}>
-                      {connectionStatus.truenas.message}
-                    </p>
-                  )}
+                  {renderStatusMessage('truenas')}
                 </CardContent>
               </Card>
 
@@ -394,10 +381,7 @@ export default function Settings() {
               <Card className="bg-card border-border">
                 <CardHeader className="border-b border-border">
                   <CardTitle className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Server className="h-5 w-5 text-primary" />
-                      Proxmox VE
-                    </div>
+                    <div className="flex items-center gap-2"><Server className="h-5 w-5 text-primary" />Proxmox VE</div>
                     {getStatusBadge('proxmox')}
                   </CardTitle>
                 </CardHeader>
@@ -405,41 +389,26 @@ export default function Settings() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <Label>API URL</Label>
-                      <Input defaultValue="https://192.168.1.30:8006" className="bg-muted border-border font-mono mt-1" />
+                      <Input value={configs.proxmox.url} onChange={e => updateConfig('proxmox', 'url', e.target.value)} placeholder="https://192.168.1.30:8006" className="bg-muted border-border font-mono mt-1" />
                     </div>
                     <div>
-                      <Label>Node Name</Label>
-                      <Input defaultValue="proxmox-01" className="bg-muted border-border font-mono mt-1" />
+                      <Label>Bruker</Label>
+                      <Input value={configs.proxmox.user} onChange={e => updateConfig('proxmox', 'user', e.target.value)} placeholder="root@pam" className="bg-muted border-border mt-1" />
                     </div>
                     <div>
-                      <Label>Brukernavn</Label>
-                      <Input defaultValue="root@pam" className="bg-muted border-border mt-1" />
+                      <Label>Token ID</Label>
+                      <Input value={configs.proxmox.tokenId} onChange={e => updateConfig('proxmox', 'tokenId', e.target.value)} placeholder="netguard" className="bg-muted border-border font-mono mt-1" />
                     </div>
                     <div>
-                      <Label>API Token</Label>
-                      <Input type="password" defaultValue="********" className="bg-muted border-border font-mono mt-1" />
+                      <Label>Token Secret</Label>
+                      <Input type="password" value={configs.proxmox.tokenSecret} onChange={e => updateConfig('proxmox', 'tokenSecret', e.target.value)} className="bg-muted border-border font-mono mt-1" />
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <Button 
-                      variant="outline" 
-                      onClick={() => testConnection('proxmox')}
-                      disabled={connectionStatus.proxmox.status === 'testing'}
-                    >
-                      {connectionStatus.proxmox.status === 'testing' ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <TestTube className="h-4 w-4 mr-2" />
-                      )}
-                      Test Tilkobling
-                    </Button>
-                    <Button className="bg-primary text-primary-foreground"><Save className="h-4 w-4 mr-2" />Lagre</Button>
+                    {renderTestButton('proxmox')}
+                    {renderSaveButton('proxmox')}
                   </div>
-                  {connectionStatus.proxmox.message && (
-                    <p className={`text-xs ${connectionStatus.proxmox.status === 'error' ? 'text-destructive' : 'text-success'}`}>
-                      {connectionStatus.proxmox.message}
-                    </p>
-                  )}
+                  {renderStatusMessage('proxmox')}
                 </CardContent>
               </Card>
 
@@ -447,10 +416,7 @@ export default function Settings() {
               <Card className="bg-card border-border">
                 <CardHeader className="border-b border-border">
                   <CardTitle className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Shield className="h-5 w-5 text-primary" />
-                      OpenVAS / Greenbone
-                    </div>
+                    <div className="flex items-center gap-2"><Shield className="h-5 w-5 text-primary" />OpenVAS / Greenbone</div>
                     {getStatusBadge('openvas')}
                   </CardTitle>
                 </CardHeader>
@@ -458,37 +424,22 @@ export default function Settings() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <Label>GMP URL</Label>
-                      <Input defaultValue="http://192.168.1.40:9392" className="bg-muted border-border font-mono mt-1" />
+                      <Input value={configs.openvas.url} onChange={e => updateConfig('openvas', 'url', e.target.value)} placeholder="http://192.168.1.40:9392" className="bg-muted border-border font-mono mt-1" />
                     </div>
                     <div>
                       <Label>Brukernavn</Label>
-                      <Input defaultValue="admin" className="bg-muted border-border mt-1" />
+                      <Input value={configs.openvas.username} onChange={e => updateConfig('openvas', 'username', e.target.value)} placeholder="admin" className="bg-muted border-border mt-1" />
                     </div>
                     <div>
                       <Label>Passord</Label>
-                      <Input type="password" className="bg-muted border-border mt-1" />
+                      <Input type="password" value={configs.openvas.password} onChange={e => updateConfig('openvas', 'password', e.target.value)} className="bg-muted border-border mt-1" />
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <Button 
-                      variant="outline" 
-                      onClick={() => testConnection('openvas')}
-                      disabled={connectionStatus.openvas.status === 'testing'}
-                    >
-                      {connectionStatus.openvas.status === 'testing' ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <TestTube className="h-4 w-4 mr-2" />
-                      )}
-                      Test Tilkobling
-                    </Button>
-                    <Button className="bg-primary text-primary-foreground"><Save className="h-4 w-4 mr-2" />Lagre</Button>
+                    {renderTestButton('openvas')}
+                    {renderSaveButton('openvas')}
                   </div>
-                  {connectionStatus.openvas.message && (
-                    <p className={`text-xs ${connectionStatus.openvas.status === 'error' ? 'text-destructive' : 'text-success'}`}>
-                      {connectionStatus.openvas.message}
-                    </p>
-                  )}
+                  {renderStatusMessage('openvas')}
                 </CardContent>
               </Card>
             </div>
@@ -500,9 +451,7 @@ export default function Settings() {
                 <CardContent className="p-8 text-center">
                   <Shield className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                   <h3 className="text-lg font-semibold mb-2">Begrenset tilgang</h3>
-                  <p className="text-muted-foreground">
-                    Du må være administrator for å administrere brukere.
-                  </p>
+                  <p className="text-muted-foreground">Du må være administrator for å administrere brukere.</p>
                 </CardContent>
               </Card>
             ) : (
@@ -510,52 +459,30 @@ export default function Settings() {
                 <Card className="bg-card border-border">
                   <CardHeader className="border-b border-border">
                     <CardTitle className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Users className="h-5 w-5 text-primary" />
-                        Brukeradministrasjon
-                      </div>
+                      <div className="flex items-center gap-2"><Users className="h-5 w-5 text-primary" />Brukeradministrasjon</div>
                       <div className="flex gap-2">
                         <Button variant="outline" onClick={fetchUsers} disabled={isLoadingUsers}>
-                          <RefreshCw className={`h-4 w-4 mr-2 ${isLoadingUsers ? 'animate-spin' : ''}`} />
-                          Oppdater
+                          <RefreshCw className={`h-4 w-4 mr-2 ${isLoadingUsers ? 'animate-spin' : ''}`} />Oppdater
                         </Button>
                         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
                           <DialogTrigger asChild>
-                            <Button className="bg-primary text-primary-foreground">
-                              <UserPlus className="h-4 w-4 mr-2" />
-                              Legg til bruker
-                            </Button>
+                            <Button className="bg-primary text-primary-foreground"><UserPlus className="h-4 w-4 mr-2" />Legg til bruker</Button>
                           </DialogTrigger>
                           <DialogContent className="bg-card border-border">
-                            <DialogHeader>
-                              <DialogTitle>Legg til ny bruker</DialogTitle>
-                            </DialogHeader>
+                            <DialogHeader><DialogTitle>Legg til ny bruker</DialogTitle></DialogHeader>
                             <div className="space-y-4 py-4">
                               <div>
                                 <Label>Brukernavn</Label>
-                                <Input 
-                                  value={newUser.username}
-                                  onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
-                                  className="bg-muted border-border mt-1" 
-                                  placeholder="bruker123"
-                                />
+                                <Input value={newUser.username} onChange={e => setNewUser({ ...newUser, username: e.target.value })} className="bg-muted border-border mt-1" placeholder="bruker123" />
                               </div>
                               <div>
                                 <Label>Passord</Label>
-                                <Input 
-                                  type="password"
-                                  value={newUser.password}
-                                  onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                                  className="bg-muted border-border mt-1" 
-                                  placeholder="Minst 6 tegn"
-                                />
+                                <Input type="password" value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })} className="bg-muted border-border mt-1" placeholder="Minst 6 tegn" />
                               </div>
                               <div>
                                 <Label>Rolle</Label>
                                 <Select value={newUser.role} onValueChange={(v: UserRole) => setNewUser({ ...newUser, role: v })}>
-                                  <SelectTrigger className="bg-muted border-border mt-1">
-                                    <SelectValue />
-                                  </SelectTrigger>
+                                  <SelectTrigger className="bg-muted border-border mt-1"><SelectValue /></SelectTrigger>
                                   <SelectContent className="bg-card border-border">
                                     <SelectItem value="admin">Administrator</SelectItem>
                                     <SelectItem value="user">Bruker</SelectItem>
@@ -565,13 +492,8 @@ export default function Settings() {
                             </div>
                             <DialogFooter>
                               <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>Avbryt</Button>
-                              <Button 
-                                className="bg-primary text-primary-foreground" 
-                                onClick={handleAddUser}
-                                disabled={isCreating}
-                              >
-                                {isCreating && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                                Opprett bruker
+                              <Button className="bg-primary text-primary-foreground" onClick={handleAddUser} disabled={isCreating}>
+                                {isCreating && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Opprett bruker
                               </Button>
                             </DialogFooter>
                           </DialogContent>
@@ -601,17 +523,13 @@ export default function Settings() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {users.map((user) => (
+                          {users.map(user => (
                             <TableRow key={user.id} className="border-border hover:bg-muted/50">
                               <TableCell className="font-medium">
                                 <div className="flex items-center gap-2">
-                                  <div className="rounded-full bg-primary/10 p-1.5">
-                                    <User className="h-4 w-4 text-primary" />
-                                  </div>
+                                  <div className="rounded-full bg-primary/10 p-1.5"><User className="h-4 w-4 text-primary" /></div>
                                   <span>{user.username}</span>
-                                  {user.id === currentUser?.id && (
-                                    <Badge variant="outline" className="text-xs">Du</Badge>
-                                  )}
+                                  {user.id === currentUser?.id && <Badge variant="outline" className="text-xs">Du</Badge>}
                                 </div>
                               </TableCell>
                               <TableCell>
@@ -623,18 +541,8 @@ export default function Settings() {
                                 {user.createdAt ? new Date(user.createdAt).toLocaleDateString('nb-NO') : '-'}
                               </TableCell>
                               <TableCell className="text-right">
-                                <Button 
-                                  variant="outline" 
-                                  size="sm"
-                                  className="text-destructive hover:text-destructive"
-                                  onClick={() => handleDeleteUser(user)}
-                                  disabled={user.id === currentUser?.id || isDeleting === user.id}
-                                >
-                                  {isDeleting === user.id ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                  ) : (
-                                    <Trash2 className="h-4 w-4" />
-                                  )}
+                                <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={() => handleDeleteUser(user)} disabled={user.id === currentUser?.id || isDeleting === user.id}>
+                                  {isDeleting === user.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                                 </Button>
                               </TableCell>
                             </TableRow>
@@ -645,11 +553,8 @@ export default function Settings() {
                   </CardContent>
                 </Card>
 
-                {/* Role descriptions */}
                 <Card className="bg-card border-border mt-4">
-                  <CardHeader className="border-b border-border">
-                    <CardTitle className="text-base">Rollebeskrivelser</CardTitle>
-                  </CardHeader>
+                  <CardHeader className="border-b border-border"><CardTitle className="text-base">Rollebeskrivelser</CardTitle></CardHeader>
                   <CardContent className="p-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
@@ -669,50 +574,24 @@ export default function Settings() {
 
           <TabsContent value="backend">
             <Card className="bg-card border-border">
-              <CardHeader className="border-b border-border">
-                <CardTitle>Lokal Backend Setup</CardTitle>
-              </CardHeader>
+              <CardHeader className="border-b border-border"><CardTitle>Lokal Backend Setup</CardTitle></CardHeader>
               <CardContent className="p-4">
                 <div className="prose prose-invert max-w-none text-sm">
                   <p className="text-muted-foreground mb-4">
                     For å koble denne frontend-appen til dine lokale systemer, må du sette opp en lokal backend API-server på Ubuntu-serveren din.
                   </p>
-                  
                   <div className="bg-muted/50 rounded-lg p-4 font-mono text-xs overflow-x-auto mb-4">
-                    <p className="text-primary mb-2"># Installer Node.js og npm</p>
-                    <p className="text-foreground">sudo apt update && sudo apt install nodejs npm</p>
-                    <p className="text-foreground mt-2">cd /opt && mkdir netguard-api && cd netguard-api</p>
-                    <p className="text-foreground">npm init -y</p>
-                    <p className="text-foreground">npm install express cors axios python-shell</p>
+                    <p className="text-primary mb-2"># Installer og start backend</p>
+                    <p className="text-foreground">cd backend && npm install && node server.js</p>
                   </div>
-
-                  <p className="text-muted-foreground mb-2">Backend API-en vil fungere som en proxy mellom denne appen og:</p>
+                  <p className="text-muted-foreground mb-2">Backend API-en fungerer som proxy mellom denne appen og:</p>
                   <ul className="list-disc list-inside text-muted-foreground space-y-1 mb-4">
-                    <li>UniFi Controller API (for IDS/IPS data og enheter)</li>
-                    <li>TrueNAS REST API (for pool og dataset info)</li>
-                    <li>Proxmox VE API (for VM/container status)</li>
-                    <li>OpenVAS GMP (for sikkerhetsscanning)</li>
-                    <li>Nmap (via python-nmap eller shell commands)</li>
+                    <li>UniFi Controller API</li>
+                    <li>TrueNAS REST API</li>
+                    <li>Proxmox VE API</li>
+                    <li>OpenVAS GMP</li>
+                    <li>Nmap</li>
                   </ul>
-
-                  <div className="bg-muted/50 rounded-lg p-4 font-mono text-xs mb-4">
-                    <p className="text-primary mb-2"># Eksempel API endpoint for UniFi</p>
-                    <p className="text-foreground">GET /api/unifi/alerts → Hent IDS/IPS alerts</p>
-                    <p className="text-foreground">GET /api/unifi/clients → Hent tilkoblede enheter</p>
-                    <p className="text-foreground">GET /api/truenas/pools → Hent storage pools</p>
-                    <p className="text-foreground">GET /api/proxmox/vms → Hent VM liste</p>
-                    <p className="text-foreground">POST /api/nmap/scan → Start nmap scan</p>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <div>
-                      <Label>Backend API URL</Label>
-                      <Input defaultValue="http://localhost:3001" className="bg-muted border-border font-mono mt-1" />
-                    </div>
-                    <Button className="bg-primary text-primary-foreground self-end">
-                      <Save className="h-4 w-4 mr-2" />Lagre
-                    </Button>
-                  </div>
                 </div>
               </CardContent>
             </Card>

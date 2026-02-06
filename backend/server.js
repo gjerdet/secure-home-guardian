@@ -355,6 +355,106 @@ app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
 });
 
 // ============================================
+// Service Configuration Management
+// ============================================
+
+// Get current service configuration (admin only)
+app.get('/api/config/services', authenticateToken, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Kun administratorer har tilgang' });
+  }
+  
+  res.json({
+    unifi: {
+      url: process.env.UNIFI_CONTROLLER_URL || '',
+      username: process.env.UNIFI_USERNAME || '',
+      password: process.env.UNIFI_PASSWORD ? '••••••••' : '',
+      site: process.env.UNIFI_SITE || 'default',
+    },
+    truenas: {
+      url: process.env.TRUENAS_URL || '',
+      apiKey: process.env.TRUENAS_API_KEY ? '••••••••' : '',
+    },
+    proxmox: {
+      url: process.env.PROXMOX_URL || '',
+      user: process.env.PROXMOX_USER || 'root@pam',
+      tokenId: process.env.PROXMOX_TOKEN_ID || '',
+      tokenSecret: process.env.PROXMOX_TOKEN_SECRET ? '••••••••' : '',
+    },
+    openvas: {
+      url: process.env.OPENVAS_URL || '',
+      username: process.env.OPENVAS_USERNAME || 'admin',
+      password: process.env.OPENVAS_PASSWORD ? '••••••••' : '',
+    },
+  });
+});
+
+// Update service configuration (admin only)
+app.post('/api/config/services', authenticateToken, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Kun administratorer har tilgang' });
+  }
+  
+  try {
+    const { service, config } = req.body;
+    
+    if (!service || !config) {
+      return res.status(400).json({ error: 'Tjeneste og konfigurasjon er påkrevd' });
+    }
+    
+    const envPath = path.join(__dirname, '.env');
+    let envContent = [];
+    if (fs.existsSync(envPath)) {
+      envContent = fs.readFileSync(envPath, 'utf8').split('\n');
+    }
+    
+    const updateEnv = (key, value) => {
+      if (value === undefined || value === '••••••••') return;
+      const index = envContent.findIndex(line => line.startsWith(`${key}=`));
+      if (index >= 0) {
+        envContent[index] = `${key}=${value}`;
+      } else {
+        envContent.push(`${key}=${value}`);
+      }
+      process.env[key] = value;
+    };
+    
+    switch (service) {
+      case 'unifi':
+        updateEnv('UNIFI_CONTROLLER_URL', config.url);
+        updateEnv('UNIFI_USERNAME', config.username);
+        updateEnv('UNIFI_PASSWORD', config.password);
+        updateEnv('UNIFI_SITE', config.site);
+        break;
+      case 'truenas':
+        updateEnv('TRUENAS_URL', config.url);
+        updateEnv('TRUENAS_API_KEY', config.apiKey);
+        break;
+      case 'proxmox':
+        updateEnv('PROXMOX_URL', config.url);
+        updateEnv('PROXMOX_USER', config.user);
+        updateEnv('PROXMOX_TOKEN_ID', config.tokenId);
+        updateEnv('PROXMOX_TOKEN_SECRET', config.tokenSecret);
+        break;
+      case 'openvas':
+        updateEnv('OPENVAS_URL', config.url);
+        updateEnv('OPENVAS_USERNAME', config.username);
+        updateEnv('OPENVAS_PASSWORD', config.password);
+        break;
+      default:
+        return res.status(400).json({ error: `Ukjent tjeneste: ${service}` });
+    }
+    
+    fs.writeFileSync(envPath, envContent.join('\n'));
+    
+    res.json({ success: true, message: `${service} konfigurasjon oppdatert` });
+  } catch (error) {
+    console.error('Konfig-oppdatering feilet:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
 // UniFi Controller API
 // ============================================
 
