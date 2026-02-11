@@ -1,6 +1,6 @@
 # NetGuard Dashboard
 
-Nettverkssikkerhets- og infrastruktur-dashboard for hjemmelab/SMB. Integrerer med UniFi Controller, TrueNAS, Proxmox VE og OpenVAS.
+Nettverkssikkerhets- og infrastruktur-dashboard for hjemmelab/SMB. Integrerer med UniFi Controller, TrueNAS, Proxmox VE og OpenVAS. Anbefalt OS: Ubuntu 24.04 LTS.
 
 ## Funksjoner
 

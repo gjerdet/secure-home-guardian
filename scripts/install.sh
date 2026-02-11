@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# NetGuard Dashboard - Installasjonsskript for Ubuntu
+# NetGuard Dashboard - Installasjonsskript for Ubuntu 24.04 LTS (også kompatibel med 22.04)
 # Kjør med: sudo ./scripts/install.sh
 # 
 # Opsjoner:

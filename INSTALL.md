@@ -2,8 +2,8 @@
 
 ## Systemkrav
 
-- Ubuntu 22.04 LTS eller nyere
-- Node.js 18+ og npm
+- Ubuntu 24.04 LTS (anbefalt) eller 22.04 LTS
+- Node.js 20+ og npm
 - Tilgang til UniFi Controller, TrueNAS, Proxmox og OpenVAS (valgfritt)
 
 ## Rask installasjon
