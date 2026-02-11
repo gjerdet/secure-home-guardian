@@ -111,6 +111,8 @@ export default function Security() {
     hostsFound: 0,
     status: 'idle'
   });
+  const [nmapJobId, setNmapJobId] = useState<string | null>(null);
+  const nmapPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const vlanEventSourcesRef = useRef<Map<string, EventSource>>(new Map());
   
@@ -189,59 +191,89 @@ export default function Security() {
     }
   };
 
-  // Run Nmap scan with streaming
-  const handleNmapScan = () => {
+  // Poll a nmap job for status
+  const startPollingJob = (jobId: string) => {
+    if (nmapPollRef.current) clearInterval(nmapPollRef.current);
+    
+    nmapPollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/nmap/scan-status/${jobId}`);
+        if (!res.ok) {
+          clearInterval(nmapPollRef.current!);
+          nmapPollRef.current = null;
+          setNmapProgress(prev => ({ ...prev, status: 'error', message: 'Kunne ikke hente jobb-status' }));
+          return;
+        }
+        const data = await res.json();
+        setNmapProgress({ percent: data.percent, hostsFound: data.hostsFound, status: data.status });
+        
+        if (data.status === 'complete') {
+          clearInterval(nmapPollRef.current!);
+          nmapPollRef.current = null;
+          const hosts = parseNmapXML(data.result);
+          setNmapResults(hosts);
+          setNmapProgress({ percent: 100, hostsFound: hosts.length, status: 'complete' });
+          toast.success(`Scan fullført! Fant ${hosts.length} host(s)`);
+          setNmapJobId(null);
+        } else if (data.status === 'error' || data.status === 'cancelled') {
+          clearInterval(nmapPollRef.current!);
+          nmapPollRef.current = null;
+          setNmapProgress(prev => ({ ...prev, status: data.status, message: data.error }));
+          if (data.error) toast.error(`Scan feilet: ${data.error}`);
+          setNmapJobId(null);
+        }
+      } catch {
+        // Network error, keep polling
+      }
+    }, 2000);
+  };
+
+  // Run Nmap scan as background job
+  const handleNmapScan = async () => {
     const ipRegex = /^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/;
     if (!ipRegex.test(nmapTarget)) {
       toast.error("Ugyldig mål-format. Bruk IP-adresse eller CIDR (f.eks. 192.168.1.0/24)");
       return;
     }
 
-    // Close existing connection
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-    }
-
     setNmapProgress({ percent: 0, hostsFound: 0, status: 'scanning' });
     setNmapResults([]);
 
-    const url = `${API_BASE}/api/nmap/scan-stream?target=${encodeURIComponent(nmapTarget)}&scanType=${nmapScanType}`;
-    const eventSource = new EventSource(url);
-    eventSourceRef.current = eventSource;
-
-    eventSource.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      
-      switch (data.type) {
-        case 'started':
-          toast.info(`Starter scan av ${data.target}...`);
-          break;
-        case 'progress':
-          setNmapProgress(prev => ({ ...prev, percent: data.percent }));
-          break;
-        case 'hosts_update':
-          setNmapProgress(prev => ({ ...prev, hostsFound: data.count }));
-          break;
-        case 'complete':
-          const hosts = parseNmapXML(data.result);
-          setNmapResults(hosts);
-          setNmapProgress({ percent: 100, hostsFound: hosts.length, status: 'complete' });
-          toast.success(`Scan fullført! Fant ${hosts.length} host(s)`);
-          eventSource.close();
-          break;
-        case 'error':
-          setNmapProgress(prev => ({ ...prev, status: 'error', message: data.message }));
-          toast.error(`Scan feilet: ${data.message}`);
-          eventSource.close();
-          break;
+    try {
+      const res = await fetch(`${API_BASE}/api/nmap/scan-start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target: nmapTarget, scanType: nmapScanType })
+      });
+      const data = await res.json();
+      if (data.jobId) {
+        setNmapJobId(data.jobId);
+        startPollingJob(data.jobId);
+        toast.info(`Starter scan av ${nmapTarget}...`);
+      } else {
+        toast.error("Kunne ikke starte scan");
+        setNmapProgress(prev => ({ ...prev, status: 'error' }));
       }
-    };
+    } catch {
+      toast.error("Kunne ikke koble til backend");
+      setNmapProgress(prev => ({ ...prev, status: 'error' }));
+    }
+  };
 
-    eventSource.onerror = () => {
-      setNmapProgress(prev => ({ ...prev, status: 'error', message: 'Forbindelsen ble avbrutt' }));
-      toast.error("Forbindelse til server tapt");
-      eventSource.close();
-    };
+  // Stop nmap scan
+  const handleStopNmapScan = async () => {
+    if (nmapJobId) {
+      try {
+        await fetch(`${API_BASE}/api/nmap/scan-cancel/${nmapJobId}`, { method: 'POST' });
+      } catch { /* ignore */ }
+      setNmapJobId(null);
+    }
+    if (nmapPollRef.current) {
+      clearInterval(nmapPollRef.current);
+      nmapPollRef.current = null;
+    }
+    setNmapProgress(prev => ({ ...prev, status: 'idle' }));
+    toast.info("Scan avbrutt");
   };
 
   // Parallel VLAN scan
@@ -333,15 +365,6 @@ export default function Security() {
     toast.info("Parallelle scans stoppet");
   };
 
-  // Stop Nmap scan
-  const handleStopNmapScan = () => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
-      setNmapProgress(prev => ({ ...prev, status: 'idle' }));
-      toast.info("Scan avbrutt");
-    }
-  };
 
   // GeoIP lookup for scan results (nmap hosts + vulnerability hosts)
   const handleScanGeoLookup = async () => {
@@ -514,14 +537,31 @@ export default function Security() {
     }
   };
 
-  // Initial load
+  // Check for running nmap jobs on mount (resume after navigation)
   useEffect(() => {
+    const checkRunningJobs = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/nmap/jobs`);
+        if (res.ok) {
+          const jobs = await res.json();
+          const runningJob = jobs.find((j: any) => j.status === 'scanning');
+          if (runningJob) {
+            setNmapJobId(runningJob.id);
+            setNmapTarget(runningJob.target);
+            setNmapProgress({ percent: runningJob.percent, hostsFound: runningJob.hostsFound, status: 'scanning' });
+            startPollingJob(runningJob.id);
+            toast.info(`Gjenopptar pågående scan av ${runningJob.target}...`);
+          }
+        }
+      } catch { /* backend might be offline */ }
+    };
+
     fetchOpenvasData();
     fetchWanIp();
+    checkRunningJobs();
+    
     return () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-      }
+      if (nmapPollRef.current) clearInterval(nmapPollRef.current);
       if (wanEventSourceRef.current) {
         wanEventSourceRef.current.close();
       }

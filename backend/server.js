@@ -875,24 +875,170 @@ app.get('/api/openvas/scan/:taskId/status', async (req, res) => {
 });
 
 // ============================================
-// Nmap scanning (with streaming support)
+// Nmap scanning (background job system)
 // ============================================
 
 const { spawn, exec } = require('child_process');
 const { promisify } = require('util');
 const execAsync = promisify(exec);
 
-// Streaming Nmap scan with Server-Sent Events
+// In-memory job store for background nmap scans
+const nmapJobs = new Map();
+let jobIdCounter = 1;
+
+// Clean up old completed/failed jobs after 30 minutes
+setInterval(() => {
+  const cutoff = Date.now() - 30 * 60 * 1000;
+  for (const [id, job] of nmapJobs) {
+    if ((job.status === 'complete' || job.status === 'error') && job.updatedAt < cutoff) {
+      nmapJobs.delete(id);
+    }
+  }
+}, 5 * 60 * 1000);
+
+// Start a new nmap scan job (returns immediately)
+app.post('/api/nmap/scan-start', (req, res) => {
+  const { target, scanType = 'quick' } = req.body;
+
+  const ipRegex = /^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/;
+  if (!ipRegex.test(target)) {
+    return res.status(400).json({ error: 'Ugyldig mål-format' });
+  }
+
+  const jobId = String(jobIdCounter++);
+  const job = {
+    id: jobId,
+    target,
+    scanType,
+    status: 'scanning',
+    percent: 0,
+    hostsFound: 0,
+    result: null,
+    error: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  nmapJobs.set(jobId, job);
+
+  let nmapArgs = ['-sn', '--stats-every', '2s'];
+  if (scanType === 'ports') nmapArgs = ['-sT', '-F', '--stats-every', '2s'];
+  if (scanType === 'full') nmapArgs = ['-sV', '-sC', '--stats-every', '2s'];
+  nmapArgs.push(target, '-oX', '-');
+
+  const nmap = spawn('nmap', nmapArgs);
+  job.process = nmap;
+  let xmlOutput = '';
+
+  nmap.stdout.on('data', (data) => {
+    const chunk = data.toString();
+    xmlOutput += chunk;
+
+    const statsMatch = chunk.match(/About ([\d.]+)% done/);
+    if (statsMatch) {
+      job.percent = parseFloat(statsMatch[1]);
+      job.updatedAt = Date.now();
+    }
+
+    const hostMatches = (xmlOutput.match(/<host /g) || []).length;
+    if (hostMatches > job.hostsFound) {
+      job.hostsFound = hostMatches;
+      job.updatedAt = Date.now();
+    }
+  });
+
+  nmap.stderr.on('data', (data) => {
+    const msg = data.toString();
+    const statsMatch = msg.match(/About ([\d.]+)% done/);
+    if (statsMatch) {
+      job.percent = parseFloat(statsMatch[1]);
+      job.updatedAt = Date.now();
+    }
+  });
+
+  nmap.on('close', (code) => {
+    if (code === 0) {
+      job.status = 'complete';
+      job.percent = 100;
+      job.result = xmlOutput;
+    } else {
+      job.status = 'error';
+      job.error = 'Scan feilet med kode ' + code;
+    }
+    job.updatedAt = Date.now();
+    delete job.process;
+  });
+
+  nmap.on('error', (err) => {
+    job.status = 'error';
+    job.error = err.message;
+    job.updatedAt = Date.now();
+    delete job.process;
+  });
+
+  res.json({ jobId, status: 'scanning' });
+});
+
+// Poll job status
+app.get('/api/nmap/scan-status/:jobId', (req, res) => {
+  const job = nmapJobs.get(req.params.jobId);
+  if (!job) {
+    return res.status(404).json({ error: 'Jobb ikke funnet' });
+  }
+  res.json({
+    id: job.id,
+    target: job.target,
+    scanType: job.scanType,
+    status: job.status,
+    percent: job.percent,
+    hostsFound: job.hostsFound,
+    result: job.status === 'complete' ? job.result : null,
+    error: job.error,
+    createdAt: job.createdAt
+  });
+});
+
+// List active/recent jobs
+app.get('/api/nmap/jobs', (req, res) => {
+  const jobs = [];
+  for (const [, job] of nmapJobs) {
+    jobs.push({
+      id: job.id,
+      target: job.target,
+      scanType: job.scanType,
+      status: job.status,
+      percent: job.percent,
+      hostsFound: job.hostsFound,
+      createdAt: job.createdAt,
+      error: job.error
+    });
+  }
+  res.json(jobs);
+});
+
+// Cancel a running job
+app.post('/api/nmap/scan-cancel/:jobId', (req, res) => {
+  const job = nmapJobs.get(req.params.jobId);
+  if (!job) {
+    return res.status(404).json({ error: 'Jobb ikke funnet' });
+  }
+  if (job.process) {
+    job.process.kill();
+    delete job.process;
+  }
+  job.status = 'cancelled';
+  job.updatedAt = Date.now();
+  res.json({ status: 'cancelled' });
+});
+
+// Keep legacy SSE endpoint for backward compat but also as background job
 app.get('/api/nmap/scan-stream', (req, res) => {
   const { target, scanType = 'quick' } = req.query;
   
-  // Valider target
   const ipRegex = /^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/;
   if (!ipRegex.test(target)) {
     return res.status(400).json({ error: 'Ugyldig mål-format' });
   }
   
-  // SSE headers
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -907,20 +1053,15 @@ app.get('/api/nmap/scan-stream', (req, res) => {
   let xmlOutput = '';
   let hostsFound = 0;
   
-  // Send initial event
   res.write(`data: ${JSON.stringify({ type: 'started', target, scanType })}\n\n`);
   
   nmap.stdout.on('data', (data) => {
     const chunk = data.toString();
     xmlOutput += chunk;
-    
-    // Parse progress from stats
     const statsMatch = chunk.match(/About ([\d.]+)% done/);
     if (statsMatch) {
       res.write(`data: ${JSON.stringify({ type: 'progress', percent: parseFloat(statsMatch[1]) })}\n\n`);
     }
-    
-    // Count hosts found so far
     const hostMatches = (xmlOutput.match(/<host /g) || []).length;
     if (hostMatches > hostsFound) {
       hostsFound = hostMatches;
@@ -930,7 +1071,6 @@ app.get('/api/nmap/scan-stream', (req, res) => {
   
   nmap.stderr.on('data', (data) => {
     const msg = data.toString();
-    // Nmap progress info comes on stderr
     const statsMatch = msg.match(/About ([\d.]+)% done/);
     if (statsMatch) {
       res.write(`data: ${JSON.stringify({ type: 'progress', percent: parseFloat(statsMatch[1]) })}\n\n`);
@@ -951,9 +1091,9 @@ app.get('/api/nmap/scan-stream', (req, res) => {
     res.end();
   });
   
-  // Cleanup on client disconnect
+  // No longer kill nmap on disconnect - let it run
   req.on('close', () => {
-    nmap.kill();
+    // Don't kill nmap - it continues in background
   });
 });
 
