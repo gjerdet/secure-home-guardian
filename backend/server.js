@@ -471,7 +471,12 @@ app.post('/api/config/services', authenticateToken, (req, res) => {
       case 'proxmox':
         updateEnv('PROXMOX_URL', config.url);
         updateEnv('PROXMOX_USER', config.user);
-        updateEnv('PROXMOX_TOKEN_ID', config.tokenId);
+        // Strip user prefix if user accidentally includes it (e.g. "root@pam!test" -> "test")
+        let tokenId = config.tokenId || '';
+        if (tokenId.includes('!')) {
+          tokenId = tokenId.split('!').pop();
+        }
+        updateEnv('PROXMOX_TOKEN_ID', tokenId);
         updateEnv('PROXMOX_TOKEN_SECRET', config.tokenSecret);
         break;
       case 'openvas':
