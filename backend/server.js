@@ -354,6 +354,41 @@ app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
   }
 });
 
+// Update user (admin only) - change role and/or reset password
+app.patch('/api/auth/users/:id', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Kun administratorer har tilgang' });
+  }
+
+  try {
+    const { id } = req.params;
+    const { role, newPassword } = req.body;
+
+    const users = loadUsers();
+    const user = users.find(u => u.id === id);
+
+    if (!user) {
+      return res.status(404).json({ error: 'Bruker ikke funnet' });
+    }
+
+    if (role && ['admin', 'user'].includes(role)) {
+      user.role = role;
+    }
+
+    if (newPassword) {
+      if (newPassword.length < 8) {
+        return res.status(400).json({ error: 'Passord må være minst 8 tegn' });
+      }
+      user.password = await bcrypt.hash(newPassword, 12);
+    }
+
+    saveUsers(users);
+    res.json({ success: true, message: 'Bruker oppdatert', user: { id: user.id, username: user.username, role: user.role } });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ============================================
 // Service Configuration Management
 // ============================================

@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { 
   Settings as SettingsIcon, Server, Wifi, HardDrive, Shield, ShieldAlert,
-  Save, TestTube, CheckCircle, XCircle, Users, UserPlus, Trash2, User, Loader2, RefreshCw
+  Save, TestTube, CheckCircle, XCircle, Users, UserPlus, Trash2, User, Loader2, RefreshCw, Pencil, KeyRound
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
@@ -68,6 +68,13 @@ export default function Settings() {
   const [isCreating, setIsCreating] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState<string | null>(null);
+
+  // Edit user dialog state
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<SystemUser | null>(null);
+  const [editRole, setEditRole] = useState<UserRole>("user");
+  const [editPassword, setEditPassword] = useState("");
+  const [isUpdating, setIsUpdating] = useState(false);
   
   // Service configurations (controlled state)
   const [configs, setConfigs] = useState<ServiceConfigs>(defaultConfigs);
@@ -253,6 +260,39 @@ export default function Settings() {
       else { const data = await res.json(); toast.error(data.error || 'Kunne ikke slette bruker'); }
     } catch { toast.error('Kunne ikke koble til server'); }
     finally { setIsDeleting(null); }
+  };
+
+  const openEditDialog = (user: SystemUser) => {
+    setEditingUser(user);
+    setEditRole(user.role);
+    setEditPassword("");
+    setEditDialogOpen(true);
+  };
+
+  const handleUpdateUser = async () => {
+    if (!editingUser) return;
+    const body: Record<string, string> = {};
+    if (editRole !== editingUser.role) body.role = editRole;
+    if (editPassword) body.newPassword = editPassword;
+    if (Object.keys(body).length === 0) { toast.info("Ingen endringer å lagre"); return; }
+
+    setIsUpdating(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/users/${editingUser.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(`Bruker "${editingUser.username}" ble oppdatert`);
+        setEditDialogOpen(false);
+        fetchUsers();
+      } else {
+        toast.error(data.error || 'Kunne ikke oppdatere bruker');
+      }
+    } catch { toast.error('Kunne ikke koble til server'); }
+    finally { setIsUpdating(false); }
   };
 
   const renderSaveButton = (service: keyof ServiceConfigs) => (
@@ -571,9 +611,14 @@ export default function Settings() {
                                 {user.createdAt ? new Date(user.createdAt).toLocaleDateString('nb-NO') : '-'}
                               </TableCell>
                               <TableCell className="text-right">
-                                <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={() => handleDeleteUser(user)} disabled={user.id === currentUser?.id || isDeleting === user.id}>
-                                  {isDeleting === user.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                                </Button>
+                                <div className="flex items-center justify-end gap-1">
+                                  <Button variant="outline" size="sm" onClick={() => openEditDialog(user)} title="Rediger bruker">
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                  <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={() => { if (confirm(`Er du sikker på at du vil slette "${user.username}"?`)) handleDeleteUser(user); }} disabled={user.id === currentUser?.id || isDeleting === user.id} title="Slett bruker">
+                                    {isDeleting === user.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                                  </Button>
+                                </div>
                               </TableCell>
                             </TableRow>
                           ))}
@@ -627,6 +672,50 @@ export default function Settings() {
             </Card>
           </TabsContent>
         </Tabs>
+
+        {/* Edit User Dialog */}
+        <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+          <DialogContent className="bg-card border-border">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Pencil className="h-5 w-5 text-primary" />
+                Rediger bruker: {editingUser?.username}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div>
+                <Label>Rolle</Label>
+                <Select value={editRole} onValueChange={(v: UserRole) => setEditRole(v)}>
+                  <SelectTrigger className="bg-muted border-border mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent className="bg-card border-border">
+                    <SelectItem value="admin">Administrator</SelectItem>
+                    <SelectItem value="user">Bruker</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="flex items-center gap-2">
+                  <KeyRound className="h-4 w-4" />
+                  Nytt passord (la stå tomt for å beholde)
+                </Label>
+                <Input
+                  type="password"
+                  value={editPassword}
+                  onChange={e => setEditPassword(e.target.value)}
+                  className="bg-muted border-border mt-1"
+                  placeholder="Minst 8 tegn"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditDialogOpen(false)}>Avbryt</Button>
+              <Button className="bg-primary text-primary-foreground" onClick={handleUpdateUser} disabled={isUpdating}>
+                {isUpdating && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Lagre endringer
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   );
