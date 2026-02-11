@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { Cpu, MemoryStick, HardDrive, Monitor, Clock, Server } from "lucide-react";
 
-const API_BASE = import.meta.env.VITE_API_URL || "";
+import { API_BASE, fetchJsonSafely } from '@/lib/api';
 
 interface SystemInfo {
   os: string;
@@ -33,11 +33,11 @@ export function SystemInfoCard() {
   useEffect(() => {
     const fetchInfo = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/system/info`, {
+        const result = await fetchJsonSafely<SystemInfo>(`${API_BASE}/api/system/info`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (res.ok) {
-          setInfo(await res.json());
+        if (result.ok && result.data) {
+          setInfo(result.data);
         } else {
           setInfo(null);
         }

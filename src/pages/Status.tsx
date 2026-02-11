@@ -14,7 +14,7 @@ import {
   HardDrive, Cpu, MemoryStick, Clock, AlertTriangle, FileText
 } from "lucide-react";
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
+import { API_BASE, fetchJsonSafely } from '@/lib/api';
 
 interface ServiceStatus {
   name: string;
@@ -85,20 +85,22 @@ export default function Status() {
     if (showRefresh) setIsRefreshing(true);
     
     try {
-      const [healthRes, dockerRes] = await Promise.all([
-        fetch(`${API_BASE}/api/health/all`),
-        fetch(`${API_BASE}/api/docker/containers`),
+      const [healthResult, dockerResult] = await Promise.all([
+        fetchJsonSafely(`${API_BASE}/api/health/all`),
+        fetchJsonSafely(`${API_BASE}/api/docker/containers`),
       ]);
 
-      if (healthRes.ok) {
-        const data = await healthRes.json();
-        setServices(data.services || []);
-        setSystemInfo(data.system || null);
+      if (healthResult.ok && healthResult.data) {
+        setServices(healthResult.data.services || []);
+        setSystemInfo(healthResult.data.system || null);
+      } else {
+        setServices([
+          { name: 'backend', status: 'offline' as const, message: healthResult.error || 'Kan ikke koble til backend' }
+        ]);
       }
 
-      if (dockerRes.ok) {
-        const data = await dockerRes.json();
-        setContainers(data.containers || []);
+      if (dockerResult.ok && dockerResult.data) {
+        setContainers(dockerResult.data.containers || []);
       }
     } catch (error) {
       console.error("Status fetch error:", error);
