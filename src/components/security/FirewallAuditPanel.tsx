@@ -68,11 +68,50 @@ interface FirewallGroup {
 type SortField = 'name' | 'action' | 'ruleset' | 'protocol' | 'rule_index';
 type SortDir = 'asc' | 'desc';
 
+// Mock data for preview
+const mockFirewallGroups: FirewallGroup[] = [
+  { _id: "fg1", name: "IoT-enheter", group_type: "address-group", group_members: ["192.168.40.0/24"] },
+  { _id: "fg2", name: "Servere", group_type: "address-group", group_members: ["192.168.10.10", "192.168.10.11", "192.168.10.12"] },
+  { _id: "fg3", name: "Kameraer", group_type: "address-group", group_members: ["192.168.50.0/24"] },
+  { _id: "fg4", name: "Blokkerte porter", group_type: "port-group", group_members: ["23", "135", "137-139", "445"] },
+  { _id: "fg5", name: "Gaming-enheter", group_type: "address-group", group_members: ["192.168.30.50", "192.168.30.51"] },
+];
+
+const mockFirewallRules: FirewallRule[] = [
+  { _id: "r1", name: "Blokker IoT → Internett", enabled: true, action: "drop", ruleset: "LAN_IN", protocol: "all", rule_index: 2001, src_firewallgroup_ids: ["fg1"], dst_address: "0.0.0.0/0" },
+  { _id: "r2", name: "Tillat IoT → DNS", enabled: true, action: "accept", ruleset: "LAN_IN", protocol: "tcp_udp", rule_index: 2000, src_firewallgroup_ids: ["fg1"], dst_port: "53" },
+  { _id: "r3", name: "Blokker IoT → LAN", enabled: true, action: "drop", ruleset: "LAN_IN", protocol: "all", rule_index: 2002, src_firewallgroup_ids: ["fg1"], dst_address: "192.168.1.0/24" },
+  { _id: "r4", name: "Blokker Kameraer → Internett", enabled: true, action: "drop", ruleset: "LAN_IN", protocol: "all", rule_index: 2003, src_firewallgroup_ids: ["fg3"], dst_address: "0.0.0.0/0" },
+  { _id: "r5", name: "Tillat Kameraer → NVR", enabled: true, action: "accept", ruleset: "LAN_IN", protocol: "tcp", rule_index: 2004, src_firewallgroup_ids: ["fg3"], dst_address: "192.168.10.15", dst_port: "7447,554" },
+  { _id: "r6", name: "Blokker inter-VLAN trafikk", enabled: true, action: "drop", ruleset: "LAN_IN", protocol: "all", rule_index: 3000, src_address: "192.168.0.0/16", dst_address: "192.168.0.0/16" },
+  { _id: "r7", name: "Tillat etablerte forbindelser", enabled: true, action: "accept", ruleset: "LAN_IN", protocol: "all", rule_index: 1000, state_established: true, state_related: true },
+  { _id: "r8", name: "Blokker farlige porter WAN", enabled: true, action: "drop", ruleset: "WAN_IN", protocol: "tcp_udp", rule_index: 3001, dst_firewallgroup_ids: ["fg4"] },
+  { _id: "r9", name: "Rate limit SSH", enabled: true, action: "drop", ruleset: "WAN_LOCAL", protocol: "tcp", rule_index: 3002, dst_port: "22" },
+  { _id: "r10", name: "Tillat VPN (WireGuard)", enabled: true, action: "accept", ruleset: "WAN_IN", protocol: "udp", rule_index: 2010, dst_port: "51820" },
+  { _id: "r11", name: "Blokker Telnet overalt", enabled: true, action: "drop", ruleset: "LAN_IN", protocol: "tcp", rule_index: 2020, dst_port: "23" },
+  { _id: "r12", name: "Tillat Gaming PSN/Xbox", enabled: true, action: "accept", ruleset: "LAN_IN", protocol: "tcp_udp", rule_index: 2030, src_firewallgroup_ids: ["fg5"], dst_port: "3478-3480,3658" },
+  { _id: "r13", name: "Gjest → kun internett", enabled: true, action: "drop", ruleset: "GUEST_IN", protocol: "all", rule_index: 2040, dst_address: "192.168.0.0/16" },
+  { _id: "r14", name: "Blokker DNS over HTTPS", enabled: true, action: "drop", ruleset: "LAN_IN", protocol: "tcp", rule_index: 2050, dst_port: "853" },
+  { _id: "r15", name: "Tillat ICMP LAN", enabled: true, action: "accept", ruleset: "LAN_IN", protocol: "icmp", rule_index: 1500 },
+  { _id: "r16", name: "Logg alt droppet WAN", enabled: true, action: "drop", ruleset: "WAN_IN", protocol: "all", rule_index: 4000, logging: true },
+  { _id: "r17", name: "Tillat mDNS mellom VLAN", enabled: true, action: "accept", ruleset: "LAN_IN", protocol: "udp", rule_index: 1100, dst_port: "5353" },
+  { _id: "r18", name: "Blokker SMB fra Gjest", enabled: true, action: "drop", ruleset: "GUEST_IN", protocol: "tcp", rule_index: 2060, dst_port: "445,139" },
+  { _id: "r19", name: "Gammel test-regel", enabled: false, action: "accept", ruleset: "LAN_IN", protocol: "tcp", rule_index: 9000, dst_port: "8080" },
+  { _id: "r20", name: "Tillat Servere → Internett", enabled: true, action: "accept", ruleset: "LAN_IN", protocol: "all", rule_index: 1200, src_firewallgroup_ids: ["fg2"] },
+];
+
+const mockPortForwards: PortForward[] = [
+  { _id: "pf1", name: "Plex Media Server", enabled: true, proto: "tcp", src: "any", dst_port: "32400", fwd: "192.168.10.11", fwd_port: "32400", pfwd_interface: "WAN" },
+  { _id: "pf2", name: "WireGuard VPN", enabled: true, proto: "udp", src: "any", dst_port: "51820", fwd: "192.168.1.1", fwd_port: "51820", pfwd_interface: "WAN" },
+  { _id: "pf3", name: "Minecraft Server", enabled: false, proto: "tcp", src: "any", dst_port: "25565", fwd: "192.168.30.50", fwd_port: "25565", pfwd_interface: "WAN" },
+  { _id: "pf4", name: "Home Assistant", enabled: true, proto: "tcp", src: "any", dst_port: "8123", fwd: "192.168.40.10", fwd_port: "8123", pfwd_interface: "WAN" },
+];
+
 export function FirewallAuditPanel() {
   const { token } = useAuth();
-  const [firewallRules, setFirewallRules] = useState<FirewallRule[]>([]);
-  const [portForwards, setPortForwards] = useState<PortForward[]>([]);
-  const [firewallGroups, setFirewallGroups] = useState<FirewallGroup[]>([]);
+  const [firewallRules, setFirewallRules] = useState<FirewallRule[]>(mockFirewallRules);
+  const [portForwards, setPortForwards] = useState<PortForward[]>(mockPortForwards);
+  const [firewallGroups, setFirewallGroups] = useState<FirewallGroup[]>(mockFirewallGroups);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
