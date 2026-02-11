@@ -960,7 +960,7 @@ app.get('/api/unifi/events', authenticateToken, async (req, res) => {
       }
     }
 
-    const normalized = events.slice(0, 200).map(e => {
+    const normalized = events.slice(0, 500).map(e => {
       // Extract client MAC from various UniFi event fields
       // UniFi uses different fields depending on event type
       const rawClientMac = e.client || e.sta || e.user || e.mac || '';
