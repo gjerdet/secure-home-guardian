@@ -8,7 +8,12 @@
  * - OpenVAS
  */
 
-require('dotenv').config();
+const dotenvResult = require('dotenv').config();
+if (dotenvResult.error) {
+  console.warn('[dotenv] Kunne ikke laste .env:', dotenvResult.error.message);
+} else {
+  console.log('[dotenv] Lastet .env med', Object.keys(dotenvResult.parsed || {}).length, 'variabler');
+}
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -611,7 +616,11 @@ async function unifiRequest(endpoint) {
     throw new Error(`UniFi: Alle API-stier feilet for ${endpoint}. Siste feil: ${lastError?.response?.status || lastError?.message}.`);
   }
 
-  // Legacy cookie-based auth
+  // Legacy cookie-based auth — should never be reached if API key is set
+  if (process.env.UNIFI_API_KEY) {
+    console.error('[UniFi] BUG: Legacy auth path nådd trass i at API-nøkkel er satt. authMethod var:', authMethod);
+    throw new Error('UniFi: API-nøkkel er satt men API-stier feilet. Sjekk at nøkkelen er gyldig.');
+  }
   if (!process.env.UNIFI_USERNAME || !process.env.UNIFI_PASSWORD) {
     throw new Error('UniFi: Brukernavn/passord er ikke satt. Bruk API-nøkkel i stedet.');
   }
@@ -779,24 +788,23 @@ app.get('/api/unifi/health', authenticateToken, async (req, res) => {
   }
 });
 
-// Restart AP
+// Restart AP (uses API key or legacy cookie)
 app.post('/api/unifi/devices/:mac/restart', authenticateToken, async (req, res) => {
   if (req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Kun administratorer har tilgang' });
   }
   try {
-    if (!unifiCookie) await unifiLogin();
-    const response = await axios.post(
-      `${process.env.UNIFI_CONTROLLER_URL}/api/s/${process.env.UNIFI_SITE}/cmd/devmgr`,
-      { cmd: 'restart', mac: req.params.mac },
-      { httpsAgent, headers: { Cookie: unifiCookie?.join('; ') } }
-    );
+    const site = await discoverUnifiSiteId();
+    const baseUrl = process.env.UNIFI_CONTROLLER_URL;
+    const headers = process.env.UNIFI_API_KEY
+      ? { 'X-API-Key': process.env.UNIFI_API_KEY }
+      : { Cookie: unifiCookie?.join('; ') };
+    const cmdUrl = process.env.UNIFI_API_KEY
+      ? `${baseUrl}/proxy/network/api/s/${site}/cmd/devmgr`
+      : `${baseUrl}/api/s/${site}/cmd/devmgr`;
+    const response = await axios.post(cmdUrl, { cmd: 'restart', mac: req.params.mac }, { httpsAgent, headers });
     res.json({ success: true, message: 'Enhet restartes', data: response.data });
   } catch (error) {
-    if (error.response?.status === 401) {
-      await unifiLogin();
-      return res.status(503).json({ error: 'Session utløpt, prøv igjen' });
-    }
     res.status(500).json({ error: error.message });
   }
 });
@@ -807,11 +815,17 @@ app.post('/api/unifi/devices/:mac/port/:portIdx/cycle', authenticateToken, async
     return res.status(403).json({ error: 'Kun administratorer har tilgang' });
   }
   try {
-    if (!unifiCookie) await unifiLogin();
-    const response = await axios.post(
-      `${process.env.UNIFI_CONTROLLER_URL}/api/s/${process.env.UNIFI_SITE}/cmd/devmgr`,
+    const site = await discoverUnifiSiteId();
+    const baseUrl = process.env.UNIFI_CONTROLLER_URL;
+    const headers = process.env.UNIFI_API_KEY
+      ? { 'X-API-Key': process.env.UNIFI_API_KEY }
+      : { Cookie: unifiCookie?.join('; ') };
+    const cmdUrl = process.env.UNIFI_API_KEY
+      ? `${baseUrl}/proxy/network/api/s/${site}/cmd/devmgr`
+      : `${baseUrl}/api/s/${site}/cmd/devmgr`;
+    const response = await axios.post(cmdUrl,
       { cmd: 'power-cycle', mac: req.params.mac, port_idx: parseInt(req.params.portIdx) },
-      { httpsAgent, headers: { Cookie: unifiCookie?.join('; ') } }
+      { httpsAgent, headers }
     );
     res.json({ success: true, message: 'Port power-cycled', data: response.data });
   } catch (error) {
