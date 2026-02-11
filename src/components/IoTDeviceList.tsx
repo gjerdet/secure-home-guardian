@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Wifi, WifiOff, Shield, ShieldAlert } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { IoTDeviceDetailDialog } from "@/components/dialogs/IoTDeviceDetailDialog";
 
 interface IoTDevice {
   id: string;
@@ -10,6 +12,15 @@ interface IoTDevice {
   status: "online" | "offline";
   trusted: boolean;
   lastSeen: string;
+  vendor?: string;
+  model?: string;
+  firmware?: string;
+  firstSeen?: string;
+  network?: string;
+  vlan?: number;
+  rxBytes?: number;
+  txBytes?: number;
+  signalStrength?: number;
 }
 
 interface IoTDeviceListProps {
@@ -18,6 +29,7 @@ interface IoTDeviceListProps {
 }
 
 export function IoTDeviceList({ devices, className }: IoTDeviceListProps) {
+  const [selectedDevice, setSelectedDevice] = useState<IoTDevice | null>(null);
   const onlineCount = devices.filter((d) => d.status === "online").length;
 
   return (
@@ -39,7 +51,8 @@ export function IoTDeviceList({ devices, className }: IoTDeviceListProps) {
           {devices.map((device) => (
             <div
               key={device.id}
-              className="flex items-center gap-3 p-3 rounded-md hover:bg-muted/50 transition-colors"
+              onClick={() => setSelectedDevice(device)}
+              className="flex items-center gap-3 p-3 rounded-md hover:bg-muted/50 transition-colors cursor-pointer"
             >
               <div
                 className={cn(
@@ -75,6 +88,12 @@ export function IoTDeviceList({ devices, className }: IoTDeviceListProps) {
           ))}
         </div>
       </ScrollArea>
+
+      <IoTDeviceDetailDialog
+        device={selectedDevice}
+        open={!!selectedDevice}
+        onOpenChange={(open) => !open && setSelectedDevice(null)}
+      />
     </div>
   );
 }
