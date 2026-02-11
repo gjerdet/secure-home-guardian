@@ -673,6 +673,79 @@ app.get('/api/unifi/alerts', authenticateToken, async (req, res) => {
   }
 });
 
+// IDS/IPS alerts - multi-path probing for different firmware versions
+app.get('/api/unifi/ids-alerts', authenticateToken, async (req, res) => {
+  try {
+    const baseUrl = process.env.UNIFI_CONTROLLER_URL;
+    const apiKey = process.env.UNIFI_API_KEY;
+    const site = await discoverUnifiSiteId();
+    const headers = { 'X-API-Key': apiKey };
+    const axOpts = { httpsAgent, headers, timeout: 15000 };
+
+    let alerts = [];
+
+    // Try multiple IDS/IPS event paths
+    const idsPaths = [
+      { url: `${baseUrl}/proxy/network/api/s/${site}/stat/ips/event`, label: 'stat/ips/event (proxy)' },
+      { url: `${baseUrl}/proxy/network/v2/api/site/${site}/security/events`, label: 'v2 security/events' },
+      { url: `${baseUrl}/api/s/${site}/stat/ips/event`, label: 'stat/ips/event (direct)' },
+      { url: `${baseUrl}/proxy/network/api/s/${site}/stat/event`, label: 'stat/event (proxy)' },
+    ];
+
+    for (const p of idsPaths) {
+      try {
+        console.log(`[UniFi] IDS trying: ${p.label}`);
+        const r = await axios.get(p.url, axOpts);
+        const data = r.data?.data || r.data || [];
+        const items = Array.isArray(data) ? data : [];
+        console.log(`[UniFi] IDS OK: ${p.label} -> ${items.length} events`);
+        if (items.length > 0) {
+          alerts = items;
+          break;
+        }
+      } catch (e) {
+        console.log(`[UniFi] IDS fail: ${p.label} -> ${e.response?.status || e.message}`);
+      }
+    }
+
+    // Map to normalized format
+    const normalized = alerts.slice(0, 200).map(a => ({
+      id: a._id || a.id || Math.random().toString(),
+      timestamp: a.timestamp ? new Date(a.timestamp).toISOString() : a.datetime || a.time || '',
+      severity: mapIdsSeverity(a),
+      category: a.catname || a.category || a.event_type || a.key || 'unknown',
+      signature: a.msg || a.message || a.name || a.inner_alert_signature || '',
+      srcIp: a.src_ip || a.srcipAddress?.ip || '',
+      srcPort: a.src_port || a.srcPort || 0,
+      dstIp: a.dst_ip || a.dstipAddress?.ip || '',
+      dstPort: a.dst_port || a.dstPort || 0,
+      action: a.action || a.inner_alert_action || a.in_cat || 'alert',
+      proto: a.proto || a.protocol || '',
+      appProto: a.app_proto || '',
+      interface: a.dest_interface || '',
+    }));
+
+    console.log(`[UniFi] IDS/IPS: returning ${normalized.length} alerts`);
+    res.json({ alerts: normalized, total: alerts.length });
+  } catch (error) {
+    console.error('[UniFi] IDS/IPS error:', error.message);
+    res.status(500).json({ error: error.message, alerts: [] });
+  }
+});
+
+// Helper to map IDS severity from UniFi format
+function mapIdsSeverity(alert) {
+  // UniFi uses inner_alert_severity (1=high, 2=medium, 3=low)
+  const sev = alert.inner_alert_severity || alert.severity;
+  if (sev === 1 || sev === 'high' || sev === 'critical') return 'high';
+  if (sev === 2 || sev === 'medium') return 'medium';
+  if (sev === 3 || sev === 'low') return 'low';
+  // Check category/key for hints
+  if (alert.catname?.toLowerCase().includes('attack') || alert.key?.includes('EVT_IPS')) return 'high';
+  if (alert.key?.includes('EVT_IDS')) return 'medium';
+  return 'info';
+}
+
 app.get('/api/unifi/clients', authenticateToken, async (req, res) => {
   try {
     const data = await unifiRequest('/stat/sta');
