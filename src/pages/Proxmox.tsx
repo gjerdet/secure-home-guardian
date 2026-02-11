@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { Header } from "@/components/Header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -52,6 +53,7 @@ function bytesToMB(bytes: number): number {
 }
 
 export default function Proxmox() {
+  const { token } = useAuth();
   const [selectedVM, setSelectedVM] = useState<SelectedVM | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -76,12 +78,13 @@ export default function Proxmox() {
     setError(null);
 
     try {
+      const headers = { Authorization: `Bearer ${token}` };
       const [nodesRes, vmsRes, containersRes, storageRes, clusterRes] = await Promise.all([
-        fetchJsonSafely(`${API_BASE}/api/proxmox/nodes`),
-        fetchJsonSafely(`${API_BASE}/api/proxmox/vms`),
-        fetchJsonSafely(`${API_BASE}/api/proxmox/containers`),
-        fetchJsonSafely(`${API_BASE}/api/proxmox/storage`),
-        fetchJsonSafely(`${API_BASE}/api/proxmox/cluster`),
+        fetchJsonSafely(`${API_BASE}/api/proxmox/nodes`, { headers }),
+        fetchJsonSafely(`${API_BASE}/api/proxmox/vms`, { headers }),
+        fetchJsonSafely(`${API_BASE}/api/proxmox/containers`, { headers }),
+        fetchJsonSafely(`${API_BASE}/api/proxmox/storage`, { headers }),
+        fetchJsonSafely(`${API_BASE}/api/proxmox/cluster`, { headers }),
       ]);
 
       if (!nodesRes.ok) {
@@ -191,7 +194,7 @@ export default function Proxmox() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     fetchData();
@@ -205,7 +208,7 @@ export default function Proxmox() {
       ? `${API_BASE}/api/proxmox/vms/${node}/${vmid}/${action}`
       : `${API_BASE}/api/proxmox/vms/${node}/${vmid}/${action}`;
     
-    const res = await fetchJsonSafely(endpoint, { method: "POST" });
+    const res = await fetchJsonSafely(endpoint, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
     if (res.ok) {
       toast.success(`${action} sendt til ${vmid}`);
       setTimeout(fetchData, 2000);
