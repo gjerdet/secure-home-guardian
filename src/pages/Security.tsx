@@ -15,9 +15,13 @@ import { ScanReportDialog } from "@/components/security/ScanReportDialog";
 import { AttackMap } from "@/components/AttackMap";
 import { batchLookupGeoIP } from "@/lib/ids-utils";
 import { VlanSubnetManager, type VlanSubnet } from "@/components/security/VlanSubnetManager";
+import { SslCheckPanel } from "@/components/security/SslCheckPanel";
+import { FirewallAuditPanel } from "@/components/security/FirewallAuditPanel";
+import { DnsLeakPanel } from "@/components/security/DnsLeakPanel";
+import { SecurityScorePanel } from "@/components/security/SecurityScorePanel";
 import { 
   Radar, Shield, Search, Clock, AlertTriangle, CheckCircle,
-  Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin, Network, Wifi, ExternalLink
+  Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin, Network, Wifi, ExternalLink, Lock, Activity
 } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -582,8 +586,12 @@ export default function Security() {
           </Card>
         </div>
 
-        <Tabs defaultValue="nmap" className="space-y-4">
-          <TabsList className="bg-muted">
+        <Tabs defaultValue="score" className="space-y-4">
+          <TabsList className="bg-muted flex-wrap h-auto gap-1 p-1">
+            <TabsTrigger value="score" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <Activity className="h-4 w-4 mr-2" />
+              Score
+            </TabsTrigger>
             <TabsTrigger value="nmap" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               <Target className="h-4 w-4 mr-2" />
               Nmap
@@ -591,6 +599,18 @@ export default function Security() {
             <TabsTrigger value="wan" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               <Wifi className="h-4 w-4 mr-2" />
               WAN Scan
+            </TabsTrigger>
+            <TabsTrigger value="ssl" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <Lock className="h-4 w-4 mr-2" />
+              SSL/TLS
+            </TabsTrigger>
+            <TabsTrigger value="firewall" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <Shield className="h-4 w-4 mr-2" />
+              Brannmur
+            </TabsTrigger>
+            <TabsTrigger value="dns" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <Globe className="h-4 w-4 mr-2" />
+              DNS
             </TabsTrigger>
             <TabsTrigger value="openvas" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               <Shield className="h-4 w-4 mr-2" />
@@ -605,6 +625,10 @@ export default function Security() {
               Geo-kart
             </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="score">
+            <SecurityScorePanel />
+          </TabsContent>
 
           <TabsContent value="nmap">
             <div className="space-y-4">
@@ -1016,6 +1040,18 @@ export default function Security() {
                 </CardContent>
               </Card>
             </div>
+          </TabsContent>
+
+          <TabsContent value="ssl">
+            <SslCheckPanel />
+          </TabsContent>
+
+          <TabsContent value="firewall">
+            <FirewallAuditPanel />
+          </TabsContent>
+
+          <TabsContent value="dns">
+            <DnsLeakPanel />
           </TabsContent>
 
           <TabsContent value="openvas">

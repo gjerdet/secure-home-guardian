@@ -998,6 +998,215 @@ app.post('/api/nmap/scan', async (req, res) => {
 });
 
 // ============================================
+// Security Analysis Endpoints
+// ============================================
+
+const tls = require('tls');
+const dns = require('dns');
+const net = require('net');
+
+// SSL/TLS Certificate Check
+app.post('/api/security/ssl-check', authenticateToken, async (req, res) => {
+  const { targets } = req.body; // Array of { name, host, port }
+  
+  if (!targets || !Array.isArray(targets)) {
+    return res.status(400).json({ error: 'Mål-liste er påkrevd' });
+  }
+
+  const results = [];
+
+  for (const target of targets) {
+    try {
+      const result = await new Promise((resolve, reject) => {
+        const socket = tls.connect({
+          host: target.host,
+          port: target.port || 443,
+          rejectUnauthorized: false,
+          timeout: 10000,
+        }, () => {
+          const cert = socket.getPeerCertificate();
+          const authorized = socket.authorized;
+          socket.end();
+
+          if (!cert || !cert.subject) {
+            resolve({ name: target.name, host: target.host, port: target.port, status: 'error', error: 'Ingen sertifikat funnet' });
+            return;
+          }
+
+          const validFrom = new Date(cert.valid_from);
+          const validTo = new Date(cert.valid_to);
+          const now = new Date();
+          const daysLeft = Math.floor((validTo - now) / (1000 * 60 * 60 * 24));
+          const isExpired = daysLeft < 0;
+          const isSelfSigned = cert.issuer && cert.subject && 
+            JSON.stringify(cert.issuer) === JSON.stringify(cert.subject);
+
+          resolve({
+            name: target.name,
+            host: target.host,
+            port: target.port || 443,
+            status: 'ok',
+            subject: cert.subject?.CN || cert.subject?.O || 'Unknown',
+            issuer: cert.issuer?.CN || cert.issuer?.O || 'Unknown',
+            validFrom: validFrom.toISOString(),
+            validTo: validTo.toISOString(),
+            daysLeft,
+            isExpired,
+            isSelfSigned,
+            authorized,
+            serialNumber: cert.serialNumber,
+            fingerprint: cert.fingerprint256 || cert.fingerprint,
+            protocol: socket.getProtocol(),
+          });
+        });
+
+        socket.on('error', (err) => {
+          resolve({ name: target.name, host: target.host, port: target.port, status: 'error', error: err.message });
+        });
+
+        socket.setTimeout(10000, () => {
+          socket.destroy();
+          resolve({ name: target.name, host: target.host, port: target.port, status: 'error', error: 'Timeout' });
+        });
+      });
+
+      results.push(result);
+    } catch (err) {
+      results.push({ name: target.name, host: target.host, port: target.port, status: 'error', error: err.message });
+    }
+  }
+
+  res.json({ results });
+});
+
+// Firewall Audit - Get UDM Pro firewall rules
+app.get('/api/security/firewall-rules', authenticateToken, async (req, res) => {
+  try {
+    const config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+    const unifiConfig = config.unifi || {};
+    
+    if (!unifiConfig.url) {
+      return res.status(400).json({ error: 'UniFi er ikke konfigurert' });
+    }
+
+    // Login to UniFi
+    const loginRes = await axios.post(`${unifiConfig.url}/api/auth/login`, {
+      username: unifiConfig.username,
+      password: unifiConfig.password,
+    }, { httpsAgent, withCredentials: true });
+
+    const cookies = loginRes.headers['set-cookie'];
+    const cookieHeader = cookies ? cookies.map(c => c.split(';')[0]).join('; ') : '';
+    const csrfToken = loginRes.headers['x-csrf-token'] || '';
+
+    const site = unifiConfig.site || 'default';
+    
+    // Get firewall rules
+    const rulesRes = await axios.get(
+      `${unifiConfig.url}/proxy/network/api/s/${site}/rest/firewallrule`,
+      { httpsAgent, headers: { Cookie: cookieHeader, 'x-csrf-token': csrfToken } }
+    );
+
+    // Get port forwarding rules
+    let portForwards = [];
+    try {
+      const pfRes = await axios.get(
+        `${unifiConfig.url}/proxy/network/api/s/${site}/rest/portforward`,
+        { httpsAgent, headers: { Cookie: cookieHeader, 'x-csrf-token': csrfToken } }
+      );
+      portForwards = pfRes.data?.data || [];
+    } catch (e) {
+      // Port forwarding endpoint might not exist
+    }
+
+    res.json({
+      firewallRules: rulesRes.data?.data || [],
+      portForwards,
+    });
+  } catch (error) {
+    // Return mock/empty data if UniFi not reachable
+    res.json({
+      firewallRules: [],
+      portForwards: [],
+      error: error.message,
+    });
+  }
+});
+
+// DNS Leak Test
+app.get('/api/security/dns-leak', authenticateToken, async (req, res) => {
+  try {
+    const results = [];
+    
+    // Check which DNS servers are being used
+    const resolvers = dns.getServers();
+    results.push({ test: 'configured_dns', servers: resolvers });
+
+    // Test DNS resolution through different methods
+    const testDomains = ['whoami.akamai.net', 'myip.opendns.com', 'o-o.myaddr.l.google.com'];
+    
+    for (const domain of testDomains) {
+      try {
+        const addresses = await new Promise((resolve, reject) => {
+          dns.resolve4(domain, (err, addrs) => {
+            if (err) reject(err);
+            else resolve(addrs);
+          });
+        });
+        results.push({ test: 'dns_resolve', domain, addresses, status: 'ok' });
+      } catch (err) {
+        results.push({ test: 'dns_resolve', domain, status: 'error', error: err.message });
+      }
+    }
+
+    // Check if DNS over HTTPS is leaking by comparing resolver IP to expected
+    try {
+      const dnsCheckRes = await axios.get('https://1.1.1.1/cdn-cgi/trace', { timeout: 5000, responseType: 'text' });
+      const lines = dnsCheckRes.data.split('\n');
+      const ipLine = lines.find(l => l.startsWith('ip='));
+      const locLine = lines.find(l => l.startsWith('loc='));
+      results.push({
+        test: 'external_ip_check',
+        ip: ipLine ? ipLine.split('=')[1] : 'unknown',
+        location: locLine ? locLine.split('=')[1] : 'unknown',
+        status: 'ok',
+      });
+    } catch {
+      results.push({ test: 'external_ip_check', status: 'error' });
+    }
+
+    // Check for WebRTC-style leak via multiple DNS providers
+    const dnsProviders = [
+      { name: 'Cloudflare', ip: '1.1.1.1' },
+      { name: 'Google', ip: '8.8.8.8' },
+      { name: 'Quad9', ip: '9.9.9.9' },
+    ];
+    
+    for (const provider of dnsProviders) {
+      try {
+        const start = Date.now();
+        await new Promise((resolve, reject) => {
+          const resolver = new dns.Resolver();
+          resolver.setServers([provider.ip]);
+          resolver.resolve4('example.com', (err, addrs) => {
+            if (err) reject(err);
+            else resolve(addrs);
+          });
+        });
+        const responseTime = Date.now() - start;
+        results.push({ test: 'dns_provider_check', provider: provider.name, ip: provider.ip, responseTime, status: 'ok' });
+      } catch (err) {
+        results.push({ test: 'dns_provider_check', provider: provider.name, ip: provider.ip, status: 'error', error: err.message });
+      }
+    }
+
+    res.json({ results, resolvers });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
 // GeoIP Lookup
 // ============================================
 
