@@ -11,8 +11,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { 
   Settings as SettingsIcon, Server, Wifi, HardDrive, Shield, ShieldAlert,
-  Save, TestTube, CheckCircle, XCircle, Users, UserPlus, Trash2, User, Loader2, RefreshCw, Pencil, KeyRound
+  Save, TestTube, CheckCircle, XCircle, Users, UserPlus, Trash2, User, Loader2, RefreshCw, Pencil, KeyRound,
+  Download, GitBranch, ArrowUpCircle, Clock, AlertTriangle
 } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -74,7 +76,7 @@ export default function Settings() {
   const [editingUser, setEditingUser] = useState<SystemUser | null>(null);
   const [editRole, setEditRole] = useState<UserRole>("user");
   const [editPassword, setEditPassword] = useState("");
-  const [isUpdating, setIsUpdating] = useState(false);
+  const [isUpdatingUser, setIsUpdatingUser] = useState(false);
   
   // Service configurations (controlled state)
   const [configs, setConfigs] = useState<ServiceConfigs>(defaultConfigs);
@@ -88,6 +90,23 @@ export default function Settings() {
     abuseipdb: { status: 'idle' },
     backend: { status: 'idle' },
   });
+
+  // Update state
+  const [updateInfo, setUpdateInfo] = useState<{
+    currentVersion: string;
+    latestVersion: string;
+    currentHash: string;
+    currentMessage: string;
+    currentDate: string;
+    branch: string;
+    behind: number;
+    updateAvailable: boolean;
+    newCommits: { hash: string; message: string; date: string; author: string }[];
+  } | null>(null);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState<{ step: number; message: string; status: string }[]>([]);
+  const [updateError, setUpdateError] = useState<string | null>(null);
 
   const isAdmin = currentUser?.role === 'admin';
 
@@ -276,7 +295,7 @@ export default function Settings() {
     if (editPassword) body.newPassword = editPassword;
     if (Object.keys(body).length === 0) { toast.info("Ingen endringer å lagre"); return; }
 
-    setIsUpdating(true);
+    setIsUpdatingUser(true);
     try {
       const res = await fetch(`${API_BASE}/api/auth/users/${editingUser.id}`, {
         method: 'PATCH',
@@ -292,7 +311,77 @@ export default function Settings() {
         toast.error(data.error || 'Kunne ikke oppdatere bruker');
       }
     } catch { toast.error('Kunne ikke koble til server'); }
-    finally { setIsUpdating(false); }
+    finally { setIsUpdatingUser(false); }
+  };
+
+  // System update functions
+  const checkForUpdates = async () => {
+    setIsCheckingUpdate(true);
+    setUpdateError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/system/update/check`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUpdateInfo(data);
+        if (data.updateAvailable) {
+          toast.info(`${data.behind} nye oppdatering${data.behind > 1 ? 'er' : ''} tilgjengelig`);
+        } else {
+          toast.success('Systemet er oppdatert!');
+        }
+      } else {
+        const err = await res.json();
+        setUpdateError(err.error || 'Kunne ikke sjekke oppdateringer');
+        toast.error(err.error || 'Kunne ikke sjekke oppdateringer');
+      }
+    } catch {
+      setUpdateError('Kunne ikke koble til server');
+      toast.error('Kunne ikke koble til server');
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
+
+  const applyUpdate = async () => {
+    setIsUpdating(true);
+    setUpdateProgress([]);
+    setUpdateError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/system/update/apply`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ branch: updateInfo?.branch || 'main' }),
+      });
+
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const text = decoder.decode(value);
+          const lines = text.split('\n').filter(l => l.startsWith('data: '));
+          for (const line of lines) {
+            try {
+              const data = JSON.parse(line.substring(6));
+              setUpdateProgress(prev => [...prev, data]);
+              if (data.status === 'error') {
+                setUpdateError(data.message);
+              }
+            } catch {}
+          }
+        }
+      }
+    } catch (err) {
+      setUpdateError('Oppdatering feilet - sjekk serveren');
+    } finally {
+      setIsUpdating(false);
+    }
   };
 
   const renderSaveButton = (service: keyof ServiceConfigs) => (
@@ -347,6 +436,9 @@ export default function Settings() {
             </TabsTrigger>
             <TabsTrigger value="backend" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               <Shield className="h-4 w-4 mr-2" />Backend Setup
+            </TabsTrigger>
+            <TabsTrigger value="update" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <Download className="h-4 w-4 mr-2" />Oppdatering
             </TabsTrigger>
           </TabsList>
 
@@ -671,6 +763,142 @@ export default function Settings() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          <TabsContent value="update">
+            <div className="space-y-4">
+              {/* Current version info */}
+              <Card className="bg-card border-border">
+                <CardHeader className="border-b border-border">
+                  <CardTitle className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <GitBranch className="h-5 w-5 text-primary" />
+                      Systemversjon
+                    </div>
+                    <Button
+                      variant="outline"
+                      onClick={checkForUpdates}
+                      disabled={isCheckingUpdate}
+                    >
+                      {isCheckingUpdate
+                        ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        : <RefreshCw className="h-4 w-4 mr-2" />}
+                      Sjekk for oppdateringer
+                    </Button>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-4">
+                  {updateInfo ? (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="bg-muted/50 rounded-lg p-3">
+                          <p className="text-xs text-muted-foreground">Nåværende versjon</p>
+                          <p className="text-lg font-mono font-bold text-foreground">{updateInfo.currentVersion}</p>
+                          <p className="text-xs text-muted-foreground mt-1">{updateInfo.currentMessage}</p>
+                        </div>
+                        <div className="bg-muted/50 rounded-lg p-3">
+                          <p className="text-xs text-muted-foreground">Branch</p>
+                          <p className="text-lg font-mono font-bold text-primary">{updateInfo.branch}</p>
+                          <p className="text-xs text-muted-foreground mt-1">{updateInfo.currentDate}</p>
+                        </div>
+                        <div className={`rounded-lg p-3 ${updateInfo.updateAvailable ? 'bg-primary/10 border border-primary/30' : 'bg-muted/50'}`}>
+                          <p className="text-xs text-muted-foreground">Status</p>
+                          {updateInfo.updateAvailable ? (
+                            <>
+                              <p className="text-lg font-bold text-primary flex items-center gap-2">
+                                <ArrowUpCircle className="h-5 w-5" />
+                                {updateInfo.behind} oppdatering{updateInfo.behind > 1 ? 'er' : ''}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-1">Ny versjon: {updateInfo.latestVersion}</p>
+                            </>
+                          ) : (
+                            <p className="text-lg font-bold text-success flex items-center gap-2">
+                              <CheckCircle className="h-5 w-5" />
+                              Oppdatert
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* New commits */}
+                      {updateInfo.newCommits.length > 0 && (
+                        <div>
+                          <h3 className="text-sm font-medium text-foreground mb-2">Nye endringer:</h3>
+                          <div className="space-y-1 max-h-60 overflow-y-auto">
+                            {updateInfo.newCommits.map((commit, i) => (
+                              <div key={i} className="flex items-start gap-3 bg-muted/30 rounded p-2 text-sm">
+                                <code className="text-primary font-mono text-xs mt-0.5">{commit.hash}</code>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-foreground truncate">{commit.message}</p>
+                                  <p className="text-xs text-muted-foreground flex items-center gap-2">
+                                    <Clock className="h-3 w-3" />
+                                    {commit.date} — {commit.author}
+                                  </p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Update button */}
+                      {updateInfo.updateAvailable && !isUpdating && (
+                        <Button
+                          className="bg-primary text-primary-foreground w-full"
+                          onClick={applyUpdate}
+                        >
+                          <Download className="h-4 w-4 mr-2" />
+                          Installer oppdatering ({updateInfo.behind} commit{updateInfo.behind > 1 ? 's' : ''})
+                        </Button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8">
+                      <Download className="h-12 w-12 text-muted-foreground mx-auto mb-3 opacity-50" />
+                      <p className="text-muted-foreground">Trykk «Sjekk for oppdateringer» for å se om det finnes en ny versjon.</p>
+                    </div>
+                  )}
+
+                  {updateError && (
+                    <div className="mt-4 bg-destructive/10 border border-destructive/30 rounded-lg p-3 flex items-start gap-2">
+                      <AlertTriangle className="h-4 w-4 text-destructive mt-0.5" />
+                      <p className="text-sm text-destructive">{updateError}</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Update progress */}
+              {(isUpdating || updateProgress.length > 0) && (
+                <Card className="bg-card border-border">
+                  <CardHeader className="border-b border-border">
+                    <CardTitle className="flex items-center gap-2">
+                      {isUpdating ? <Loader2 className="h-5 w-5 text-primary animate-spin" /> : <CheckCircle className="h-5 w-5 text-success" />}
+                      Oppdateringsfremdrift
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-4">
+                    <div className="space-y-2">
+                      {updateProgress.map((p, i) => (
+                        <div key={i} className="flex items-center gap-3 text-sm">
+                          {p.status === 'done' && <CheckCircle className="h-4 w-4 text-success shrink-0" />}
+                          {p.status === 'running' && <Loader2 className="h-4 w-4 text-primary animate-spin shrink-0" />}
+                          {p.status === 'error' && <XCircle className="h-4 w-4 text-destructive shrink-0" />}
+                          {p.status === 'warning' && <AlertTriangle className="h-4 w-4 text-yellow-500 shrink-0" />}
+                          {p.status === 'complete' && <CheckCircle className="h-4 w-4 text-success shrink-0" />}
+                          <span className={`${p.status === 'error' ? 'text-destructive' : p.status === 'complete' ? 'text-success font-medium' : 'text-foreground'}`}>
+                            {p.message}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    {isUpdating && (
+                      <Progress className="mt-4" value={(updateProgress.filter(p => p.status === 'done').length / 6) * 100} />
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          </TabsContent>
         </Tabs>
 
         {/* Edit User Dialog */}
@@ -709,8 +937,8 @@ export default function Settings() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setEditDialogOpen(false)}>Avbryt</Button>
-              <Button className="bg-primary text-primary-foreground" onClick={handleUpdateUser} disabled={isUpdating}>
-                {isUpdating && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              <Button className="bg-primary text-primary-foreground" onClick={handleUpdateUser} disabled={isUpdatingUser}>
+                {isUpdatingUser && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Lagre endringer
               </Button>
             </DialogFooter>
