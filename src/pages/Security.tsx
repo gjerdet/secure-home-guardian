@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
@@ -157,8 +158,10 @@ export default function Security() {
     hostsFound: number;
     timestamp: string;
     duration?: number;
+    result?: string;
   }>>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
 
   // WAN scan state
   const [wanIp, setWanIp] = useState<string>("");
@@ -595,6 +598,7 @@ export default function Security() {
             hostsFound: r.hostsFound || 0,
             timestamp: r.timestamp || r.completedAt || '',
             duration: r.duration,
+            result: r.result,
           })));
         }
       } catch { /* silent */ }
@@ -1404,37 +1408,115 @@ export default function Security() {
                     <p className="text-xs text-muted-foreground mt-1">Kjør en Nmap-skanning fra Nmap-fanen for å se historikk her.</p>
                   </div>
                 ) : (
-                  <ScrollArea className="max-h-[500px]">
+                  <ScrollArea className="max-h-[600px]">
                     <div className="space-y-2">
                       {scanHistory.map((scan) => {
                         const date = scan.timestamp ? new Date(scan.timestamp) : null;
+                        const isSelected = selectedHistoryId === scan.id;
+                        const parsedHosts = isSelected && scan.result ? parseNmapXML(scan.result) : [];
                         return (
-                          <div
-                            key={scan.id}
-                            className="flex items-center gap-4 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
-                          >
-                            <div className="rounded-full bg-primary/10 p-2">
-                              <Target className="h-4 w-4 text-primary" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-sm text-foreground">{scan.target}</span>
-                                <Badge variant="outline" className="text-[10px]">{scan.scanType}</Badge>
+                          <div key={scan.id}>
+                            <button
+                              onClick={() => setSelectedHistoryId(isSelected ? null : scan.id)}
+                              className="w-full flex items-center gap-4 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors text-left"
+                            >
+                              <div className="rounded-full bg-primary/10 p-2">
+                                <Target className="h-4 w-4 text-primary" />
                               </div>
-                              <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                                <span className="flex items-center gap-1">
-                                  <Clock className="h-3 w-3" />
-                                  {date ? date.toLocaleString('nb-NO', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Ukjent dato'}
-                                </span>
-                                {scan.duration && (
-                                  <span>{Math.round(scan.duration / 1000)}s</span>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-sm text-foreground">{scan.target}</span>
+                                  <Badge variant="outline" className="text-[10px]">{scan.scanType}</Badge>
+                                </div>
+                                <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                                  <span className="flex items-center gap-1">
+                                    <Clock className="h-3 w-3" />
+                                    {date ? date.toLocaleString('nb-NO', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Ukjent dato'}
+                                  </span>
+                                  {scan.duration && (
+                                    <span>{Math.round(scan.duration / 1000)}s</span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="text-right flex items-center gap-3">
+                                <div>
+                                  <p className="text-lg font-mono font-bold text-foreground">{scan.hostsFound}</p>
+                                  <p className="text-xs text-muted-foreground">hosts</p>
+                                </div>
+                                <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${isSelected ? 'rotate-90' : ''}`} />
+                              </div>
+                            </button>
+
+                            {/* Expanded detail view */}
+                            {isSelected && (
+                              <div className="mt-2 ml-12 space-y-3 animate-fade-in">
+                                <div className="flex gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      if (scan.result) {
+                                        const hosts = parseNmapXML(scan.result);
+                                        setNmapResults(hosts);
+                                        setNmapTarget(scan.target);
+                                        setNmapProgress({ percent: 100, hostsFound: hosts.length, status: 'complete' });
+                                        toast.success(`Lastet ${hosts.length} hosts fra historikk`);
+                                      }
+                                    }}
+                                    disabled={!scan.result}
+                                  >
+                                    <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                                    Last inn i Nmap-fanen
+                                  </Button>
+                                </div>
+
+                                {parsedHosts.length > 0 ? (
+                                  <div className="rounded-lg border border-border overflow-hidden">
+                                    <Table>
+                                      <TableHeader>
+                                        <TableRow className="bg-muted/50">
+                                          <TableHead className="text-xs">IP</TableHead>
+                                          <TableHead className="text-xs">Hostname</TableHead>
+                                          <TableHead className="text-xs">Åpne porter</TableHead>
+                                          <TableHead className="text-xs">OS</TableHead>
+                                        </TableRow>
+                                      </TableHeader>
+                                      <TableBody>
+                                        {parsedHosts.map((host, hi) => (
+                                          <TableRow
+                                            key={hi}
+                                            className="cursor-pointer hover:bg-muted/30"
+                                            onClick={() => { setSelectedNmapHost(host); setNmapDetailOpen(true); }}
+                                          >
+                                            <TableCell className="font-mono text-xs">{host.host}</TableCell>
+                                            <TableCell className="text-xs">{host.hostname}</TableCell>
+                                            <TableCell className="text-xs">
+                                              {host.ports.length > 0 ? (
+                                                <div className="flex flex-wrap gap-1">
+                                                  {host.ports.slice(0, 5).map(p => (
+                                                    <Badge key={p} variant="outline" className="text-[10px] font-mono">{p}</Badge>
+                                                  ))}
+                                                  {host.ports.length > 5 && (
+                                                    <Badge variant="outline" className="text-[10px]">+{host.ports.length - 5}</Badge>
+                                                  )}
+                                                </div>
+                                              ) : (
+                                                <span className="text-muted-foreground">Ingen</span>
+                                              )}
+                                            </TableCell>
+                                            <TableCell className="text-xs text-muted-foreground truncate max-w-[150px]">{host.os}</TableCell>
+                                          </TableRow>
+                                        ))}
+                                      </TableBody>
+                                    </Table>
+                                  </div>
+                                ) : !scan.result ? (
+                                  <p className="text-xs text-muted-foreground py-2">Ingen detaljdata lagret for denne skanningen.</p>
+                                ) : (
+                                  <p className="text-xs text-muted-foreground py-2">Ingen hosts funnet i denne skanningen.</p>
                                 )}
                               </div>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-lg font-mono font-bold text-foreground">{scan.hostsFound}</p>
-                              <p className="text-xs text-muted-foreground">hosts</p>
-                            </div>
+                            )}
                           </div>
                         );
                       })}
