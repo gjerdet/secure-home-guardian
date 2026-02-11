@@ -609,8 +609,10 @@ async function unifiRequest(endpoint) {
 app.get('/api/unifi/alerts', authenticateToken, async (req, res) => {
   try {
     const data = await unifiRequest('/stat/ips/event');
+    console.log('[UniFi] alerts keys:', data ? Object.keys(data) : 'null', 'items:', Array.isArray(data?.data) ? data.data.length : 'N/A');
     res.json(data);
   } catch (error) {
+    console.error('[UniFi] alerts error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -618,8 +620,10 @@ app.get('/api/unifi/alerts', authenticateToken, async (req, res) => {
 app.get('/api/unifi/clients', authenticateToken, async (req, res) => {
   try {
     const data = await unifiRequest('/stat/sta');
+    console.log('[UniFi] clients keys:', data ? Object.keys(data) : 'null', 'items:', Array.isArray(data?.data) ? data.data.length : 'N/A');
     res.json(data);
   } catch (error) {
+    console.error('[UniFi] clients error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -627,8 +631,10 @@ app.get('/api/unifi/clients', authenticateToken, async (req, res) => {
 app.get('/api/unifi/devices', authenticateToken, async (req, res) => {
   try {
     const data = await unifiRequest('/stat/device');
+    console.log('[UniFi] devices keys:', data ? Object.keys(data) : 'null', 'items:', Array.isArray(data?.data) ? data.data.length : 'N/A');
     res.json(data);
   } catch (error) {
+    console.error('[UniFi] devices error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -636,8 +642,10 @@ app.get('/api/unifi/devices', authenticateToken, async (req, res) => {
 app.get('/api/unifi/health', authenticateToken, async (req, res) => {
   try {
     const data = await unifiRequest('/stat/health');
+    console.log('[UniFi] health keys:', data ? Object.keys(data) : 'null');
     res.json(data);
   } catch (error) {
+    console.error('[UniFi] health error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1655,25 +1663,22 @@ app.get('/api/health/all', async (req, res) => {
     responseTime: 1,
   });
   
-  // Check UniFi
+  // Check UniFi - actually test API access, not just URL reachability
   if (process.env.UNIFI_CONTROLLER_URL) {
     try {
       const start = Date.now();
-      await axios.get(`${process.env.UNIFI_CONTROLLER_URL}/status`, { 
-        httpsAgent, 
-        timeout: 5000 
-      });
+      await unifiRequest('/stat/health');
       services.push({
         name: 'unifi',
         status: 'online',
-        message: 'UniFi Controller tilgjengelig',
+        message: `UniFi OK (${getUnifiAuthMethod()})`,
         responseTime: Date.now() - start,
       });
     } catch (error) {
       services.push({
         name: 'unifi',
         status: 'offline',
-        message: error.message,
+        message: `${error.message} (auth: ${getUnifiAuthMethod() || 'ikke konfigurert'})`,
       });
     }
   }
@@ -1701,17 +1706,11 @@ app.get('/api/health/all', async (req, res) => {
     }
   }
   
-  // Check Proxmox
+  // Check Proxmox - actually test API token
   if (process.env.PROXMOX_URL) {
     try {
       const start = Date.now();
-      await axios.get(`${process.env.PROXMOX_URL}/api2/json/version`, {
-        httpsAgent,
-        headers: {
-          Authorization: `PVEAPIToken=${process.env.PROXMOX_USER}!${process.env.PROXMOX_TOKEN_ID}=${process.env.PROXMOX_TOKEN_SECRET}`,
-        },
-        timeout: 5000,
-      });
+      await proxmoxRequest('/version');
       services.push({
         name: 'proxmox',
         status: 'online',
@@ -1915,14 +1914,27 @@ app.get('/api/system/info', authenticateToken, async (req, res) => {
     const freeMem = os.freemem();
     const usedMem = totalMem - freeMem;
 
-    // Disk
+    // Disk - show all physical mount points, not just root
     let diskTotal = 0, diskUsed = 0;
+    let disks = [];
     try {
-      const { stdout } = await execAsync("df -B1 / | tail -1 | awk '{print $2, $3}'", { timeout: 3000 });
-      const parts = stdout.trim().split(/\s+/);
-      diskTotal = parseInt(parts[0]) || 0;
-      diskUsed = parseInt(parts[1]) || 0;
+      // Get all real filesystems (exclude tmpfs, devtmpfs, squashfs etc.)
+      const { stdout } = await execAsync("df -B1 -x tmpfs -x devtmpfs -x squashfs -x overlay 2>/dev/null | tail -n+2", { timeout: 3000 });
+      const lines = stdout.trim().split('\n').filter(Boolean);
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length >= 6) {
+          const total = parseInt(parts[1]) || 0;
+          const used = parseInt(parts[2]) || 0;
+          const mount = parts[5];
+          disks.push({ mount, total, used });
+          diskTotal += total;
+          diskUsed += used;
+        }
+      }
     } catch {}
+
+    console.log('[System] Disks found:', disks.map(d => `${d.mount}: ${Math.round(d.total/1073741824)}GB`).join(', '));
 
     res.json({
       os: osVersion,
