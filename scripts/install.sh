@@ -150,19 +150,32 @@ status "Nginx installert"
 # 4. Kopier frontend filer
 echo -e "\n${YELLOW}Steg 4/$TOTAL_STEPS: Setter opp frontend...${NC}"
 mkdir -p $INSTALL_DIR
-cp -r $CURRENT_DIR/* $INSTALL_DIR/
+cp -r $CURRENT_DIR/* $INSTALL_DIR/ 2>/dev/null || true
+cp -r $CURRENT_DIR/.* $INSTALL_DIR/ 2>/dev/null || true
 cd $INSTALL_DIR
-npm install
-npm run build
-status "Frontend bygget"
+npm install --omit=dev 2>&1 | tail -3
+npm run build 2>&1 | tail -5
+
+if [ ! -f "$INSTALL_DIR/dist/index.html" ]; then
+    error "Frontend-bygg feilet! dist/index.html ble ikke generert."
+    error "Kjør 'cd $INSTALL_DIR && npm run build' manuelt for å se feilmeldinger."
+    exit 1
+fi
+status "Frontend bygget ($(ls $INSTALL_DIR/dist/assets/*.js 2>/dev/null | wc -l) JS-filer)"
 
 # 5. Sett opp backend
 echo -e "\n${YELLOW}Steg 5/$TOTAL_STEPS: Setter opp backend API...${NC}"
 mkdir -p $API_DIR
 cp -r $INSTALL_DIR/backend/* $API_DIR/
 cd $API_DIR
-npm install
+npm install 2>&1 | tail -3
 cp .env.example .env 2>/dev/null || true
+
+# Generer JWT_SECRET hvis ikke satt
+if ! grep -q "^JWT_SECRET=" $API_DIR/.env 2>/dev/null || grep -q "^JWT_SECRET=$" $API_DIR/.env 2>/dev/null; then
+    JWT_SECRET=$(openssl rand -hex 32)
+    echo "JWT_SECRET=$JWT_SECRET" >> $API_DIR/.env
+fi
 status "Backend satt opp"
 
 # 6. Opprett admin-bruker
@@ -191,45 +204,77 @@ while true; do
     break
 done
 
-# Opprett bruker via Node.js (bruker bcryptjs fra backend)
+# Opprett bruker via Node.js (passord sendes via env-variabel for å unngå shell-injection)
 mkdir -p $API_DIR/data
-node -e "
-const bcrypt = require('bcryptjs');
-const fs = require('fs');
-const path = require('path');
-const crypto = require('crypto');
+cd $API_DIR
+ADMIN_USERNAME="$ADMIN_USER" ADMIN_PASSWORD="$ADMIN_PASS" node -e '
+const bcrypt = require("bcryptjs");
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
 
-const usersFile = path.join('$API_DIR', 'data', 'users.json');
-const hash = bcrypt.hashSync('$ADMIN_PASS', 10);
+const usersFile = path.join(__dirname, "data", "users.json");
+const hash = bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10);
 const users = [{
   id: crypto.randomUUID(),
-  username: '$ADMIN_USER',
+  username: process.env.ADMIN_USERNAME,
   password: hash,
-  role: 'admin',
+  role: "admin",
   createdAt: new Date().toISOString()
 }];
 fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
-console.log('Admin-bruker opprettet.');
-"
-status "Admin-bruker '$ADMIN_USER' opprettet"
+' 2>&1
+
+if [ $? -eq 0 ] && [ -f "$API_DIR/data/users.json" ]; then
+    status "Admin-bruker '$ADMIN_USER' opprettet"
+else
+    error "Kunne ikke opprette admin-bruker!"
+    error "Sjekk at bcryptjs er installert: cd $API_DIR && npm ls bcryptjs"
+    exit 1
+fi
 
 # 7. Konfigurer Nginx
 echo -e "\n${YELLOW}Steg 7/$TOTAL_STEPS: Konfigurerer Nginx...${NC}"
-cp $INSTALL_DIR/scripts/nginx.conf /etc/nginx/sites-available/netguard
-ln -sf /etc/nginx/sites-available/netguard /etc/nginx/sites-enabled/
+# Fjern default FØRST
 rm -f /etc/nginx/sites-enabled/default
-nginx -t
+cp $INSTALL_DIR/scripts/nginx.conf /etc/nginx/sites-available/netguard
+ln -sf /etc/nginx/sites-available/netguard /etc/nginx/sites-enabled/netguard
+
+# Verifiser at default er borte
+if [ -f /etc/nginx/sites-enabled/default ]; then
+    error "Kunne ikke fjerne default Nginx-konfig!"
+    exit 1
+fi
+
+nginx -t 2>&1
+if [ $? -ne 0 ]; then
+    error "Nginx-konfigurasjon er ugyldig!"
+    exit 1
+fi
 systemctl restart nginx
 systemctl enable nginx
-status "Nginx konfigurert"
+status "Nginx konfigurert (default fjernet, netguard aktiv)"
 
 # 8. Sett opp systemd service
 echo -e "\n${YELLOW}Steg 8/$TOTAL_STEPS: Setter opp systemd service...${NC}"
-cp $INSTALL_DIR/scripts/netguard-api.service /etc/systemd/system/
+cp $INSTALL_DIR/scripts/netguard-api.service /etc/systemd/system/netguard-api.service
+
+if [ ! -f /etc/systemd/system/netguard-api.service ]; then
+    error "Kunne ikke kopiere service-fil!"
+    exit 1
+fi
+
 systemctl daemon-reload
 systemctl enable netguard-api
 systemctl start netguard-api
-status "Systemd service aktivert"
+
+# Vent litt og sjekk at tjenesten kjører
+sleep 2
+if systemctl is-active --quiet netguard-api; then
+    status "Backend-tjeneste kjører"
+else
+    warn "Backend-tjeneste startet ikke. Sjekk logger: journalctl -u netguard-api -n 20"
+fi
 
 # Sikkerhetsverktøy (valgfritt)
 if [ "$INSTALL_SECURITY" = true ]; then
