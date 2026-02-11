@@ -1890,6 +1890,160 @@ app.post('/api/health/test/abuseipdb', authenticateToken, async (req, res) => {
   }
 });
 
+// ============================================
+// System Update Management
+// ============================================
+
+// Check for updates (git fetch + compare)
+app.get('/api/system/update/check', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Kun administratorer har tilgang' });
+  }
+
+  try {
+    const installDir = process.env.INSTALL_DIR || '/opt/netguard';
+
+    // Get current commit info
+    const { stdout: currentHash } = await execAsync(`git -C ${installDir} rev-parse HEAD`, { timeout: 10000 });
+    const { stdout: currentBranch } = await execAsync(`git -C ${installDir} rev-parse --abbrev-ref HEAD`, { timeout: 5000 });
+    const { stdout: currentMsg } = await execAsync(`git -C ${installDir} log -1 --format="%s"`, { timeout: 5000 });
+    const { stdout: currentDate } = await execAsync(`git -C ${installDir} log -1 --format="%ci"`, { timeout: 5000 });
+
+    // Fetch latest from remote
+    await execAsync(`git -C ${installDir} fetch origin ${currentBranch.trim()}`, { timeout: 30000 });
+
+    // Compare local vs remote
+    const { stdout: behindCount } = await execAsync(
+      `git -C ${installDir} rev-list --count HEAD..origin/${currentBranch.trim()}`,
+      { timeout: 10000 }
+    );
+
+    const behind = parseInt(behindCount.trim()) || 0;
+    let newCommits = [];
+
+    if (behind > 0) {
+      // Get list of new commits
+      const { stdout: logOutput } = await execAsync(
+        `git -C ${installDir} log --oneline --format="%H|%s|%ci|%an" HEAD..origin/${currentBranch.trim()}`,
+        { timeout: 10000 }
+      );
+      newCommits = logOutput.trim().split('\n').filter(Boolean).map(line => {
+        const [hash, message, date, author] = line.split('|');
+        return { hash: hash?.substring(0, 7), message, date, author };
+      });
+    }
+
+    // Get current version tag if available
+    let currentVersion = '';
+    try {
+      const { stdout: tag } = await execAsync(`git -C ${installDir} describe --tags --abbrev=0 2>/dev/null`, { timeout: 5000 });
+      currentVersion = tag.trim();
+    } catch {
+      currentVersion = currentHash.trim().substring(0, 7);
+    }
+
+    // Get latest remote version tag
+    let latestVersion = '';
+    try {
+      const { stdout: tag } = await execAsync(`git -C ${installDir} describe --tags --abbrev=0 origin/${currentBranch.trim()} 2>/dev/null`, { timeout: 5000 });
+      latestVersion = tag.trim();
+    } catch {
+      if (behind > 0) {
+        const { stdout: remoteHash } = await execAsync(`git -C ${installDir} rev-parse origin/${currentBranch.trim()}`, { timeout: 5000 });
+        latestVersion = remoteHash.trim().substring(0, 7);
+      } else {
+        latestVersion = currentVersion;
+      }
+    }
+
+    res.json({
+      currentVersion,
+      latestVersion,
+      currentHash: currentHash.trim().substring(0, 7),
+      currentMessage: currentMsg.trim(),
+      currentDate: currentDate.trim(),
+      branch: currentBranch.trim(),
+      behind,
+      updateAvailable: behind > 0,
+      newCommits,
+    });
+  } catch (error) {
+    res.status(500).json({ error: `Kunne ikke sjekke oppdateringer: ${error.message}` });
+  }
+});
+
+// Apply update (git pull + npm install + rebuild)
+app.post('/api/system/update/apply', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Kun administratorer har tilgang' });
+  }
+
+  // Use SSE for progress updates
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+  });
+
+  const sendProgress = (step, message, status = 'running') => {
+    res.write(`data: ${JSON.stringify({ step, message, status })}\n\n`);
+  };
+
+  try {
+    const installDir = process.env.INSTALL_DIR || '/opt/netguard';
+    const branch = (req.body?.branch) || 'main';
+
+    // Step 1: Git pull
+    sendProgress(1, 'Henter siste versjon fra GitHub...');
+    const { stdout: pullOutput } = await execAsync(`git -C ${installDir} pull origin ${branch}`, { timeout: 60000 });
+    sendProgress(1, `Git pull: ${pullOutput.trim()}`, 'done');
+
+    // Step 2: Install frontend dependencies
+    sendProgress(2, 'Installerer frontend-avhengigheter...');
+    await execAsync(`cd ${installDir} && npm install --production=false`, { timeout: 120000 });
+    sendProgress(2, 'Frontend-avhengigheter installert', 'done');
+
+    // Step 3: Build frontend
+    sendProgress(3, 'Bygger frontend...');
+    await execAsync(`cd ${installDir} && npm run build`, { timeout: 120000 });
+    sendProgress(3, 'Frontend bygget', 'done');
+
+    // Step 4: Update backend dependencies
+    sendProgress(4, 'Oppdaterer backend-avhengigheter...');
+    const apiDir = process.env.API_DIR || '/opt/netguard-api';
+    try {
+      await execAsync(`cp -r ${installDir}/backend/* ${apiDir}/`, { timeout: 15000 });
+      await execAsync(`cd ${apiDir} && npm install`, { timeout: 60000 });
+      sendProgress(4, 'Backend oppdatert', 'done');
+    } catch (backendErr) {
+      sendProgress(4, `Backend-oppdatering feilet: ${backendErr.message}`, 'warning');
+    }
+
+    // Step 5: Restart services
+    sendProgress(5, 'Restarter tjenester...');
+    try {
+      await execAsync('sudo systemctl restart nginx', { timeout: 15000 });
+      sendProgress(5, 'Nginx restartet', 'done');
+    } catch {
+      sendProgress(5, 'Kunne ikke restarte Nginx (manuell restart kan trenges)', 'warning');
+    }
+
+    // Final
+    sendProgress(6, 'Oppdatering fullført! Backend restarter om 3 sekunder...', 'complete');
+    res.end();
+
+    // Restart self after a short delay
+    setTimeout(() => {
+      process.exit(0); // systemd will restart the service
+    }, 3000);
+
+  } catch (error) {
+    sendProgress(-1, `Oppdatering feilet: ${error.message}`, 'error');
+    res.end();
+  }
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log(`NetGuard API kjører på port ${PORT}`);
