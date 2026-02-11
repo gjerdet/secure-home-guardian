@@ -612,30 +612,50 @@ async function unifiRequest(endpoint) {
   }
 
   // Legacy cookie-based auth
+  if (!process.env.UNIFI_USERNAME || !process.env.UNIFI_PASSWORD) {
+    throw new Error('UniFi: Brukernavn/passord er ikke satt. Bruk API-nøkkel i stedet.');
+  }
+  
+  const legacySite = process.env.UNIFI_SITE || 'default';
+  
   if (!unifiCookie) {
-    await unifiLogin();
+    try {
+      const loginRes = await axios.post(
+        `${baseUrl}/api/login`,
+        { username: process.env.UNIFI_USERNAME, password: process.env.UNIFI_PASSWORD },
+        { httpsAgent, withCredentials: true }
+      );
+      unifiCookie = loginRes.headers['set-cookie'];
+    } catch (error) {
+      console.error('[UniFi] Login feilet:', error.message);
+      throw new Error('UniFi login feilet. Sjekk brukernavn/passord eller bruk API-nøkkel.');
+    }
   }
   
   try {
     const response = await axios.get(
-      `${baseUrl}/api/s/${site}${endpoint}`,
-      {
-        httpsAgent,
-        headers: { Cookie: unifiCookie?.join('; ') },
-      }
+      `${baseUrl}/api/s/${legacySite}${endpoint}`,
+      { httpsAgent, headers: { Cookie: unifiCookie?.join('; ') } }
     );
     return response.data;
   } catch (error) {
     if (error.response?.status === 401) {
-      await unifiLogin();
-      const retry = await axios.get(
-        `${baseUrl}/api/s/${site}${endpoint}`,
-        {
-          httpsAgent,
-          headers: { Cookie: unifiCookie?.join('; ') },
-        }
-      );
-      return retry.data;
+      unifiCookie = null; // Reset and retry
+      try {
+        const loginRes = await axios.post(
+          `${baseUrl}/api/login`,
+          { username: process.env.UNIFI_USERNAME, password: process.env.UNIFI_PASSWORD },
+          { httpsAgent, withCredentials: true }
+        );
+        unifiCookie = loginRes.headers['set-cookie'];
+        const retry = await axios.get(
+          `${baseUrl}/api/s/${legacySite}${endpoint}`,
+          { httpsAgent, headers: { Cookie: unifiCookie?.join('; ') } }
+        );
+        return retry.data;
+      } catch (retryErr) {
+        throw new Error('UniFi: Re-login feilet. Sjekk credentials.');
+      }
     }
     throw error;
   }
