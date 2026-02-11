@@ -17,7 +17,8 @@ import {
   Users, Globe, Clock, ArrowUpRight, ArrowDownRight,
   Monitor, Smartphone, Laptop, Router, Radio, Network,
   ArrowUpDown, Download, FileJson, FileSpreadsheet, RefreshCw,
-  Ban, CheckCircle, Filter, Power, Zap, Loader2
+  Ban, CheckCircle, Filter, Power, Zap, Loader2, ExternalLink,
+  Search, Copy, Info
 } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
@@ -273,6 +274,8 @@ export default function UniFi() {
   const [selectedDevice, setSelectedDevice] = useState<typeof connectedDevices[0] | null>(null);
   const [selectedAP, setSelectedAP] = useState<APDevice | null>(null);
   const [selectedSwitch, setSelectedSwitch] = useState<SwitchDevice | null>(null);
+  const [selectedAlert, setSelectedAlert] = useState<IdsAlert | null>(null);
+  const [selectedFirewallLog, setSelectedFirewallLog] = useState<FirewallLog | null>(null);
   const [isRestarting, setIsRestarting] = useState<string | null>(null);
   const [isCyclingPort, setIsCyclingPort] = useState<number | null>(null);
   const [liveAPs, setLiveAPs] = useState<APDevice[]>(networkDevices.aps);
@@ -731,7 +734,7 @@ export default function UniFi() {
                 <ScrollArea className="h-[500px]">
                   <div className="divide-y divide-border">
                     {sortedAlerts.map((alert) => (
-                      <div key={alert.id} className="p-4 hover:bg-muted/50 transition-colors">
+                      <div key={alert.id} className="p-4 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => setSelectedAlert(alert)}>
                         <div className="flex items-start justify-between mb-2">
                           <div className="flex flex-wrap items-center gap-2">
                             <Badge className={severityColors[alert.severity as keyof typeof severityColors]}>
@@ -820,7 +823,7 @@ export default function UniFi() {
                     {firewallLogs
                       .filter(log => filterFirewall === "all" || log.action === filterFirewall)
                       .map((log) => (
-                      <div key={log.id} className="p-4 hover:bg-muted/50 transition-colors">
+                      <div key={log.id} className="p-4 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => setSelectedFirewallLog(log)}>
                         <div className="flex items-start justify-between mb-2">
                           <div className="flex flex-wrap items-center gap-2">
                             <Badge className={log.action === "block" ? "bg-destructive/10 text-destructive" : "bg-success/10 text-success"}>
@@ -1342,6 +1345,302 @@ export default function UniFi() {
                   <><Power className="h-4 w-4" />Restart Switch</>
                 )}
               </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* IDS Alert Detail Dialog */}
+      <Dialog open={!!selectedAlert} onOpenChange={(open) => !open && setSelectedAlert(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div className="rounded-lg p-2.5 bg-destructive/10">
+                <ShieldAlert className="h-5 w-5 text-destructive" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <span className="text-base">IDS/IPS Varsel</span>
+                {selectedAlert && (
+                  <div className="flex items-center gap-2 mt-1">
+                    <Badge className={severityColors[selectedAlert.severity as keyof typeof severityColors]}>
+                      {selectedAlert.severity.toUpperCase()}
+                    </Badge>
+                    <Badge variant={selectedAlert.action === "blocked" ? "destructive" : "secondary"}>
+                      {selectedAlert.action === "blocked" ? "Blokkert" : "Varslet"}
+                    </Badge>
+                  </div>
+                )}
+              </div>
+            </DialogTitle>
+          </DialogHeader>
+          {selectedAlert && (
+            <div className="space-y-4">
+              {/* Signature */}
+              <div className="bg-muted/50 rounded-lg p-4">
+                <p className="text-xs text-muted-foreground mb-1">Signatur</p>
+                <p className="font-medium text-foreground">{selectedAlert.signature}</p>
+                <Badge variant="outline" className="font-mono text-xs mt-2">{selectedAlert.category}</Badge>
+              </div>
+
+              <Separator />
+
+              {/* Timing */}
+              <div className="flex items-center gap-2 text-sm">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                <span className="text-muted-foreground">Tidspunkt:</span>
+                <span className="font-mono text-foreground">{selectedAlert.timestamp}</span>
+              </div>
+
+              <Separator />
+
+              {/* Source & Destination */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-muted/50 rounded-lg p-4">
+                  <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+                    <ArrowUpRight className="h-3 w-3" /> Kilde
+                  </p>
+                  <p className="font-mono text-foreground text-sm">{selectedAlert.srcIp}</p>
+                  <p className="font-mono text-xs text-muted-foreground">Port {selectedAlert.srcPort}</p>
+                  {selectedAlert.country && (
+                    <div className="mt-2 flex items-center gap-1">
+                      <Globe className="h-3 w-3 text-muted-foreground" />
+                      <span className="text-xs text-foreground">
+                        {selectedAlert.country}
+                        {selectedAlert.city && ` • ${selectedAlert.city}`}
+                      </span>
+                    </div>
+                  )}
+                  {selectedAlert.isp && (
+                    <p className="text-xs text-muted-foreground mt-1">ISP: {selectedAlert.isp}</p>
+                  )}
+                  {/* Link to device if internal IP */}
+                  {(() => {
+                    const dev = connectedDevices.find(d => d.ip === selectedAlert.srcIp);
+                    return dev ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="mt-2 h-7 text-xs gap-1 text-primary"
+                        onClick={() => { setSelectedAlert(null); setTimeout(() => setSelectedDevice(dev), 150); }}
+                      >
+                        <DeviceIcon type={dev.type} /> {dev.name} <ArrowUpRight className="h-3 w-3" />
+                      </Button>
+                    ) : null;
+                  })()}
+                </div>
+                <div className="bg-muted/50 rounded-lg p-4">
+                  <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+                    <ArrowDownRight className="h-3 w-3" /> Destinasjon
+                  </p>
+                  <p className="font-mono text-foreground text-sm">{selectedAlert.dstIp}</p>
+                  <p className="font-mono text-xs text-muted-foreground">Port {selectedAlert.dstPort}</p>
+                  {/* Link to device if internal IP */}
+                  {(() => {
+                    const dev = connectedDevices.find(d => d.ip === selectedAlert.dstIp);
+                    return dev ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="mt-2 h-7 text-xs gap-1 text-primary"
+                        onClick={() => { setSelectedAlert(null); setTimeout(() => setSelectedDevice(dev), 150); }}
+                      >
+                        <DeviceIcon type={dev.type} /> {dev.name} <ArrowUpRight className="h-3 w-3" />
+                      </Button>
+                    ) : null;
+                  })()}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Quick Actions */}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs gap-1"
+                  onClick={() => {
+                    navigator.clipboard.writeText(selectedAlert.srcIp);
+                    toast({ title: "Kopiert", description: `${selectedAlert.srcIp} kopiert til utklippstavle` });
+                  }}
+                >
+                  <Copy className="h-3 w-3" /> Kopier kilde-IP
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs gap-1"
+                  onClick={() => window.open(`https://www.abuseipdb.com/check/${selectedAlert.srcIp}`, '_blank')}
+                >
+                  <ExternalLink className="h-3 w-3" /> Sjekk AbuseIPDB
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs gap-1"
+                  onClick={() => window.open(`https://www.shodan.io/host/${selectedAlert.srcIp}`, '_blank')}
+                >
+                  <Search className="h-3 w-3" /> Shodan
+                </Button>
+              </div>
+
+              {/* Threat Info */}
+              <div className="bg-muted/30 rounded-lg p-3 border border-border">
+                <div className="flex items-start gap-2">
+                  <Info className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                  <div className="text-xs text-muted-foreground">
+                    <p className="font-medium text-foreground mb-1">Om denne regelen</p>
+                    {selectedAlert.category.includes("SCAN") && <p>Skanneaktivitet oppdaget. Noen prøver å kartlegge nettverket ditt eller finne åpne porter/tjenester.</p>}
+                    {selectedAlert.category.includes("MALWARE") && <p>Potensiell malware-aktivitet. En enhet kan kommunisere med kjente ondsinnede domener.</p>}
+                    {selectedAlert.category.includes("EXPLOIT") && <p>Utnyttelsesforsøk oppdaget. En angriper prøver å utnytte kjente sårbarheter i tjenestene dine.</p>}
+                    {selectedAlert.category.includes("TROJAN") && <p>Trojaner/C2-trafikk oppdaget. En enhet kan være kompromittert og kommuniserer med en kontrollserver.</p>}
+                    {selectedAlert.category.includes("POLICY") && <p>Policy-brudd oppdaget. Trafikk som bryter med nettverkspolicyen din.</p>}
+                    {selectedAlert.category.includes("WEB") && <p>Nettangrep oppdaget (f.eks. XSS, injeksjon). En angriper prøver å utnytte webtjenester.</p>}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Firewall Log Detail Dialog */}
+      <Dialog open={!!selectedFirewallLog} onOpenChange={(open) => !open && setSelectedFirewallLog(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div className={`rounded-lg p-2.5 ${selectedFirewallLog?.action === "block" ? "bg-destructive/10" : "bg-success/10"}`}>
+                {selectedFirewallLog?.action === "block" ? (
+                  <Ban className="h-5 w-5 text-destructive" />
+                ) : (
+                  <CheckCircle className="h-5 w-5 text-success" />
+                )}
+              </div>
+              <div>
+                <span className="text-base">Firewall Logg</span>
+                {selectedFirewallLog && (
+                  <p className="text-xs text-muted-foreground font-normal mt-1">{selectedFirewallLog.rule}</p>
+                )}
+              </div>
+              {selectedFirewallLog && (
+                <Badge className={`ml-auto ${selectedFirewallLog.action === "block" ? "bg-destructive/10 text-destructive" : "bg-success/10 text-success"}`}>
+                  {selectedFirewallLog.action === "block" ? "BLOKKERT" : "TILLATT"}
+                </Badge>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          {selectedFirewallLog && (
+            <div className="space-y-4">
+              {/* Timing & Protocol */}
+              <div className="flex items-center gap-4 text-sm">
+                <div className="flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-mono text-foreground">{selectedFirewallLog.timestamp}</span>
+                </div>
+                <Badge variant="outline" className="font-mono text-xs">{selectedFirewallLog.protocol}</Badge>
+                <Badge variant="secondary" className="text-xs">{selectedFirewallLog.interface}</Badge>
+              </div>
+
+              <Separator />
+
+              {/* Rule Info */}
+              <div className="bg-muted/50 rounded-lg p-4">
+                <p className="text-xs text-muted-foreground mb-1">Firewall-regel</p>
+                <p className="font-medium text-foreground">{selectedFirewallLog.rule}</p>
+              </div>
+
+              <Separator />
+
+              {/* Source & Destination */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-muted/50 rounded-lg p-4">
+                  <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+                    <ArrowUpRight className="h-3 w-3" /> Kilde
+                  </p>
+                  <p className="font-mono text-foreground text-sm">{selectedFirewallLog.srcIp}</p>
+                  {selectedFirewallLog.srcPort > 0 && (
+                    <p className="font-mono text-xs text-muted-foreground">Port {selectedFirewallLog.srcPort}</p>
+                  )}
+                  {(() => {
+                    const dev = connectedDevices.find(d => d.ip === selectedFirewallLog.srcIp);
+                    return dev ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="mt-2 h-7 text-xs gap-1 text-primary"
+                        onClick={() => { setSelectedFirewallLog(null); setTimeout(() => setSelectedDevice(dev), 150); }}
+                      >
+                        <DeviceIcon type={dev.type} /> {dev.name} <ArrowUpRight className="h-3 w-3" />
+                      </Button>
+                    ) : null;
+                  })()}
+                </div>
+                <div className="bg-muted/50 rounded-lg p-4">
+                  <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+                    <ArrowDownRight className="h-3 w-3" /> Destinasjon
+                  </p>
+                  <p className="font-mono text-foreground text-sm">{selectedFirewallLog.dstIp}</p>
+                  {selectedFirewallLog.dstPort > 0 && (
+                    <p className="font-mono text-xs text-muted-foreground">Port {selectedFirewallLog.dstPort}</p>
+                  )}
+                  {(() => {
+                    const dev = connectedDevices.find(d => d.ip === selectedFirewallLog.dstIp);
+                    return dev ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="mt-2 h-7 text-xs gap-1 text-primary"
+                        onClick={() => { setSelectedFirewallLog(null); setTimeout(() => setSelectedDevice(dev), 150); }}
+                      >
+                        <DeviceIcon type={dev.type} /> {dev.name} <ArrowUpRight className="h-3 w-3" />
+                      </Button>
+                    ) : null;
+                  })()}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Traffic Details */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-muted/50 rounded-lg p-3 text-center">
+                  <p className="text-xs text-muted-foreground mb-1">Bytes</p>
+                  <p className="font-mono font-bold text-foreground">{selectedFirewallLog.bytes.toLocaleString()}</p>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-3 text-center">
+                  <p className="text-xs text-muted-foreground mb-1">Protokoll</p>
+                  <p className="font-mono font-bold text-foreground">{selectedFirewallLog.protocol}</p>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-3 text-center">
+                  <p className="text-xs text-muted-foreground mb-1">Grensesnitt</p>
+                  <p className="font-mono font-bold text-foreground">{selectedFirewallLog.interface}</p>
+                </div>
+              </div>
+
+              {/* Quick Actions */}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs gap-1"
+                  onClick={() => {
+                    navigator.clipboard.writeText(selectedFirewallLog.srcIp);
+                    toast({ title: "Kopiert", description: `${selectedFirewallLog.srcIp} kopiert til utklippstavle` });
+                  }}
+                >
+                  <Copy className="h-3 w-3" /> Kopier kilde-IP
+                </Button>
+                {selectedFirewallLog.action === "block" && !selectedFirewallLog.srcIp.startsWith("192.168") && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs gap-1"
+                    onClick={() => window.open(`https://www.abuseipdb.com/check/${selectedFirewallLog.srcIp}`, '_blank')}
+                  >
+                    <ExternalLink className="h-3 w-3" /> Sjekk AbuseIPDB
+                  </Button>
+                )}
+              </div>
             </div>
           )}
         </DialogContent>
