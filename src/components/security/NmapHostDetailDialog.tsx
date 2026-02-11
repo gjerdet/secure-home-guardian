@@ -2,7 +2,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Server, Wifi, Cpu, HardDrive, Clock, Network, Globe, Shield } from "lucide-react";
+import { Server, Wifi, Cpu, HardDrive, Clock, Network, Globe, Shield, Cable, Radio } from "lucide-react";
 
 export interface NmapHostDetail {
   host: string;
@@ -18,6 +18,27 @@ export interface NmapHostDetail {
   connectionType?: string;
   gateway?: string;
   vlan?: string;
+  // Connection details
+  connection?: {
+    type: "wifi" | "ethernet";
+    // WiFi fields
+    ap?: string;
+    apMac?: string;
+    ssid?: string;
+    channel?: number;
+    band?: string;
+    signal?: number;
+    noiseFloor?: number;
+    txRate?: string;
+    rxRate?: string;
+    // Ethernet fields
+    switchName?: string;
+    switchMac?: string;
+    switchPort?: number;
+    portSpeed?: string;
+    poe?: boolean;
+    poeWatt?: number;
+  };
   services?: Array<{
     port: number;
     protocol: string;
@@ -80,7 +101,83 @@ export function NmapHostDetailDialog({ open, onOpenChange, host }: NmapHostDetai
               </CardContent>
             </Card>
 
-            {/* OS Details */}
+            {/* Connection Details */}
+            {host.connection && (
+              <Card className="bg-muted/30 border-border">
+                <CardContent className="p-4">
+                  <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                    {host.connection.type === "wifi" ? (
+                      <Radio className="h-4 w-4 text-primary" />
+                    ) : (
+                      <Cable className="h-4 w-4 text-primary" />
+                    )}
+                    {host.connection.type === "wifi" ? "WiFi-tilkobling" : "Kablet tilkobling"}
+                  </h4>
+                  
+                  {/* Connection path breadcrumb */}
+                  <div className="flex items-center gap-1.5 text-xs mb-4 p-2 bg-muted/50 rounded-md flex-wrap">
+                    <Badge variant="outline" className="font-mono text-[10px]">{host.hostname}</Badge>
+                    <span className="text-muted-foreground">→</span>
+                    {host.connection.type === "wifi" ? (
+                      <>
+                        <Badge variant="secondary" className="text-[10px]">
+                          <Radio className="h-3 w-3 mr-1" />
+                          {host.connection.ap} ({host.connection.ssid})
+                        </Badge>
+                        <span className="text-muted-foreground">→</span>
+                      </>
+                    ) : (
+                      <>
+                        <Badge variant="secondary" className="text-[10px]">
+                          <Cable className="h-3 w-3 mr-1" />
+                          {host.connection.switchName} (Port {host.connection.switchPort})
+                        </Badge>
+                        <span className="text-muted-foreground">→</span>
+                      </>
+                    )}
+                    <Badge variant="outline" className="font-mono text-[10px]">{host.gateway || "192.168.1.1"} (Gateway)</Badge>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    {host.connection.type === "wifi" ? (
+                      <>
+                        <InfoRow icon={<Radio className="h-4 w-4" />} label="Aksesspunkt" value={host.connection.ap || "—"} />
+                        {host.connection.apMac && <InfoRow icon={<Network className="h-4 w-4" />} label="AP MAC" value={host.connection.apMac} mono />}
+                        {host.connection.ssid && <InfoRow icon={<Wifi className="h-4 w-4" />} label="SSID" value={host.connection.ssid} />}
+                        {host.connection.channel && <InfoRow icon={<Radio className="h-4 w-4" />} label="Kanal" value={`${host.connection.channel} (${host.connection.band || ""})`} />}
+                        {host.connection.signal !== undefined && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-primary"><Wifi className="h-4 w-4" /></span>
+                            <div>
+                              <span className="text-muted-foreground text-xs">Signal</span>
+                              <div className="flex items-center gap-2">
+                                <p className="text-foreground text-sm font-mono">{host.connection.signal} dBm</p>
+                                <Badge variant={host.connection.signal > -50 ? "default" : host.connection.signal > -70 ? "secondary" : "destructive"} className="text-[10px]">
+                                  {host.connection.signal > -50 ? "Utmerket" : host.connection.signal > -70 ? "Bra" : "Svak"}
+                                </Badge>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        {host.connection.txRate && <InfoRow icon={<Globe className="h-4 w-4" />} label="TX-hastighet" value={host.connection.txRate} />}
+                        {host.connection.rxRate && <InfoRow icon={<Globe className="h-4 w-4" />} label="RX-hastighet" value={host.connection.rxRate} />}
+                      </>
+                    ) : (
+                      <>
+                        <InfoRow icon={<Server className="h-4 w-4" />} label="Switch" value={host.connection.switchName || "—"} />
+                        {host.connection.switchMac && <InfoRow icon={<Network className="h-4 w-4" />} label="Switch MAC" value={host.connection.switchMac} mono />}
+                        {host.connection.switchPort !== undefined && <InfoRow icon={<Cable className="h-4 w-4" />} label="Port" value={`Port ${host.connection.switchPort}`} />}
+                        {host.connection.portSpeed && <InfoRow icon={<Globe className="h-4 w-4" />} label="Hastighet" value={host.connection.portSpeed} />}
+                        {host.connection.poe !== undefined && (
+                          <InfoRow icon={<HardDrive className="h-4 w-4" />} label="PoE" value={host.connection.poe ? `Aktiv (${host.connection.poeWatt || "?"}W)` : "Nei"} />
+                        )}
+                      </>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {host.osDetails && (
               <Card className="bg-muted/30 border-border">
                 <CardContent className="p-4">
