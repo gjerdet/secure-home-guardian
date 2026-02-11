@@ -1771,6 +1771,19 @@ app.get('/api/health/all', async (req, res) => {
   const hours = Math.floor((uptime % 86400) / 3600);
   const minutes = Math.floor((uptime % 3600) / 60);
   
+  // Get real disk usage
+  let diskUsed = 0, diskTotal = 0;
+  try {
+    const { stdout } = await execAsync("df -B1 / | tail -1 | awk '{print $3, $2}'");
+    const parts = stdout.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      diskUsed = parseInt(parts[0]) || 0;
+      diskTotal = parseInt(parts[1]) || 0;
+    }
+  } catch (e) {
+    console.error('Disk info feilet:', e.message);
+  }
+
   res.json({
     services,
     system: {
@@ -1780,7 +1793,7 @@ app.get('/api/health/all', async (req, res) => {
         used: os.totalmem() - os.freemem(),
         total: os.totalmem(),
       },
-      disk: { used: 0, total: 0 }, // Would need df command for this
+      disk: { used: diskUsed, total: diskTotal },
     },
   });
 });
