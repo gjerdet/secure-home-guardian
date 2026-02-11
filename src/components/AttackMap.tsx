@@ -1,10 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import mapboxgl from "mapbox-gl";
-import "mapbox-gl/dist/mapbox-gl.css";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Key, MapPin } from "lucide-react";
+import { useEffect, useRef } from "react";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 
 interface AttackLocation {
   lat: number;
@@ -26,230 +22,109 @@ const severityColors: Record<string, string> = {
 
 export function AttackMap({ attacks }: AttackMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<mapboxgl.Map | null>(null);
-  const [mapboxToken, setMapboxToken] = useState<string>(() => 
-    localStorage.getItem("mapbox_token") || ""
-  );
-  const [tokenInput, setTokenInput] = useState("");
-  const [isMapReady, setIsMapReady] = useState(false);
+  const map = useRef<L.Map | null>(null);
+  const markersLayer = useRef<L.LayerGroup | null>(null);
 
-  const saveToken = () => {
-    localStorage.setItem("mapbox_token", tokenInput);
-    setMapboxToken(tokenInput);
-  };
-
+  // Initialize map once
   useEffect(() => {
-    if (!mapContainer.current || !mapboxToken) return;
+    if (!mapContainer.current || map.current) return;
 
-    mapboxgl.accessToken = mapboxToken;
+    map.current = L.map(mapContainer.current, {
+      center: [30, 10],
+      zoom: 2,
+      minZoom: 2,
+      maxZoom: 10,
+      zoomControl: true,
+      attributionControl: false,
+    });
 
-    try {
-      map.current = new mapboxgl.Map({
-        container: mapContainer.current,
-        style: "mapbox://styles/mapbox/dark-v11",
-        projection: "globe",
-        zoom: 1.5,
-        center: [10, 30],
-        pitch: 20,
+    // Dark tile layer (free, no API key)
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      subdomains: "abcd",
+    }).addTo(map.current);
+
+    markersLayer.current = L.layerGroup().addTo(map.current);
+
+    return () => {
+      map.current?.remove();
+      map.current = null;
+    };
+  }, []);
+
+  // Update markers when attacks change
+  useEffect(() => {
+    if (!map.current || !markersLayer.current) return;
+
+    markersLayer.current.clearLayers();
+
+    const homeCoords: L.LatLngExpression = [59.91, 10.75]; // Oslo
+
+    // Home marker
+    const homeIcon = L.divIcon({
+      className: "",
+      html: `<div style="width:16px;height:16px;background:#22d3ee;border-radius:50%;border:3px solid #fff;box-shadow:0 0 15px #22d3ee;"></div>`,
+      iconSize: [16, 16],
+      iconAnchor: [8, 8],
+    });
+
+    L.marker(homeCoords, { icon: homeIcon })
+      .bindPopup(`<div style="background:#1a1a2e;color:#fff;padding:8px;border-radius:4px;"><strong style="color:#22d3ee">DITT NETTVERK</strong><br/><span style="color:#888;">Oslo, Norge</span></div>`, { className: "dark-popup" })
+      .addTo(markersLayer.current);
+
+    // Attack markers + lines
+    attacks.forEach((attack) => {
+      const color = severityColors[attack.severity] || severityColors.medium;
+
+      const icon = L.divIcon({
+        className: "",
+        html: `<div style="width:12px;height:12px;background:${color};border-radius:50%;border:2px solid rgba(255,255,255,0.5);box-shadow:0 0 8px ${color};cursor:pointer;"></div>`,
+        iconSize: [12, 12],
+        iconAnchor: [6, 6],
       });
 
-      map.current.addControl(
-        new mapboxgl.NavigationControl({ visualizePitch: true }),
-        "top-right"
-      );
+      L.marker([attack.lat, attack.lng], { icon })
+        .bindPopup(`<div style="background:#1a1a2e;color:#fff;padding:8px;border-radius:4px;"><strong style="color:${color}">${attack.severity.toUpperCase()}</strong><br/><span style="color:#888;">Land:</span> ${attack.country}</div>`, { className: "dark-popup" })
+        .addTo(markersLayer.current!);
 
-      map.current.scrollZoom.disable();
+      // Line from attack to home
+      L.polyline([[attack.lat, attack.lng], homeCoords as [number, number]], {
+        color,
+        weight: 1,
+        opacity: 0.4,
+      }).addTo(markersLayer.current!);
+    });
 
-      map.current.on("style.load", () => {
-        map.current?.setFog({
-          color: "rgb(10, 20, 30)",
-          "high-color": "rgb(20, 40, 60)",
-          "horizon-blend": 0.1,
-        });
-        setIsMapReady(true);
-      });
-
-      // Slow rotation
-      const secondsPerRevolution = 360;
-      let userInteracting = false;
-
-      function spinGlobe() {
-        if (!map.current) return;
-        const zoom = map.current.getZoom();
-        if (!userInteracting && zoom < 3) {
-          const center = map.current.getCenter();
-          center.lng -= 360 / secondsPerRevolution;
-          map.current.easeTo({ center, duration: 1000, easing: (n) => n });
-        }
-      }
-
-      map.current.on("mousedown", () => { userInteracting = true; });
-      map.current.on("mouseup", () => { userInteracting = false; spinGlobe(); });
-      map.current.on("touchend", () => { userInteracting = false; spinGlobe(); });
-      map.current.on("moveend", spinGlobe);
-
-      spinGlobe();
-
-      return () => {
-        map.current?.remove();
-      };
-    } catch (error) {
-      console.error("Map initialization error:", error);
+    // Fit bounds if attacks exist
+    if (attacks.length > 0) {
+      const allPoints: L.LatLngExpression[] = [
+        homeCoords,
+        ...attacks.map(a => [a.lat, a.lng] as L.LatLngExpression),
+      ];
+      map.current.fitBounds(L.latLngBounds(allPoints), { padding: [30, 30], maxZoom: 5 });
     }
-  }, [mapboxToken]);
-
-  // Add markers when map is ready
-  useEffect(() => {
-    if (!map.current || !isMapReady) return;
-
-    // Remove existing markers
-    const existingMarkers = document.querySelectorAll(".attack-marker");
-    existingMarkers.forEach((m) => m.remove());
-
-    // Add attack markers
-    attacks.forEach((attack) => {
-      const el = document.createElement("div");
-      el.className = "attack-marker";
-      el.style.cssText = `
-        width: 16px;
-        height: 16px;
-        background: ${severityColors[attack.severity] || severityColors.medium};
-        border-radius: 50%;
-        border: 2px solid rgba(255,255,255,0.5);
-        box-shadow: 0 0 10px ${severityColors[attack.severity] || severityColors.medium};
-        cursor: pointer;
-      `;
-
-      new mapboxgl.Marker(el)
-        .setLngLat([attack.lng, attack.lat])
-        .setPopup(
-          new mapboxgl.Popup({ offset: 25, className: "attack-popup" }).setHTML(`
-            <div style="background: #1a1a2e; color: #fff; padding: 8px; border-radius: 4px;">
-              <strong style="color: ${severityColors[attack.severity]}">${attack.severity.toUpperCase()}</strong>
-              <br/>
-              <span style="color: #888;">Land:</span> ${attack.country}
-            </div>
-          `)
-        )
-        .addTo(map.current!);
-    });
-
-    // Add line from attack to home (Norway)
-    const homeCoords: [number, number] = [10.75, 59.91]; // Oslo
-    
-    attacks.forEach((attack) => {
-      const lineId = `line-${attack.lat}-${attack.lng}`;
-      
-      if (!map.current?.getSource(lineId)) {
-        map.current?.addSource(lineId, {
-          type: "geojson",
-          data: {
-            type: "Feature",
-            properties: {},
-            geometry: {
-              type: "LineString",
-              coordinates: [
-                [attack.lng, attack.lat],
-                homeCoords,
-              ],
-            },
-          },
-        });
-
-        map.current?.addLayer({
-          id: lineId,
-          type: "line",
-          source: lineId,
-          layout: {
-            "line-join": "round",
-            "line-cap": "round",
-          },
-          paint: {
-            "line-color": severityColors[attack.severity] || severityColors.medium,
-            "line-width": 1,
-            "line-opacity": 0.4,
-          },
-        });
-      }
-    });
-
-    // Add home marker
-    const homeEl = document.createElement("div");
-    homeEl.className = "attack-marker";
-    homeEl.style.cssText = `
-      width: 20px;
-      height: 20px;
-      background: #22d3ee;
-      border-radius: 50%;
-      border: 3px solid #fff;
-      box-shadow: 0 0 15px #22d3ee;
-    `;
-
-    new mapboxgl.Marker(homeEl)
-      .setLngLat(homeCoords)
-      .setPopup(
-        new mapboxgl.Popup({ offset: 25 }).setHTML(`
-          <div style="background: #1a1a2e; color: #fff; padding: 8px; border-radius: 4px;">
-            <strong style="color: #22d3ee">DITT NETTVERK</strong>
-            <br/>
-            <span style="color: #888;">Oslo, Norge</span>
-          </div>
-        `)
-      )
-      .addTo(map.current);
-  }, [attacks, isMapReady]);
-
-  if (!mapboxToken) {
-    return (
-      <div className="h-[500px] flex items-center justify-center bg-muted/30">
-        <div className="text-center max-w-md p-6">
-          <div className="rounded-lg bg-primary/10 p-4 w-fit mx-auto mb-4">
-            <MapPin className="h-8 w-8 text-primary" />
-          </div>
-          <h3 className="text-lg font-semibold text-foreground mb-2">Mapbox Token Påkrevd</h3>
-          <p className="text-sm text-muted-foreground mb-4">
-            For å vise angreps-kartet trenger du en Mapbox public token. 
-            Gå til <a href="https://mapbox.com/" target="_blank" rel="noopener" className="text-primary underline">mapbox.com</a> og kopier din public token.
-          </p>
-          <div className="space-y-3">
-            <div>
-              <Label className="text-left block mb-1">Mapbox Public Token</Label>
-              <Input
-                value={tokenInput}
-                onChange={(e) => setTokenInput(e.target.value)}
-                placeholder="pk.eyJ1Ijo..."
-                className="bg-muted border-border font-mono text-xs"
-              />
-            </div>
-            <Button onClick={saveToken} className="w-full bg-primary text-primary-foreground">
-              <Key className="h-4 w-4 mr-2" />
-              Lagre Token
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  }, [attacks]);
 
   return (
-    <div className="relative h-[500px]">
-      <div ref={mapContainer} className="absolute inset-0" />
-      <div className="absolute bottom-4 left-4 bg-card/90 backdrop-blur-sm rounded-lg p-3 text-xs">
-        <p className="font-semibold text-foreground mb-2">Angreps Statistikk</p>
-        <div className="space-y-1">
-          {Object.entries(
-            attacks.reduce((acc, a) => {
-              acc[a.country] = (acc[a.country] || 0) + 1;
-              return acc;
-            }, {} as Record<string, number>)
-          ).map(([country, count]) => (
-            <div key={country} className="flex justify-between gap-4">
-              <span className="text-muted-foreground">{country}</span>
-              <span className="font-mono text-foreground">{count}</span>
-            </div>
-          ))}
+    <div className="relative">
+      <div ref={mapContainer} className="h-[500px] rounded-b-lg" />
+      {attacks.length > 0 && (
+        <div className="absolute bottom-4 left-4 bg-card/90 backdrop-blur-sm rounded-lg p-3 text-xs z-[1000]">
+          <p className="font-semibold text-foreground mb-2">Angreps Statistikk</p>
+          <div className="space-y-1">
+            {Object.entries(
+              attacks.reduce((acc, a) => {
+                acc[a.country] = (acc[a.country] || 0) + 1;
+                return acc;
+              }, {} as Record<string, number>)
+            ).map(([country, count]) => (
+              <div key={country} className="flex justify-between gap-4">
+                <span className="text-muted-foreground">{country}</span>
+                <span className="font-mono text-foreground">{count}</span>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

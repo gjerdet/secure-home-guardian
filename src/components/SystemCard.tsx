@@ -11,6 +11,7 @@ interface SystemCardProps {
     value: number;
     max?: number;
     unit?: string;
+    textValue?: string; // For non-progress display (e.g. "5d 3h 12m")
   }[];
   className?: string;
 }
@@ -53,15 +54,22 @@ export function SystemCard({
               <div className="flex justify-between text-sm mb-1">
                 <span className="text-muted-foreground">{metric.label}</span>
                 <span className="font-mono text-foreground">
-                  {metric.value}
-                  {metric.unit || "%"}
-                  {metric.max && ` / ${metric.max}${metric.unit || "%"}`}
+                  {metric.textValue
+                    ? metric.textValue
+                    : <>
+                        {metric.value}
+                        {metric.unit || "%"}
+                        {metric.max != null && ` / ${metric.max}${metric.unit || "%"}`}
+                      </>
+                  }
                 </span>
               </div>
-              <Progress
-                value={metric.max ? (metric.value / metric.max) * 100 : metric.value}
-                className="h-1.5 bg-muted"
-              />
+              {!metric.textValue && (
+                <Progress
+                  value={metric.max ? (metric.value / metric.max) * 100 : metric.value}
+                  className="h-1.5 bg-muted"
+                />
+              )}
             </div>
           ))}
         </div>

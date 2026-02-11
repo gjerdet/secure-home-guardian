@@ -6,7 +6,23 @@ import { API_BASE, fetchJsonSafely } from "@/lib/api";
 
 interface MetricData {
   status: "online" | "warning" | "offline";
-  metrics: { label: string; value: number; max?: number; unit?: string }[];
+  metrics: { label: string; value: number; max?: number; unit?: string; textValue?: string }[];
+}
+
+function formatUptime(seconds: number): string {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (days > 0) return `${days}d ${hours}t ${minutes}m`;
+  if (hours > 0) return `${hours}t ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(1)} TB`;
+  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
+  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
+  return `${(bytes / 1e3).toFixed(0)} KB`;
 }
 
 export function SystemMetricsModule() {
@@ -32,9 +48,10 @@ export function SystemMetricsModule() {
   const [unifi, setUnifi] = useState<MetricData>({
     status: "offline",
     metrics: [
-      { label: "Båndbredde", value: 0, max: 1000, unit: "Mbps" },
       { label: "Aktive Enheter", value: 0, max: 50, unit: "" },
-      { label: "Uptime", value: 0, unit: "%" },
+      { label: "Throughput", value: 0, textValue: "—" },
+      { label: "Uptime", value: 0, textValue: "—" },
+      { label: "Månedleg Databruk", value: 0, textValue: "—" },
     ],
   });
 
@@ -45,7 +62,6 @@ export function SystemMetricsModule() {
         if (res.ok && res.data) {
           const d = res.data as any;
           const cpuPct = d.cpu_usage ?? d.loadavg?.[0] ?? 0;
-          const ramTotal = d.physmem ? Math.round(d.physmem / 1073741824) : 100;
           const ramUsed = d.physmem && d.physmem_used
             ? Math.round((d.physmem_used / d.physmem) * 100)
             : 0;
@@ -61,7 +77,6 @@ export function SystemMetricsModule() {
       })
       .catch(() => {});
 
-    // Also check TrueNAS pools for health
     fetchJsonSafely(`${API_BASE}/api/truenas/pools`, { headers: authHeaders })
       .then(res => {
         if (res.ok && res.data) {
@@ -109,20 +124,32 @@ export function SystemMetricsModule() {
       const subsystems = healthRes.ok ? ((healthRes.data as any)?.data || []) : [];
       const clients = clientsRes.ok ? ((clientsRes.data as any)?.data || []) : [];
       const wan = subsystems.find((s: any) => s.subsystem === 'wan');
-      const wlan = subsystems.find((s: any) => s.subsystem === 'wlan');
 
       if (subsystems.length > 0 || clients.length > 0) {
-        const txRate = wan?.tx_bytes_r ? Math.round(wan.tx_bytes_r * 8 / 1000000) : 0;
-        const rxRate = wan?.rx_bytes_r ? Math.round(wan.rx_bytes_r * 8 / 1000000) : 0;
-        const bandwidth = txRate + rxRate;
-        const uptimePct = wan?.status === 'ok' ? 100 : wan ? 50 : 0;
+        // Throughput (real-time bytes/sec → Mbps)
+        const txRate = wan?.tx_bytes_r ? wan.tx_bytes_r * 8 / 1000000 : 0;
+        const rxRate = wan?.rx_bytes_r ? wan.rx_bytes_r * 8 / 1000000 : 0;
+        const throughputText = `↓ ${rxRate.toFixed(1)} / ↑ ${txRate.toFixed(1)} Mbps`;
+
+        // Uptime (seconds → human readable)
+        const uptimeSec = wan?.gw_system_stats?.uptime || wan?.uptime || 0;
+        const uptimeText = uptimeSec > 0 ? formatUptime(uptimeSec) : wan?.status === 'ok' ? 'Online' : '—';
+
+        // Monthly data usage (sum rx_bytes + tx_bytes from all clients)
+        const totalBytes = clients.reduce((sum: number, c: any) => {
+          return sum + (c.rx_bytes || 0) + (c.tx_bytes || 0);
+        }, 0);
+        // Also check WAN counters if available
+        const wanBytes = (wan?.rx_bytes || 0) + (wan?.tx_bytes || 0);
+        const monthlyBytes = wanBytes > totalBytes ? wanBytes : totalBytes;
 
         setUnifi({
           status: wan?.status === 'ok' ? "online" : subsystems.length > 0 ? "warning" : "offline",
           metrics: [
-            { label: "Båndbredde", value: bandwidth, max: 1000, unit: "Mbps" },
             { label: "Aktive Enheter", value: clients.length, max: Math.max(50, clients.length), unit: "" },
-            { label: "Uptime", value: uptimePct, unit: "%" },
+            { label: "Throughput", value: 0, textValue: throughputText },
+            { label: "Uptime", value: 0, textValue: uptimeText },
+            { label: "Månedleg Databruk", value: 0, textValue: monthlyBytes > 0 ? formatBytes(monthlyBytes) : '—' },
           ],
         });
       }
