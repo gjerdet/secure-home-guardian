@@ -544,7 +544,7 @@ async function unifiRequest(endpoint) {
   }
 
   const baseUrl = process.env.UNIFI_CONTROLLER_URL;
-  const site = process.env.UNIFI_SITE || 'default';
+  const site = encodeURIComponent(process.env.UNIFI_SITE || 'default');
 
   console.log(`[UniFi] Request: ${endpoint} (method: ${authMethod}, base: ${baseUrl})`);
 
@@ -1953,6 +1953,7 @@ app.get('/api/system/info', authenticateToken, async (req, res) => {
       cpu: { model: cpuModel, cores: cpuCores, usage: Math.round(cpuUsage) },
       ram: { total: totalMem, used: usedMem, free: freeMem },
       disk: { total: diskTotal, used: diskUsed },
+      disks,
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
