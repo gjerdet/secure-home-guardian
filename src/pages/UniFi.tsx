@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { Header } from "@/components/Header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -22,7 +23,7 @@ import {
   Search, Copy, Info
 } from "lucide-react";
 
-const API_BASE = import.meta.env.VITE_API_URL || "";
+import { API_BASE, fetchJsonSafely } from "@/lib/api";
 
 interface IdsAlert {
   id: string;
@@ -158,6 +159,8 @@ const DeviceIcon = ({ type }: { type: string }) => {
 };
 
 export default function UniFi() {
+  const { token } = useAuth();
+  const authHeaders = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const [sortBy, setSortBy] = useState<string>("time");
   const [filterSeverity, setFilterSeverity] = useState<string>("all");
   const [filterFirewall, setFilterFirewall] = useState<string>("all");
@@ -172,23 +175,37 @@ export default function UniFi() {
   const [isCyclingPort, setIsCyclingPort] = useState<number | null>(null);
   const [liveAPs, setLiveAPs] = useState<APDevice[]>(networkDevices.aps);
   const [liveSwitches, setLiveSwitches] = useState<SwitchDevice[]>(networkDevices.switches);
+  const [liveClients, setLiveClients] = useState<typeof connectedDevices>([]);
+  const [liveTraffic, setLiveTraffic] = useState(trafficStats);
+  const [liveFirewallLogs, setLiveFirewallLogs] = useState<FirewallLog[]>(firewallLogs);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [abuseData, setAbuseData] = useState<Record<string, any>>({});
   const [isLoadingAbuse, setIsLoadingAbuse] = useState(false);
   const { toast } = useToast();
 
-  const token = localStorage.getItem("netguard_token");
-
   // Fetch live device data from backend
   const fetchLiveData = useCallback(async () => {
+    setIsLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/unifi/devices`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data?.data) {
-        // Map UniFi API device data to our interfaces
-        const aps: APDevice[] = data.data
+      const [devicesRes, alertsRes, clientsRes, healthRes] = await Promise.all([
+        fetchJsonSafely(`${API_BASE}/api/unifi/devices`, { headers: authHeaders }),
+        fetchJsonSafely(`${API_BASE}/api/unifi/alerts`, { headers: authHeaders }),
+        fetchJsonSafely(`${API_BASE}/api/unifi/clients`, { headers: authHeaders }),
+        fetchJsonSafely(`${API_BASE}/api/unifi/health`, { headers: authHeaders }),
+      ]);
+
+      if (!devicesRes.ok && !alertsRes.ok && !clientsRes.ok) {
+        setConnectionError(devicesRes.error || "Kan ikke koble til UniFi Controller");
+        setIsLoading(false);
+        return;
+      }
+
+      setConnectionError(null);
+
+      // Parse devices
+      if (devicesRes.ok && devicesRes.data?.data) {
+        const aps: APDevice[] = devicesRes.data.data
           .filter((d: any) => d.type === "uap")
           .map((d: any) => ({
             name: d.name || d.model,
@@ -211,7 +228,7 @@ export default function UniFi() {
             connectedClients: [],
           }));
 
-        const switches: SwitchDevice[] = data.data
+        const switches: SwitchDevice[] = devicesRes.data.data
           .filter((d: any) => d.type === "usw")
           .map((d: any) => ({
             name: d.name || d.model,
@@ -244,10 +261,71 @@ export default function UniFi() {
         if (aps.length > 0) setLiveAPs(aps);
         if (switches.length > 0) setLiveSwitches(switches);
       }
-    } catch {
-      // Backend not available, keep demo data
+
+      // Parse IDS alerts
+      if (alertsRes.ok && alertsRes.data?.data) {
+        const alerts: IdsAlert[] = alertsRes.data.data.slice(0, 100).map((a: any) => ({
+          id: a._id || a.key || Math.random().toString(),
+          timestamp: a.datetime || a.time ? new Date(a.time).toISOString() : new Date().toISOString(),
+          severity: a.catname?.includes("high") || a.threat_level > 3 ? "high" : a.catname?.includes("medium") ? "medium" : "low",
+          category: a.catname || a.inner_alert_category || "unknown",
+          signature: a.msg || a.inner_alert_signature || "Ukjent signatur",
+          srcIp: a.src_ip || a.srcipGeo?.ip || "",
+          dstIp: a.dst_ip || a.dstipGeo?.ip || "",
+          srcPort: a.src_port || 0,
+          dstPort: a.dst_port || 0,
+          action: a.inner_alert_action || a.action || "alert",
+          country: a.srcipGeo?.country_name,
+          lat: a.srcipGeo?.latitude,
+          lng: a.srcipGeo?.longitude,
+        }));
+        if (alerts.length > 0) setIdsAlerts(alerts);
+      }
+
+      // Parse clients
+      if (clientsRes.ok && clientsRes.data?.data) {
+        const clients = clientsRes.data.data.slice(0, 100).map((c: any) => ({
+          id: c._id || c.mac,
+          name: c.hostname || c.name || c.oui || c.mac,
+          type: c.is_wired ? "desktop" : c.dev_cat === 7 ? "phone" : "laptop",
+          ip: c.ip || "",
+          mac: c.mac || "",
+          connection: c.is_wired ? "Wired" : `WiFi ${c.channel && c.channel > 14 ? "5G" : "2.4G"}`,
+          signal: c.rssi || 0,
+          rxRate: Math.round((c.rx_rate || 0) / 1000),
+          txRate: Math.round((c.tx_rate || 0) / 1000),
+          uptime: c.uptime ? `${Math.floor(c.uptime / 3600)}h ${Math.floor((c.uptime % 3600) / 60)}m` : "-",
+          connectedTo: c.ap_mac || c.sw_mac || "-",
+          network: c.network || c.essid || "-",
+          vlan: c.vlan || 1,
+          rxBytes: c.rx_bytes || 0,
+          txBytes: c.tx_bytes || 0,
+          channel: c.channel?.toString() || null,
+        }));
+        setLiveClients(clients);
+      }
+
+      // Parse health/traffic
+      if (healthRes.ok && healthRes.data?.data) {
+        const wan = healthRes.data.data.find((h: any) => h.subsystem === "wan");
+        const lan = healthRes.data.data.find((h: any) => h.subsystem === "lan");
+        if (wan || lan) {
+          setLiveTraffic({
+            totalDownload: wan?.rx_bytes_r ? `${(wan.rx_bytes_r / 1048576).toFixed(1)} MB/s` : "—",
+            totalUpload: wan?.tx_bytes_r ? `${(wan.tx_bytes_r / 1048576).toFixed(1)} MB/s` : "—",
+            currentDown: wan?.rx_bytes_r ? `${(wan.rx_bytes_r / 1048576).toFixed(1)} MB/s` : "—",
+            currentUp: wan?.tx_bytes_r ? `${(wan.tx_bytes_r / 1048576).toFixed(1)} MB/s` : "—",
+            wanLatency: wan?.latency ? `${wan.latency}ms` : "—",
+            dnsQueries: lan?.num_sta || 0,
+          });
+        }
+      }
+    } catch (err) {
+      setConnectionError(err instanceof Error ? err.message : "Nettverksfeil");
+    } finally {
+      setIsLoading(false);
     }
-  }, [token]);
+  }, [authHeaders]);
 
   useEffect(() => {
     fetchLiveData();
@@ -443,9 +521,27 @@ export default function UniFi() {
             <h1 className="text-2xl font-bold text-foreground">UniFi Controller</h1>
             <p className="text-sm text-muted-foreground">IDS/IPS Overvåkning • Enhetsadministrasjon</p>
           </div>
-          <Badge className="ml-auto bg-success/10 text-success border-success/20">Online</Badge>
+          <div className="ml-auto flex items-center gap-2">
+            <Button variant="ghost" size="icon" onClick={fetchLiveData} disabled={isLoading}>
+              <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+            </Button>
+            <Badge className={connectionError
+              ? "bg-destructive/10 text-destructive border-destructive/20"
+              : "bg-success/10 text-success border-success/20"
+            }>
+              {isLoading ? "Laster..." : connectionError ? "Ikke tilkoblet" : "Online"}
+            </Badge>
+          </div>
         </div>
 
+        {connectionError && (
+          <Card className="bg-destructive/10 border-destructive/30 mb-6">
+            <CardContent className="p-4 flex items-center gap-3">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              <p className="text-sm text-destructive">{connectionError}</p>
+            </CardContent>
+          </Card>
+        )}
         {/* Network Equipment Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-6">
           <Card className="bg-card border-border">
@@ -472,7 +568,7 @@ export default function UniFi() {
                 <ArrowDownRight className="h-3 w-3 text-success" />
                 Nedlasting
               </div>
-              <p className="text-xl font-mono font-bold text-foreground">{trafficStats.currentDown}</p>
+              <p className="text-xl font-mono font-bold text-foreground">{liveTraffic.currentDown}</p>
             </CardContent>
           </Card>
           <Card className="bg-card border-border">
@@ -481,7 +577,7 @@ export default function UniFi() {
                 <ArrowUpRight className="h-3 w-3 text-primary" />
                 Opplasting
               </div>
-              <p className="text-xl font-mono font-bold text-foreground">{trafficStats.currentUp}</p>
+              <p className="text-xl font-mono font-bold text-foreground">{liveTraffic.currentUp}</p>
             </CardContent>
           </Card>
           <Card className="bg-card border-border">
@@ -490,7 +586,7 @@ export default function UniFi() {
                 <Users className="h-3 w-3" />
                 Klienter
               </div>
-              <p className="text-xl font-mono font-bold text-foreground">{connectedDevices.length}</p>
+              <p className="text-xl font-mono font-bold text-foreground">{liveClients.length}</p>
             </CardContent>
           </Card>
           <Card className="bg-card border-border">
@@ -499,7 +595,7 @@ export default function UniFi() {
                 <Globe className="h-3 w-3" />
                 WAN Latency
               </div>
-              <p className="text-xl font-mono font-bold text-foreground">{trafficStats.wanLatency}</p>
+              <p className="text-xl font-mono font-bold text-foreground">{liveTraffic.wanLatency}</p>
             </CardContent>
           </Card>
           <Card className="bg-card border-border">
@@ -517,7 +613,7 @@ export default function UniFi() {
                 <Activity className="h-3 w-3" />
                 DNS Queries
               </div>
-              <p className="text-xl font-mono font-bold text-foreground">{(trafficStats.dnsQueries / 1000).toFixed(1)}k</p>
+              <p className="text-xl font-mono font-bold text-foreground">{liveTraffic.dnsQueries > 1000 ? `${(liveTraffic.dnsQueries / 1000).toFixed(1)}k` : liveTraffic.dnsQueries}</p>
             </CardContent>
           </Card>
         </div>
@@ -726,11 +822,11 @@ export default function UniFi() {
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1">
                         <Ban className="h-3 w-3 text-destructive" />
-                        Blokkert: {firewallLogs.filter(l => l.action === "block").length}
+                        Blokkert: {liveFirewallLogs.filter(l => l.action === "block").length}
                       </span>
                       <span className="flex items-center gap-1">
                         <CheckCircle className="h-3 w-3 text-success" />
-                        Tillatt: {firewallLogs.filter(l => l.action === "allow").length}
+                        Tillatt: {liveFirewallLogs.filter(l => l.action === "allow").length}
                       </span>
                     </div>
                     <Select value={filterFirewall} onValueChange={setFilterFirewall}>
@@ -750,7 +846,7 @@ export default function UniFi() {
               <CardContent className="p-0">
                 <ScrollArea className="h-[500px]">
                   <div className="divide-y divide-border">
-                    {firewallLogs
+                    {liveFirewallLogs
                       .filter(log => filterFirewall === "all" || log.action === filterFirewall)
                       .map((log) => (
                       <div key={log.id} className="p-4 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => setSelectedFirewallLog(log)}>
@@ -833,18 +929,18 @@ export default function UniFi() {
                 <div className="flex items-center justify-between">
                   <CardTitle className="flex items-center gap-2">
                     <Users className="h-5 w-5 text-primary" />
-                    Tilkoblede Enheter ({connectedDevices.length})
+                    Tilkoblede Enheter ({liveClients.length})
                   </CardTitle>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1"><Wifi className="h-3 w-3" /> WiFi: {connectedDevices.filter(d => d.connection !== "Ethernet").length}</span>
-                    <span className="flex items-center gap-1"><Network className="h-3 w-3" /> Kabel: {connectedDevices.filter(d => d.connection === "Ethernet").length}</span>
+                    <span className="flex items-center gap-1"><Wifi className="h-3 w-3" /> WiFi: {liveClients.filter(d => d.connection !== "Ethernet").length}</span>
+                    <span className="flex items-center gap-1"><Network className="h-3 w-3" /> Kabel: {liveClients.filter(d => d.connection === "Ethernet").length}</span>
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="p-0">
                 <ScrollArea className="h-[500px]">
                   <div className="divide-y divide-border">
-                    {connectedDevices.map((device) => (
+                    {liveClients.map((device) => (
                       <div key={device.id} className="p-4 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => setSelectedDevice(device)}>
                         <div className="flex items-center gap-4">
                           <div className={`rounded-lg p-2.5 ${device.type === "unknown" ? "bg-warning/10" : "bg-primary/10"}`}>
@@ -1084,7 +1180,7 @@ export default function UniFi() {
                 <p className="text-xs text-muted-foreground font-medium mb-2">Tilkoblede klienter ({selectedAP.connectedClients.length})</p>
                 <div className="divide-y divide-border rounded-lg border border-border overflow-hidden">
                   {selectedAP.connectedClients.map((client, idx) => {
-                    const device = connectedDevices.find(d => d.ip === client.ip);
+                    const device = liveClients.find(d => d.ip === client.ip);
                     return (
                       <div
                         key={idx}
@@ -1209,7 +1305,7 @@ export default function UniFi() {
                       <span>Handling</span>
                     </div>
                     {selectedSwitch.portList.map((port) => {
-                      const connDevice = port.name ? connectedDevices.find(d => d.connectedTo.includes(selectedSwitch.name) && d.connectedTo.includes(`Port ${port.port}`)) || connectedDevices.find(d => d.name === port.name) : null;
+                      const connDevice = port.name ? liveClients.find(d => d.connectedTo.includes(selectedSwitch.name) && d.connectedTo.includes(`Port ${port.port}`)) || liveClients.find(d => d.name === port.name) : null;
                       return (
                         <div
                           key={port.port}
@@ -1349,7 +1445,7 @@ export default function UniFi() {
                   )}
                   {/* Link to device if internal IP */}
                   {(() => {
-                    const dev = connectedDevices.find(d => d.ip === selectedAlert.srcIp);
+                    const dev = liveClients.find(d => d.ip === selectedAlert.srcIp);
                     return dev ? (
                       <Button
                         variant="ghost"
@@ -1370,7 +1466,7 @@ export default function UniFi() {
                   <p className="font-mono text-xs text-muted-foreground">Port {selectedAlert.dstPort}</p>
                   {/* Link to device if internal IP */}
                   {(() => {
-                    const dev = connectedDevices.find(d => d.ip === selectedAlert.dstIp);
+                    const dev = liveClients.find(d => d.ip === selectedAlert.dstIp);
                     return dev ? (
                       <Button
                         variant="ghost"
@@ -1563,7 +1659,7 @@ export default function UniFi() {
                     <p className="font-mono text-xs text-muted-foreground">Port {selectedFirewallLog.srcPort}</p>
                   )}
                   {(() => {
-                    const dev = connectedDevices.find(d => d.ip === selectedFirewallLog.srcIp);
+                    const dev = liveClients.find(d => d.ip === selectedFirewallLog.srcIp);
                     return dev ? (
                       <Button
                         variant="ghost"
@@ -1585,7 +1681,7 @@ export default function UniFi() {
                     <p className="font-mono text-xs text-muted-foreground">Port {selectedFirewallLog.dstPort}</p>
                   )}
                   {(() => {
-                    const dev = connectedDevices.find(d => d.ip === selectedFirewallLog.dstIp);
+                    const dev = liveClients.find(d => d.ip === selectedFirewallLog.dstIp);
                     return dev ? (
                       <Button
                         variant="ghost"
