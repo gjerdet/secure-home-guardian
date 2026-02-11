@@ -755,8 +755,32 @@ app.post('/api/proxmox/vms/:node/:vmid/:action', async (req, res) => {
   }
 });
 
+app.get('/api/proxmox/storage', async (req, res) => {
+  try {
+    const nodes = await proxmoxRequest('/nodes');
+    const storage = [];
+    
+    for (const node of nodes.data) {
+      const nodeStorage = await proxmoxRequest(`/nodes/${node.node}/storage`);
+      storage.push(...nodeStorage.data.map(s => ({ ...s, node: node.node })));
+    }
+    
+    res.json({ data: storage });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/proxmox/cluster', async (req, res) => {
+  try {
+    const data = await proxmoxRequest('/cluster/status');
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ============================================
-// OpenVAS / Greenbone API
 // ============================================
 
 let openvasToken = null;
