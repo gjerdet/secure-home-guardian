@@ -1435,23 +1435,64 @@ app.post('/api/security/ssl-check', authenticateToken, async (req, res) => {
 // Firewall Audit - Get UDM Pro firewall rules (uses unifiRequest with API key)
 app.get('/api/security/firewall-rules', authenticateToken, async (req, res) => {
   try {
-    // Use the same unifiRequest function that works with API key auth
-    const [rulesData, pfData, fgData] = await Promise.all([
-      unifiRequest('/rest/firewallrule').catch(e => { console.log('[UniFi] firewallrule:', e.message); return { data: [] }; }),
+    const baseUrl = process.env.UNIFI_CONTROLLER_URL;
+    const apiKey = process.env.UNIFI_API_KEY;
+    const site = await discoverUnifiSiteId();
+    
+    const headers = { 'X-API-Key': apiKey };
+    
+    // Try multiple paths for firewall rules (different firmware versions)
+    let firewallRules = [];
+    const fwPaths = [
+      `${baseUrl}/proxy/network/api/s/${site}/rest/firewallrule`,
+      `${baseUrl}/proxy/network/v2/api/site/${site}/firewall/rules`,
+      `${baseUrl}/api/s/${site}/rest/firewallrule`,
+    ];
+    
+    for (const url of fwPaths) {
+      try {
+        console.log(`[UniFi] Firewall trying: ${url}`);
+        const r = await axios.get(url, { httpsAgent, headers, timeout: 10000 });
+        firewallRules = r.data?.data || r.data || [];
+        console.log(`[UniFi] Firewall OK: ${url} -> ${Array.isArray(firewallRules) ? firewallRules.length : 0} rules`);
+        break;
+      } catch (e) {
+        console.log(`[UniFi] Firewall feil: ${url} -> ${e.response?.status || e.message}`);
+      }
+    }
+
+    // Port forwards and firewall groups via unifiRequest
+    const [pfData, fgData] = await Promise.all([
       unifiRequest('/rest/portforward').catch(() => ({ data: [] })),
       unifiRequest('/rest/firewallgroup').catch(() => ({ data: [] })),
     ]);
 
+    // Also try traffic rules (zone-based firewall on newer firmware)
+    let trafficRules = [];
+    try {
+      const trRes = await axios.get(
+        `${baseUrl}/proxy/network/v2/api/site/${site}/trafficrules`,
+        { httpsAgent, headers, timeout: 10000 }
+      );
+      trafficRules = trRes.data || [];
+      console.log(`[UniFi] Traffic rules: ${trafficRules.length}`);
+    } catch (e) {
+      console.log(`[UniFi] Traffic rules: ${e.response?.status || e.message}`);
+    }
+
     res.json({
-      firewallRules: rulesData?.data || [],
+      firewallRules: firewallRules,
       portForwards: pfData?.data || [],
       firewallGroups: fgData?.data || [],
+      trafficRules: trafficRules,
     });
   } catch (error) {
+    console.error('[UniFi] Firewall endpoint error:', error.message);
     res.json({
       firewallRules: [],
       portForwards: [],
       firewallGroups: [],
+      trafficRules: [],
       error: error.message,
     });
   }
