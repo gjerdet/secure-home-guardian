@@ -126,6 +126,23 @@ interface FirewallLog {
   bytes: number;
 }
 
+interface SystemEvent {
+  id: string;
+  timestamp: string;
+  key: string;
+  msg: string;
+  subsystem: string;
+  type: string;
+  srcIp: string;
+  dstIp: string;
+  srcPort: number;
+  dstPort: number;
+  proto: string;
+  action: string;
+  deviceName: string;
+  deviceMac: string;
+}
+
 const firewallLogs: FirewallLog[] = [];
 
 const trafficStats = {
@@ -178,6 +195,8 @@ export default function UniFi() {
   const [liveClients, setLiveClients] = useState<typeof connectedDevices>([]);
   const [liveTraffic, setLiveTraffic] = useState(trafficStats);
   const [liveFirewallLogs, setLiveFirewallLogs] = useState<FirewallLog[]>(firewallLogs);
+  const [systemEvents, setSystemEvents] = useState<SystemEvent[]>([]);
+  const [selectedEvent, setSelectedEvent] = useState<SystemEvent | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [abuseData, setAbuseData] = useState<Record<string, any>>({});
@@ -188,11 +207,13 @@ export default function UniFi() {
   const fetchLiveData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [devicesRes, alertsRes, clientsRes, healthRes] = await Promise.all([
+      const [devicesRes, alertsRes, clientsRes, healthRes, idsRes, eventsRes] = await Promise.all([
         fetchJsonSafely(`${API_BASE}/api/unifi/devices`, { headers: authHeaders }),
         fetchJsonSafely(`${API_BASE}/api/unifi/alerts`, { headers: authHeaders }),
         fetchJsonSafely(`${API_BASE}/api/unifi/clients`, { headers: authHeaders }),
         fetchJsonSafely(`${API_BASE}/api/unifi/health`, { headers: authHeaders }),
+        fetchJsonSafely(`${API_BASE}/api/unifi/ids-alerts`, { headers: authHeaders }),
+        fetchJsonSafely(`${API_BASE}/api/unifi/events`, { headers: authHeaders }),
       ]);
 
       if (!devicesRes.ok && !alertsRes.ok && !clientsRes.ok) {
@@ -369,6 +390,47 @@ export default function UniFi() {
             dnsQueries: lan?.num_sta || 0,
           });
         }
+      }
+
+      // Parse dedicated IDS/IPS alerts
+      if (idsRes.ok && idsRes.data?.alerts?.length > 0) {
+        const idsAlertsMapped: IdsAlert[] = idsRes.data.alerts.map((a: any) => ({
+          id: a.id,
+          timestamp: a.timestamp,
+          severity: a.severity || 'low',
+          category: a.category || 'unknown',
+          signature: a.signature || 'Ukjent signatur',
+          srcIp: a.srcIp || '',
+          dstIp: a.dstIp || '',
+          srcPort: a.srcPort || 0,
+          dstPort: a.dstPort || 0,
+          action: a.action || 'alert',
+        }));
+        setIdsAlerts(idsAlertsMapped);
+      }
+
+      // Parse system events (includes firewall logs)
+      if (eventsRes.ok && eventsRes.data?.events) {
+        const allEvents: SystemEvent[] = eventsRes.data.events;
+        setSystemEvents(allEvents);
+        
+        // Extract firewall events as firewall logs
+        const fwLogs: FirewallLog[] = allEvents
+          .filter((e: SystemEvent) => e.type === 'firewall' || e.key?.includes('FW'))
+          .map((e: SystemEvent) => ({
+            id: e.id,
+            timestamp: e.timestamp,
+            action: (e.action === 'drop' || e.action === 'reject' || e.key?.includes('BLOCK')) ? 'block' as const : 'allow' as const,
+            rule: e.msg || e.key || '',
+            protocol: e.proto || '',
+            srcIp: e.srcIp || '',
+            srcPort: e.srcPort || 0,
+            dstIp: e.dstIp || '',
+            dstPort: e.dstPort || 0,
+            interface: e.subsystem || '',
+            bytes: 0,
+          }));
+        if (fwLogs.length > 0) setLiveFirewallLogs(fwLogs);
       }
     } catch (err) {
       setConnectionError(err instanceof Error ? err.message : "Nettverksfeil");
@@ -751,6 +813,10 @@ export default function UniFi() {
               <Shield className="h-4 w-4 mr-2" />
               Brannmurregler
             </TabsTrigger>
+            <TabsTrigger value="syslog" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <Activity className="h-4 w-4 mr-2" />
+              System Logger
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="ids">
@@ -1033,6 +1099,63 @@ export default function UniFi() {
 
           <TabsContent value="fw-rules">
             <FirewallAuditPanel />
+          </TabsContent>
+
+          <TabsContent value="syslog">
+            <Card className="bg-card border-border">
+              <CardHeader className="border-b border-border">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <Activity className="h-5 w-5 text-primary" />
+                    System Logger ({systemEvents.length})
+                  </CardTitle>
+                  <Button variant="ghost" size="icon" onClick={fetchLiveData} disabled={isLoading}>
+                    <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                <ScrollArea className="h-[500px]">
+                  <div className="divide-y divide-border">
+                    {systemEvents.length === 0 ? (
+                      <div className="p-8 text-center text-muted-foreground text-sm">
+                        {isLoading ? "Laster hendelser..." : "Ingen systemhendelser funnet"}
+                      </div>
+                    ) : systemEvents.map((event) => (
+                      <div key={event.id} className="p-4 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => setSelectedEvent(event)}>
+                        <div className="flex items-start justify-between mb-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant="outline" className={`text-xs ${
+                              event.type === 'ids' ? 'border-destructive/30 text-destructive' :
+                              event.type === 'firewall' ? 'border-warning/30 text-warning' :
+                              'border-primary/30 text-primary'
+                            }`}>
+                              {event.type === 'ids' ? 'IDS/IPS' : event.type === 'firewall' ? 'Brannmur' : 'System'}
+                            </Badge>
+                            <Badge variant="secondary" className="text-[10px] font-mono">{event.key}</Badge>
+                            {event.deviceName && (
+                              <Badge variant="outline" className="text-[10px]">{event.deviceName}</Badge>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-muted-foreground font-mono flex items-center gap-1 shrink-0">
+                            <Clock className="h-3 w-3" />
+                            {event.timestamp ? new Date(event.timestamp).toLocaleString('nb-NO') : '—'}
+                          </span>
+                        </div>
+                        <p className="text-sm text-foreground">{event.msg}</p>
+                        {(event.srcIp || event.dstIp) && (
+                          <div className="flex gap-4 mt-1 text-xs text-muted-foreground font-mono">
+                            {event.srcIp && <span>Kilde: {event.srcIp}{event.srcPort ? `:${event.srcPort}` : ''}</span>}
+                            {event.dstIp && <span>Mål: {event.dstIp}{event.dstPort ? `:${event.dstPort}` : ''}</span>}
+                            {event.proto && <span>{event.proto}</span>}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </main>
@@ -1787,6 +1910,50 @@ export default function UniFi() {
                     <ExternalLink className="h-3 w-3" /> Sjekk AbuseIPDB
                   </Button>
                 )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* System Event Detail Dialog */}
+      <Dialog open={!!selectedEvent} onOpenChange={(open) => !open && setSelectedEvent(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Activity className="h-5 w-5 text-primary" />
+              Hendelsesdetaljer
+            </DialogTitle>
+          </DialogHeader>
+          {selectedEvent && (
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline" className={`text-xs ${
+                  selectedEvent.type === 'ids' ? 'border-destructive/30 text-destructive' :
+                  selectedEvent.type === 'firewall' ? 'border-warning/30 text-warning' :
+                  'border-primary/30 text-primary'
+                }`}>
+                  {selectedEvent.type === 'ids' ? 'IDS/IPS' : selectedEvent.type === 'firewall' ? 'Brannmur' : 'System'}
+                </Badge>
+                <Badge variant="secondary" className="font-mono text-xs">{selectedEvent.key}</Badge>
+                {selectedEvent.action && <Badge variant="outline" className="text-xs">{selectedEvent.action}</Badge>}
+              </div>
+
+              <div className="bg-muted/50 rounded-lg p-3">
+                <p className="text-sm text-foreground">{selectedEvent.msg}</p>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between"><span className="text-muted-foreground">Tidspunkt</span><span className="font-mono text-foreground">{selectedEvent.timestamp ? new Date(selectedEvent.timestamp).toLocaleString('nb-NO') : '—'}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Hendelsestype</span><span className="font-mono text-foreground">{selectedEvent.key}</span></div>
+                {selectedEvent.subsystem && <div className="flex justify-between"><span className="text-muted-foreground">Subsystem</span><span className="text-foreground">{selectedEvent.subsystem}</span></div>}
+                {selectedEvent.deviceName && <div className="flex justify-between"><span className="text-muted-foreground">Enhet</span><span className="text-foreground">{selectedEvent.deviceName}</span></div>}
+                {selectedEvent.deviceMac && <div className="flex justify-between"><span className="text-muted-foreground">Enhet MAC</span><span className="font-mono text-foreground text-xs">{selectedEvent.deviceMac}</span></div>}
+                {selectedEvent.srcIp && <div className="flex justify-between"><span className="text-muted-foreground">Kilde IP</span><span className="font-mono text-foreground">{selectedEvent.srcIp}{selectedEvent.srcPort ? `:${selectedEvent.srcPort}` : ''}</span></div>}
+                {selectedEvent.dstIp && <div className="flex justify-between"><span className="text-muted-foreground">Mål IP</span><span className="font-mono text-foreground">{selectedEvent.dstIp}{selectedEvent.dstPort ? `:${selectedEvent.dstPort}` : ''}</span></div>}
+                {selectedEvent.proto && <div className="flex justify-between"><span className="text-muted-foreground">Protokoll</span><span className="font-mono text-foreground">{selectedEvent.proto}</span></div>}
               </div>
             </div>
           )}

@@ -834,6 +834,63 @@ app.post('/api/unifi/devices/:mac/port/:portIdx/cycle', authenticateToken, async
   }
 });
 
+// UniFi system events/logs
+app.get('/api/unifi/events', authenticateToken, async (req, res) => {
+  try {
+    const baseUrl = process.env.UNIFI_CONTROLLER_URL;
+    const apiKey = process.env.UNIFI_API_KEY;
+    const site = await discoverUnifiSiteId();
+    const headers = { 'X-API-Key': apiKey };
+    const axOpts = { httpsAgent, headers, timeout: 15000 };
+
+    let events = [];
+    const eventPaths = [
+      `${baseUrl}/proxy/network/api/s/${site}/stat/event`,
+      `${baseUrl}/api/s/${site}/stat/event`,
+      `${baseUrl}/proxy/network/v2/api/site/${site}/events`,
+    ];
+
+    for (const url of eventPaths) {
+      try {
+        console.log(`[UniFi] Events trying: ${url}`);
+        const r = await axios.get(url, axOpts);
+        const data = r.data?.data || r.data || [];
+        const items = Array.isArray(data) ? data : [];
+        console.log(`[UniFi] Events OK: ${url} -> ${items.length} events`);
+        if (items.length > 0) {
+          events = items;
+          break;
+        }
+      } catch (e) {
+        console.log(`[UniFi] Events fail: ${url} -> ${e.response?.status || e.message}`);
+      }
+    }
+
+    const normalized = events.slice(0, 200).map(e => ({
+      id: e._id || e.id || Math.random().toString(),
+      timestamp: e.datetime || (e.time ? new Date(e.time).toISOString() : ''),
+      key: e.key || '',
+      msg: e.msg || e.message || '',
+      subsystem: e.subsystem || '',
+      type: e.key?.startsWith('EVT_IPS') ? 'ids' : e.key?.startsWith('EVT_FW') ? 'firewall' : 'system',
+      srcIp: e.src_ip || '',
+      dstIp: e.dst_ip || '',
+      srcPort: e.src_port || 0,
+      dstPort: e.dst_port || 0,
+      proto: e.proto || '',
+      action: e.inner_alert_action || e.action || '',
+      deviceName: e.sw_name || e.ap_name || e.gw_name || '',
+      deviceMac: e.sw || e.ap || e.gw || '',
+    }));
+
+    console.log(`[UniFi] Events: returning ${normalized.length} events (IDS: ${normalized.filter(e => e.type === 'ids').length}, FW: ${normalized.filter(e => e.type === 'firewall').length}, SYS: ${normalized.filter(e => e.type === 'system').length})`);
+    res.json({ events: normalized, total: events.length });
+  } catch (error) {
+    console.error('[UniFi] Events error:', error.message);
+    res.status(500).json({ error: error.message, events: [] });
+  }
+});
+
 // ============================================
 // TrueNAS API
 // ============================================
