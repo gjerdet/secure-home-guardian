@@ -539,6 +539,46 @@ app.get('/api/unifi/health', async (req, res) => {
   }
 });
 
+// Restart AP
+app.post('/api/unifi/devices/:mac/restart', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Kun administratorer har tilgang' });
+  }
+  try {
+    if (!unifiCookie) await unifiLogin();
+    const response = await axios.post(
+      `${process.env.UNIFI_CONTROLLER_URL}/api/s/${process.env.UNIFI_SITE}/cmd/devmgr`,
+      { cmd: 'restart', mac: req.params.mac },
+      { httpsAgent, headers: { Cookie: unifiCookie?.join('; ') } }
+    );
+    res.json({ success: true, message: 'Enhet restartes', data: response.data });
+  } catch (error) {
+    if (error.response?.status === 401) {
+      await unifiLogin();
+      return res.status(503).json({ error: 'Session utløpt, prøv igjen' });
+    }
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Power cycle a switch port (PoE)
+app.post('/api/unifi/devices/:mac/port/:portIdx/cycle', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Kun administratorer har tilgang' });
+  }
+  try {
+    if (!unifiCookie) await unifiLogin();
+    const response = await axios.post(
+      `${process.env.UNIFI_CONTROLLER_URL}/api/s/${process.env.UNIFI_SITE}/cmd/devmgr`,
+      { cmd: 'power-cycle', mac: req.params.mac, port_idx: parseInt(req.params.portIdx) },
+      { httpsAgent, headers: { Cookie: unifiCookie?.join('; ') } }
+    );
+    res.json({ success: true, message: 'Port power-cycled', data: response.data });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ============================================
 // TrueNAS API
 // ============================================
