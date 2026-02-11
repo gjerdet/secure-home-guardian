@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Header } from "@/components/Header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,8 +17,10 @@ import {
   Users, Globe, Clock, ArrowUpRight, ArrowDownRight,
   Monitor, Smartphone, Laptop, Router, Radio, Network,
   ArrowUpDown, Download, FileJson, FileSpreadsheet, RefreshCw,
-  Ban, CheckCircle, Filter
+  Ban, CheckCircle, Filter, Power, Zap, Loader2
 } from "lucide-react";
+
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
 interface IdsAlert {
   id: string;
@@ -271,9 +273,131 @@ export default function UniFi() {
   const [selectedDevice, setSelectedDevice] = useState<typeof connectedDevices[0] | null>(null);
   const [selectedAP, setSelectedAP] = useState<APDevice | null>(null);
   const [selectedSwitch, setSelectedSwitch] = useState<SwitchDevice | null>(null);
+  const [isRestarting, setIsRestarting] = useState<string | null>(null);
+  const [isCyclingPort, setIsCyclingPort] = useState<number | null>(null);
+  const [liveAPs, setLiveAPs] = useState<APDevice[]>(networkDevices.aps);
+  const [liveSwitches, setLiveSwitches] = useState<SwitchDevice[]>(networkDevices.switches);
   const { toast } = useToast();
 
-  // Load cached GeoIP data on mount
+  const token = localStorage.getItem("netguard_token");
+
+  // Fetch live device data from backend
+  const fetchLiveData = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/unifi/devices`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data?.data) {
+        // Map UniFi API device data to our interfaces
+        const aps: APDevice[] = data.data
+          .filter((d: any) => d.type === "uap")
+          .map((d: any) => ({
+            name: d.name || d.model,
+            model: d.model,
+            status: d.state === 1 ? "online" : "offline",
+            clients: d["num_sta"] || 0,
+            channel2g: d.radio_table?.find((r: any) => r.radio === "ng")?.channel?.toString() || "-",
+            channel5g: d.radio_table?.find((r: any) => r.radio === "na")?.channel?.toString() || "-",
+            experience: d.satisfaction ?? 0,
+            ip: d.ip || "",
+            mac: d.mac || "",
+            firmware: d.version || "",
+            uptime: d.uptime ? `${Math.floor(d.uptime / 86400)}d ${Math.floor((d.uptime % 86400) / 3600)}h` : "-",
+            txPower2g: d.radio_table?.find((r: any) => r.radio === "ng")?.tx_power_mode === "custom" ? d.radio_table.find((r: any) => r.radio === "ng").tx_power : 20,
+            txPower5g: d.radio_table?.find((r: any) => r.radio === "na")?.tx_power_mode === "custom" ? d.radio_table.find((r: any) => r.radio === "na").tx_power : 23,
+            load: Math.round((d["sys_stats"]?.loadavg_1 || 0) * 100),
+            memUsage: Math.round((d["sys_stats"]?.mem_used || 0) / (d["sys_stats"]?.mem_total || 1) * 100),
+            cpuUsage: Math.round(d["system-stats"]?.cpu || 0),
+            satisfaction: d.satisfaction ?? 0,
+            connectedClients: [],
+          }));
+
+        const switches: SwitchDevice[] = data.data
+          .filter((d: any) => d.type === "usw")
+          .map((d: any) => ({
+            name: d.name || d.model,
+            model: d.model,
+            status: d.state === 1 ? "online" : "offline",
+            ports: d.port_table?.length || 0,
+            portsUsed: d.port_table?.filter((p: any) => p.up).length || 0,
+            poeWatts: d.port_table?.reduce((sum: number, p: any) => sum + (p.poe_power || 0), 0) || 0,
+            poeBudget: d.total_max_power || 0,
+            ip: d.ip || "",
+            mac: d.mac || "",
+            firmware: d.version || "",
+            uptime: d.uptime ? `${Math.floor(d.uptime / 86400)}d ${Math.floor((d.uptime % 86400) / 3600)}h` : "-",
+            temperature: d.general_temperature || 0,
+            fanLevel: d.fan_level || 0,
+            portList: (d.port_table || []).map((p: any) => ({
+              port: p.port_idx,
+              name: p.name || "",
+              status: p.up ? "up" : "down",
+              speed: p.speed ? `${p.speed} Mbps` : "-",
+              poeEnabled: p.poe_enable || false,
+              poeWatts: p.poe_power || 0,
+              device: p.name || "",
+              vlan: p.port_vlan || 1,
+              rxBytes: p.rx_bytes || 0,
+              txBytes: p.tx_bytes || 0,
+            })),
+          }));
+
+        if (aps.length > 0) setLiveAPs(aps);
+        if (switches.length > 0) setLiveSwitches(switches);
+      }
+    } catch {
+      // Backend not available, keep demo data
+    }
+  }, [token]);
+
+  useEffect(() => {
+    fetchLiveData();
+    const interval = setInterval(fetchLiveData, 15000);
+    return () => clearInterval(interval);
+  }, [fetchLiveData]);
+
+  const handleRestartAP = async (mac: string) => {
+    setIsRestarting(mac);
+    try {
+      const res = await fetch(`${API_BASE}/api/unifi/devices/${mac}/restart`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      });
+      if (res.ok) {
+        toast({ title: "Restart", description: "AP restartes. Dette tar ca. 2-3 minutter." });
+      } else {
+        const err = await res.json();
+        toast({ title: "Feil", description: err.error || "Kunne ikke restarte AP", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Feil", description: "Backend ikke tilgjengelig", variant: "destructive" });
+    } finally {
+      setIsRestarting(null);
+    }
+  };
+
+  const handlePowerCyclePort = async (switchMac: string, portIdx: number) => {
+    setIsCyclingPort(portIdx);
+    try {
+      const res = await fetch(`${API_BASE}/api/unifi/devices/${switchMac}/port/${portIdx}/cycle`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      });
+      if (res.ok) {
+        toast({ title: "Power Cycle", description: `Port ${portIdx} power-cycles. Enheten vil miste strøm i noen sekunder.` });
+      } else {
+        const err = await res.json();
+        toast({ title: "Feil", description: err.error || "Kunne ikke power-cycle port", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Feil", description: "Backend ikke tilgjengelig", variant: "destructive" });
+    } finally {
+      setIsCyclingPort(null);
+    }
+  };
+
   useEffect(() => {
     const cached = localStorage.getItem("ids_geoip_cache");
     if (cached) {
@@ -401,7 +525,7 @@ export default function UniFi() {
                 <Radio className="h-3 w-3 text-primary" />
                 Access Points
               </div>
-              <p className="text-xl font-mono font-bold text-foreground">{networkDevices.aps.length}</p>
+              <p className="text-xl font-mono font-bold text-foreground">{liveAPs.length}</p>
             </CardContent>
           </Card>
           <Card className="bg-card border-border">
@@ -410,7 +534,7 @@ export default function UniFi() {
                 <Network className="h-3 w-3 text-primary" />
                 Switcher
               </div>
-              <p className="text-xl font-mono font-bold text-foreground">{networkDevices.switches.length}</p>
+              <p className="text-xl font-mono font-bold text-foreground">{liveSwitches.length}</p>
             </CardContent>
           </Card>
           <Card className="bg-card border-border">
@@ -480,7 +604,7 @@ export default function UniFi() {
             </CardHeader>
             <CardContent className="p-0">
               <div className="divide-y divide-border">
-                {networkDevices.aps.map((ap) => (
+                {liveAPs.map((ap) => (
                   <div key={ap.name} className="p-3 flex items-center justify-between cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setSelectedAP(ap)}>
                     <div>
                       <p className="text-sm font-medium text-foreground">{ap.name}</p>
@@ -502,7 +626,7 @@ export default function UniFi() {
             </CardHeader>
             <CardContent className="p-0">
               <div className="divide-y divide-border">
-                {networkDevices.switches.map((sw) => (
+                {liveSwitches.map((sw) => (
                   <div key={sw.name} className="p-3 flex items-center justify-between cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setSelectedSwitch(sw)}>
                     <div>
                       <p className="text-sm font-medium text-foreground">{sw.name}</p>
@@ -1026,6 +1150,22 @@ export default function UniFi() {
                   ))}
                 </div>
               </div>
+
+              <Separator />
+
+              {/* Restart Button */}
+              <Button
+                variant="destructive"
+                className="w-full gap-2"
+                onClick={() => handleRestartAP(selectedAP.mac)}
+                disabled={isRestarting === selectedAP.mac}
+              >
+                {isRestarting === selectedAP.mac ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" />Restarter...</>
+                ) : (
+                  <><Power className="h-4 w-4" />Restart AP</>
+                )}
+              </Button>
             </div>
           )}
         </DialogContent>
@@ -1091,7 +1231,7 @@ export default function UniFi() {
                 <p className="text-xs text-muted-foreground font-medium mb-2">Porter</p>
                 <ScrollArea className="h-[400px]">
                   <div className="divide-y divide-border rounded-lg border border-border overflow-hidden">
-                    <div className="grid grid-cols-[50px_1fr_80px_80px_70px_80px_80px] gap-2 p-2 bg-muted/80 text-[10px] text-muted-foreground font-medium sticky top-0">
+                    <div className="grid grid-cols-[50px_1fr_80px_80px_70px_80px_80px_60px] gap-2 p-2 bg-muted/80 text-[10px] text-muted-foreground font-medium sticky top-0">
                       <span>Port</span>
                       <span>Enhet</span>
                       <span>Status</span>
@@ -1099,9 +1239,10 @@ export default function UniFi() {
                       <span>VLAN</span>
                       <span>PoE</span>
                       <span>Trafikk</span>
+                      <span>Handling</span>
                     </div>
                     {selectedSwitch.portList.map((port) => (
-                      <div key={port.port} className={`grid grid-cols-[50px_1fr_80px_80px_70px_80px_80px] gap-2 p-2 text-xs items-center ${port.status === "down" ? "opacity-50" : ""}`}>
+                      <div key={port.port} className={`grid grid-cols-[50px_1fr_80px_80px_70px_80px_80px_60px] gap-2 p-2 text-xs items-center ${port.status === "down" ? "opacity-50" : ""}`}>
                         <span className="font-mono font-bold text-foreground">{port.port}</span>
                         <span className="text-foreground truncate">{port.name || <span className="text-muted-foreground italic">Ledig</span>}</span>
                         <Badge variant={port.status === "up" ? "default" : "secondary"} className={`text-[10px] justify-center ${port.status === "up" ? "bg-success/10 text-success" : ""}`}>
@@ -1115,11 +1256,47 @@ export default function UniFi() {
                         <span className="font-mono text-foreground text-[11px]">
                           {port.status === "up" ? `${formatBytes(port.rxBytes + port.txBytes)}` : "—"}
                         </span>
+                        <span>
+                          {port.poeEnabled && port.status === "up" ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              title="Power Cycle Port"
+                              onClick={() => handlePowerCyclePort(selectedSwitch.mac, port.port)}
+                              disabled={isCyclingPort === port.port}
+                            >
+                              {isCyclingPort === port.port ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Zap className="h-3 w-3 text-warning" />
+                              )}
+                            </Button>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </span>
                       </div>
                     ))}
                   </div>
                 </ScrollArea>
               </div>
+
+              <Separator />
+
+              {/* Restart Switch */}
+              <Button
+                variant="destructive"
+                className="w-full gap-2"
+                onClick={() => handleRestartAP(selectedSwitch.mac)}
+                disabled={isRestarting === selectedSwitch.mac}
+              >
+                {isRestarting === selectedSwitch.mac ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" />Restarter...</>
+                ) : (
+                  <><Power className="h-4 w-4" />Restart Switch</>
+                )}
+              </Button>
             </div>
           )}
         </DialogContent>
