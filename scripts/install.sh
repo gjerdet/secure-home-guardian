@@ -58,6 +58,40 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+# Sjekk Ubuntu-versjon
+check_ubuntu_version() {
+    if [ ! -f /etc/os-release ]; then
+        warn "Kunne ikke finne /etc/os-release – kan ikke verifisere OS-versjon"
+        return
+    fi
+
+    . /etc/os-release
+
+    if [ "$ID" != "ubuntu" ]; then
+        warn "Dette skriptet er laget for Ubuntu, men fant: $PRETTY_NAME"
+        warn "Installasjonen kan fungere, men er ikke testet for $ID"
+        read -p "Vil du fortsette likevel? (j/n): " -n 1 -r
+        echo
+        [[ ! $REPLY =~ ^[Jj]$ ]] && exit 1
+        return
+    fi
+
+    MAJOR_VER=$(echo "$VERSION_ID" | cut -d. -f1)
+    MINOR_VER=$(echo "$VERSION_ID" | cut -d. -f2)
+
+    if [ "$MAJOR_VER" -lt 22 ] || { [ "$MAJOR_VER" -eq 22 ] && [ "$MINOR_VER" -lt 4 ]; }; then
+        error "Ubuntu $VERSION_ID er for gammel. Minimum versjon er 22.04 LTS."
+        error "Anbefalt: Ubuntu 24.04 LTS"
+        exit 1
+    elif [ "$MAJOR_VER" -eq 22 ]; then
+        warn "Ubuntu 22.04 er støttet, men 24.04 LTS er anbefalt for nye installasjoner."
+    else
+        status "Ubuntu $VERSION_ID – OK"
+    fi
+}
+
+check_ubuntu_version
+
 # Funksjon for å vise status
 status() {
     echo -e "${GREEN}[✓]${NC} $1"
