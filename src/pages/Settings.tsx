@@ -909,7 +909,7 @@ export default function Settings() {
                 </CardContent>
               </Card>
 
-              {/* Update progress */}
+              {/* Update progress with step-by-step bar */}
               {(isUpdating || updateProgress.length > 0) && (
                 <Card className="bg-card border-border">
                   <CardHeader className="border-b border-border">
@@ -918,7 +918,57 @@ export default function Settings() {
                       Oppdateringsfremdrift
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="p-4">
+                  <CardContent className="p-4 space-y-6">
+                    {/* Visual step progress bar */}
+                    {(() => {
+                      const steps = [
+                        { label: 'Git Pull', icon: GitBranch },
+                        { label: 'npm install', icon: Download },
+                        { label: 'Build', icon: ArrowUpCircle },
+                        { label: 'Restart', icon: RefreshCw },
+                      ];
+                      const completedSteps = updateProgress.filter(p => p.status === 'done').length;
+                      const hasError = updateProgress.some(p => p.status === 'error');
+                      const currentStep = hasError ? -1 : Math.min(completedSteps, steps.length - 1);
+                      const progressPercent = hasError ? 0 : Math.min((completedSteps / steps.length) * 100, 100);
+
+                      return (
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            {steps.map((step, i) => {
+                              const StepIcon = step.icon;
+                              const isDone = i < completedSteps;
+                              const isActive = i === currentStep && isUpdating && !hasError;
+                              const isErrorStep = hasError && i === completedSteps;
+                              return (
+                                <div key={i} className="flex flex-col items-center flex-1">
+                                  <div className={`rounded-full p-2 mb-1 transition-all ${
+                                    isDone ? 'bg-success/20 text-success' :
+                                    isActive ? 'bg-primary/20 text-primary animate-pulse' :
+                                    isErrorStep ? 'bg-destructive/20 text-destructive' :
+                                    'bg-muted text-muted-foreground'
+                                  }`}>
+                                    {isDone ? <CheckCircle className="h-5 w-5" /> :
+                                     isActive ? <Loader2 className="h-5 w-5 animate-spin" /> :
+                                     isErrorStep ? <XCircle className="h-5 w-5" /> :
+                                     <StepIcon className="h-5 w-5" />}
+                                  </div>
+                                  <span className={`text-xs font-medium ${
+                                    isDone ? 'text-success' :
+                                    isActive ? 'text-primary' :
+                                    isErrorStep ? 'text-destructive' :
+                                    'text-muted-foreground'
+                                  }`}>{step.label}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <Progress className="mt-2" value={progressPercent} />
+                        </div>
+                      );
+                    })()}
+
+                    {/* Detailed log */}
                     <div className="space-y-2">
                       {updateProgress.map((p, i) => (
                         <div key={i} className="flex items-center gap-3 text-sm">
@@ -933,9 +983,6 @@ export default function Settings() {
                         </div>
                       ))}
                     </div>
-                    {isUpdating && (
-                      <Progress className="mt-4" value={(updateProgress.filter(p => p.status === 'done').length / 6) * 100} />
-                    )}
                   </CardContent>
                 </Card>
               )}

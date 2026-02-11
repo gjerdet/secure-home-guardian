@@ -23,7 +23,7 @@ import { NmapHostDetailDialog, type NmapHostDetail } from "@/components/security
 import { VulnerabilityDetailDialog, type VulnerabilityDetail } from "@/components/security/VulnerabilityDetailDialog";
 import { 
   Radar, Shield, Search, Clock, AlertTriangle, CheckCircle,
-  Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin, Network, Wifi, ExternalLink, Lock, Activity
+  Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin, Network, Wifi, ExternalLink, Lock, Activity, History
 } from "lucide-react";
 
 import { API_BASE, fetchJsonSafely } from '@/lib/api';
@@ -148,6 +148,17 @@ export default function Security() {
   // Geo map state for scan results
   const [scanGeoLocations, setScanGeoLocations] = useState<Array<{ lat: number; lng: number; severity: string; country: string }>>([]);
   const [isGeoLookingUp, setIsGeoLookingUp] = useState(false);
+
+  // Scan history
+  const [scanHistory, setScanHistory] = useState<Array<{
+    id: string;
+    target: string;
+    scanType: string;
+    hostsFound: number;
+    timestamp: string;
+    duration?: number;
+  }>>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
   // WAN scan state
   const [wanIp, setWanIp] = useState<string>("");
@@ -572,10 +583,29 @@ export default function Security() {
       } catch { /* silent */ }
     };
 
+    const loadScanHistory = async () => {
+      setIsLoadingHistory(true);
+      try {
+        const res = await fetchJsonSafely(`${API_BASE}/api/nmap/results`);
+        if (res.ok && res.data && Array.isArray(res.data)) {
+          setScanHistory(res.data.map((r: any, i: number) => ({
+            id: r.id || `scan-${i}`,
+            target: r.target || 'Ukjent',
+            scanType: r.scanType || 'quick',
+            hostsFound: r.hostsFound || 0,
+            timestamp: r.timestamp || r.completedAt || '',
+            duration: r.duration,
+          })));
+        }
+      } catch { /* silent */ }
+      finally { setIsLoadingHistory(false); }
+    };
+
     fetchOpenvasData();
     fetchWanIp();
     checkRunningJobs();
     loadSavedResults();
+    loadScanHistory();
     
     return () => {
       if (nmapPollRef.current) clearInterval(nmapPollRef.current);
@@ -677,6 +707,10 @@ export default function Security() {
             <TabsTrigger value="map" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               <MapPin className="h-4 w-4 mr-2" />
               Geo-kart
+            </TabsTrigger>
+            <TabsTrigger value="history" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <History className="h-4 w-4 mr-2" />
+              Historikk ({scanHistory.length})
             </TabsTrigger>
           </TabsList>
 
@@ -1342,6 +1376,71 @@ export default function Security() {
               </CardHeader>
               <CardContent className="p-0">
                 <AttackMap attacks={scanGeoLocations} />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="history">
+            <Card className="bg-card border-border">
+              <CardHeader className="border-b border-border">
+                <CardTitle className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <History className="h-5 w-5 text-primary" />
+                    Scan-historikk
+                  </div>
+                  <Badge variant="outline">{scanHistory.length} skanninger</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-4">
+                {isLoadingHistory ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 text-primary animate-spin" />
+                    <span className="ml-2 text-muted-foreground">Laster historikk...</span>
+                  </div>
+                ) : scanHistory.length === 0 ? (
+                  <div className="text-center py-8">
+                    <History className="h-12 w-12 text-muted-foreground mx-auto mb-3 opacity-50" />
+                    <p className="text-muted-foreground">Ingen tidligere skanninger funnet</p>
+                    <p className="text-xs text-muted-foreground mt-1">Kjør en Nmap-skanning fra Nmap-fanen for å se historikk her.</p>
+                  </div>
+                ) : (
+                  <ScrollArea className="max-h-[500px]">
+                    <div className="space-y-2">
+                      {scanHistory.map((scan) => {
+                        const date = scan.timestamp ? new Date(scan.timestamp) : null;
+                        return (
+                          <div
+                            key={scan.id}
+                            className="flex items-center gap-4 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+                          >
+                            <div className="rounded-full bg-primary/10 p-2">
+                              <Target className="h-4 w-4 text-primary" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-sm text-foreground">{scan.target}</span>
+                                <Badge variant="outline" className="text-[10px]">{scan.scanType}</Badge>
+                              </div>
+                              <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                                <span className="flex items-center gap-1">
+                                  <Clock className="h-3 w-3" />
+                                  {date ? date.toLocaleString('nb-NO', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Ukjent dato'}
+                                </span>
+                                {scan.duration && (
+                                  <span>{Math.round(scan.duration / 1000)}s</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-lg font-mono font-bold text-foreground">{scan.hostsFound}</p>
+                              <p className="text-xs text-muted-foreground">hosts</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </ScrollArea>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
