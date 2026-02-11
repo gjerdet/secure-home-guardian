@@ -153,8 +153,8 @@ mkdir -p $INSTALL_DIR
 cp -r $CURRENT_DIR/* $INSTALL_DIR/ 2>/dev/null || true
 cp -r $CURRENT_DIR/.* $INSTALL_DIR/ 2>/dev/null || true
 cd $INSTALL_DIR
-npm install --omit=dev 2>&1 | tail -3
-npm run build 2>&1 | tail -5
+npm install 2>&1 | tail -3
+npx vite build 2>&1 | tail -5
 
 if [ ! -f "$INSTALL_DIR/dist/index.html" ]; then
     error "Frontend-bygg feilet! dist/index.html ble ikke generert."
