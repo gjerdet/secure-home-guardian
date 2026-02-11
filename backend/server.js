@@ -694,12 +694,11 @@ app.get('/api/unifi/ids-alerts', authenticateToken, async (req, res) => {
 
     let alerts = [];
 
-    // Try multiple IDS/IPS event paths
+    // Try IPS-specific event paths first (not generic stat/event which has client roaming)
     const idsPaths = [
       { url: `${baseUrl}/proxy/network/api/s/${site}/stat/ips/event`, label: 'stat/ips/event (proxy)' },
       { url: `${baseUrl}/proxy/network/v2/api/site/${site}/security/events`, label: 'v2 security/events' },
       { url: `${baseUrl}/api/s/${site}/stat/ips/event`, label: 'stat/ips/event (direct)' },
-      { url: `${baseUrl}/proxy/network/api/s/${site}/stat/event`, label: 'stat/event (proxy)' },
     ];
 
     for (const p of idsPaths) {
@@ -718,7 +717,29 @@ app.get('/api/unifi/ids-alerts', authenticateToken, async (req, res) => {
       }
     }
 
-    // Map to normalized format
+    // If no IPS-specific data, try stat/event but FILTER for IPS/IDS only
+    if (alerts.length === 0) {
+      try {
+        const fallbackUrl = `${baseUrl}/proxy/network/api/s/${site}/stat/event`;
+        console.log(`[UniFi] IDS fallback: stat/event with filtering`);
+        const r = await axios.get(fallbackUrl, axOpts);
+        const data = r.data?.data || [];
+        // Only keep IPS/IDS/security events, NOT client roaming/connection events
+        alerts = data.filter(a =>
+          a.key?.includes('EVT_IPS') ||
+          a.key?.includes('EVT_IDS') ||
+          a.key?.includes('EVT_FW') ||
+          a.catname?.toLowerCase().includes('attack') ||
+          a.catname?.toLowerCase().includes('intrusion') ||
+          a.catname?.toLowerCase().includes('threat') ||
+          a.inner_alert_signature
+        );
+        console.log(`[UniFi] IDS fallback: filtered ${data.length} -> ${alerts.length} security events`);
+      } catch (e) {
+        console.log(`[UniFi] IDS fallback fail: ${e.response?.status || e.message}`);
+      }
+    }
+
     const normalized = alerts.slice(0, 200).map(a => ({
       id: a._id || a.id || Math.random().toString(),
       timestamp: a.timestamp ? new Date(a.timestamp).toISOString() : a.datetime || a.time || '',
@@ -740,6 +761,75 @@ app.get('/api/unifi/ids-alerts', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('[UniFi] IDS/IPS error:', error.message);
     res.status(500).json({ error: error.message, alerts: [] });
+  }
+});
+
+// Traffic Flows - real-time traffic sessions from UniFi Gateway
+app.get('/api/unifi/flows', authenticateToken, async (req, res) => {
+  try {
+    const baseUrl = process.env.UNIFI_CONTROLLER_URL;
+    const apiKey = process.env.UNIFI_API_KEY;
+    const site = await discoverUnifiSiteId();
+    const headers = { 'X-API-Key': apiKey, 'Content-Type': 'application/json' };
+    const axOpts = { httpsAgent, headers, timeout: 15000 };
+
+    let flows = [];
+
+    const flowPaths = [
+      { url: `${baseUrl}/proxy/network/v2/api/site/${site}/flows`, label: 'v2 flows', method: 'get' },
+      { url: `${baseUrl}/proxy/network/v2/api/site/${site}/insight/flows`, label: 'v2 insight/flows', method: 'get' },
+      { url: `${baseUrl}/proxy/network/v2/api/site/${site}/traffic/flows`, label: 'v2 traffic/flows', method: 'get' },
+      { url: `${baseUrl}/proxy/network/v2/api/site/${site}/flows/active`, label: 'v2 flows/active', method: 'get' },
+      { url: `${baseUrl}/proxy/network/v2/api/site/${site}/flows`, label: 'v2 flows (POST)', method: 'post',
+        body: { limit: 100, orderBy: 'timestamp', orderDirection: 'desc' } },
+    ];
+
+    for (const p of flowPaths) {
+      try {
+        console.log(`[UniFi] Flows trying: ${p.label}`);
+        let r;
+        if (p.method === 'post') {
+          r = await axios.post(p.url, p.body, axOpts);
+        } else {
+          r = await axios.get(p.url, axOpts);
+        }
+        const data = r.data?.data || r.data?.flows || r.data || [];
+        const items = Array.isArray(data) ? data : [];
+        console.log(`[UniFi] Flows OK: ${p.label} -> ${items.length} flows, keys: ${items[0] ? Object.keys(items[0]).join(',') : 'empty'}`);
+        if (items.length > 0) {
+          flows = items;
+          break;
+        }
+      } catch (e) {
+        console.log(`[UniFi] Flows fail: ${p.label} -> ${e.response?.status || e.message}`);
+      }
+    }
+
+    const normalized = flows.slice(0, 200).map(f => ({
+      id: f._id || f.id || Math.random().toString(),
+      timestamp: f.timestamp ? (f.timestamp > 1e12 ? new Date(f.timestamp).toISOString() : new Date(f.timestamp * 1000).toISOString()) : f.datetime || '',
+      source: f.source?.name || f.source?.ip || f.src_ip || f.client?.name || '',
+      sourceIp: f.source?.ip || f.src_ip || '',
+      sourceMac: f.source?.mac || f.src_mac || '',
+      destination: f.destination?.name || f.destination?.ip || f.dst_ip || f.dest_name || '',
+      destinationIp: f.destination?.ip || f.dst_ip || '',
+      service: f.service || f.app_proto || f.protocol || '',
+      risk: f.risk || f.threat_level || 'low',
+      direction: f.direction || (f.is_outbound ? 'out' : 'in'),
+      inInterface: f.in_interface || f.source_zone || f.in_zone || '',
+      outInterface: f.out_interface || f.dest_zone || f.out_zone || '',
+      action: f.action || 'allow',
+      bytes: f.bytes || f.rx_bytes || 0,
+      bytesOut: f.tx_bytes || 0,
+      duration: f.duration || 0,
+      country: f.destination?.country || f.geoip?.country || '',
+    }));
+
+    console.log(`[UniFi] Flows: returning ${normalized.length} flows`);
+    res.json({ flows: normalized, total: flows.length });
+  } catch (error) {
+    console.error('[UniFi] Flows error:', error.message);
+    res.status(500).json({ error: error.message, flows: [] });
   }
 });
 
