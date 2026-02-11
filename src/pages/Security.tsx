@@ -26,7 +26,7 @@ import {
   Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin, Network, Wifi, ExternalLink, Lock, Activity
 } from "lucide-react";
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 interface OpenVASScan {
   id: string;

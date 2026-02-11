@@ -9,7 +9,7 @@ import { Shield, Loader2, AlertCircle, Check, ArrowRight, ArrowLeft, Server, Key
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 interface SetupConfig {
   // Admin
