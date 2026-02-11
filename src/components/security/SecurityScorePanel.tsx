@@ -22,53 +22,9 @@ interface ScoreCategory {
 
 export function SecurityScorePanel() {
   const { token } = useAuth();
-  const [categories, setCategories] = useState<ScoreCategory[]>([
-    {
-      name: "WAN-eksponering",
-      icon: <Globe className="h-5 w-5" />,
-      score: 20,
-      maxScore: 25,
-      items: [
-        { label: "WAN IP oppdaget", status: "pass", detail: "84.214.xxx.xxx" },
-        { label: "2 åpne porter", status: "warn", detail: "Port 443 (HTTPS), 51820 (WireGuard)" },
-      ],
-    },
-    {
-      name: "Brannmur",
-      icon: <Shield className="h-5 w-5" />,
-      score: 18,
-      maxScore: 25,
-      items: [
-        { label: "23 brannmurregler", status: "pass", detail: "Regler er konfigurert" },
-        { label: "3 port forwards", status: "warn", detail: "Plex, WireGuard, Home Assistant" },
-        { label: "Inter-VLAN blokkering", status: "pass", detail: "VLAN-isolasjon aktiv" },
-      ],
-    },
-    {
-      name: "IDS/IPS",
-      icon: <Activity className="h-5 w-5" />,
-      score: 22,
-      maxScore: 25,
-      items: [
-        { label: "IDS/IPS aktiv", status: "pass", detail: "UniFi Threat Management kjører" },
-        { label: "3 kritiske varsler siste 24t", status: "warn", detail: "Port scan fra 45.33.32.156" },
-        { label: "GeoIP-blokkering aktiv", status: "pass", detail: "RU, CN blokkert" },
-      ],
-    },
-    {
-      name: "Sårbarheter",
-      icon: <AlertTriangle className="h-5 w-5" />,
-      score: 15,
-      maxScore: 25,
-      items: [
-        { label: "OpenVAS tilkoblet", status: "pass", detail: "Sårbarhetsskanning aktiv" },
-        { label: "2 medium-sårbarheter", status: "warn", detail: "Utdatert SSL på Proxmox, svak SNMP community" },
-        { label: "Ingen kritiske sårbarheter", status: "pass", detail: "Ingen umiddelbar risiko" },
-      ],
-    },
-  ]);
+  const [categories, setCategories] = useState<ScoreCategory[]>([]);
   const [isCalculating, setIsCalculating] = useState(false);
-  const [lastRun, setLastRun] = useState<string | null>("14:32:05");
+  const [lastRun, setLastRun] = useState<string | null>(null);
 
   const calculateScore = async () => {
     setIsCalculating(true);

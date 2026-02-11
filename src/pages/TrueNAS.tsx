@@ -14,73 +14,17 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 
-const pools = [
-  {
-    name: "tank",
-    status: "ONLINE",
-    health: 100,
-    used: 18.7,
-    total: 64,
-    compression: "lz4",
-    dedup: false,
-    disks: [
-      { name: "da0", status: "ONLINE", size: "16TB", temp: 32, errors: 0 },
-      { name: "da1", status: "ONLINE", size: "16TB", temp: 34, errors: 0 },
-      { name: "da2", status: "ONLINE", size: "16TB", temp: 33, errors: 0 },
-      { name: "da3", status: "ONLINE", size: "16TB", temp: 35, errors: 0 },
-    ],
-  },
-  {
-    name: "ssd-pool",
-    status: "ONLINE",
-    health: 100,
-    used: 0.8,
-    total: 2,
-    compression: "zstd",
-    dedup: true,
-    disks: [
-      { name: "nvme0", status: "ONLINE", size: "1TB", temp: 42, errors: 0 },
-      { name: "nvme1", status: "ONLINE", size: "1TB", temp: 44, errors: 0 },
-    ],
-  },
-];
-
-const datasets = [
-  { name: "tank/media", used: "12.3 TB", quota: "20 TB", snapshots: 24, compression: "1.8x", mountpoint: "/mnt/tank/media", recordsize: "1M", atime: "off" },
-  { name: "tank/backups", used: "4.2 TB", quota: "10 TB", snapshots: 168, compression: "2.1x", mountpoint: "/mnt/tank/backups", recordsize: "128K", atime: "off" },
-  { name: "tank/documents", used: "856 GB", quota: "2 TB", snapshots: 48, compression: "3.2x", mountpoint: "/mnt/tank/documents", recordsize: "128K", atime: "on" },
-  { name: "tank/vms", used: "1.4 TB", quota: "5 TB", snapshots: 12, compression: "1.2x", mountpoint: "/mnt/tank/vms", recordsize: "64K", atime: "off" },
-  { name: "ssd-pool/cache", used: "420 GB", quota: "800 GB", snapshots: 0, compression: "1.0x", mountpoint: "/mnt/ssd-pool/cache", recordsize: "16K", atime: "off" },
-];
-
-const recentSnapshots = [
-  { name: "tank/backups@auto-2024-12-17_03-00", created: "2024-12-17 03:00", size: "2.1 GB", type: "auto" },
-  { name: "tank/documents@auto-2024-12-17_03-00", created: "2024-12-17 03:00", size: "124 MB", type: "auto" },
-  { name: "tank/vms@manual-pre-update", created: "2024-12-16 18:30", size: "4.8 GB", type: "manual" },
-  { name: "tank/media@auto-2024-12-17_03-00", created: "2024-12-17 03:00", size: "0 B", type: "auto" },
-];
-
-const dockerContainers = [
-  { id: "abc123", name: "plex", image: "plexinc/pms-docker:latest", status: "running", cpu: 12, memory: "2.1 GB", ports: "32400:32400", uptime: "30d 8h" },
-  { id: "def456", name: "nextcloud", image: "nextcloud:28", status: "running", cpu: 4, memory: "512 MB", ports: "8080:80", uptime: "15d 3h" },
-  { id: "ghi789", name: "homeassistant", image: "ghcr.io/home-assistant/home-assistant:stable", status: "running", cpu: 3, memory: "384 MB", ports: "8123:8123", uptime: "30d 8h" },
-  { id: "jkl012", name: "pihole", image: "pihole/pihole:latest", status: "running", cpu: 1, memory: "128 MB", ports: "53:53, 80:80", uptime: "30d 8h" },
-  { id: "mno345", name: "wireguard", image: "linuxserver/wireguard", status: "stopped", cpu: 0, memory: "0 MB", ports: "51820:51820/udp", uptime: "-" },
-];
-
-const shares = [
-  { name: "Media", path: "/mnt/tank/media", type: "SMB", enabled: true, users: 4, description: "Film og musikk" },
-  { name: "Backups", path: "/mnt/tank/backups", type: "SMB", enabled: true, users: 2, description: "Sikkerhetskopiering" },
-  { name: "Documents", path: "/mnt/tank/documents", type: "NFS", enabled: true, users: 8, description: "Felles dokumenter" },
-  { name: "VM Storage", path: "/mnt/tank/vms", type: "iSCSI", enabled: true, users: 1, description: "VM disk lagring" },
-  { name: "TimeMachine", path: "/mnt/tank/timemachine", type: "SMB", enabled: false, users: 0, description: "macOS backup" },
-];
+const pools: any[] = [];
+const datasets: any[] = [];
+const recentSnapshots: any[] = [];
+const dockerContainers: any[] = [];
+const shares: any[] = [];
 
 const systemStats = {
-  cpu: 23,
-  memory: { used: 48, total: 64 },
-  uptime: "45 days 12:34:56",
-  version: "TrueNAS SCALE 24.04.2",
+  cpu: 0,
+  memory: { used: 0, total: 0 },
+  uptime: "Ikke tilkoblet",
+  version: "Ikke tilkoblet",
 };
 
 interface DatasetType {
@@ -111,7 +55,7 @@ export default function TrueNAS() {
             <h1 className="text-2xl font-bold text-foreground">TrueNAS Scale</h1>
             <p className="text-sm text-muted-foreground">{systemStats.version} • Uptime: {systemStats.uptime}</p>
           </div>
-          <Badge className="ml-auto bg-success/10 text-success border-success/20">Online</Badge>
+          <Badge className="ml-auto bg-muted text-muted-foreground border-border">Ikke tilkoblet</Badge>
         </div>
 
         {/* System Stats */}
@@ -133,7 +77,7 @@ export default function TrueNAS() {
                 RAM
               </div>
               <p className="text-2xl font-mono font-bold text-foreground mb-2">{systemStats.memory.used} GB</p>
-              <Progress value={(systemStats.memory.used / systemStats.memory.total) * 100} className="h-1.5" />
+              <Progress value={systemStats.memory.total > 0 ? (systemStats.memory.used / systemStats.memory.total) * 100 : 0} className="h-1.5" />
             </CardContent>
           </Card>
           <Card className="bg-card border-border">
