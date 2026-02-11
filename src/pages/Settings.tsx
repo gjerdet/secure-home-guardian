@@ -540,6 +540,30 @@ export default function Settings() {
                 </CardContent>
               </Card>
 
+              {/* MaxMind GeoIP */}
+              <Card className="bg-card border-border">
+                <CardHeader className="border-b border-border">
+                  <CardTitle className="flex items-center justify-between">
+                    <div className="flex items-center gap-2"><Globe className="h-5 w-5 text-primary" />MaxMind GeoIP</div>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-4 space-y-4">
+                  <p className="text-xs text-muted-foreground">
+                    Brukes for offline GeoIP-oppslag i IDS/IPS og angreps-kart. Gratis GeoLite2-lisens.{' '}
+                    <a href="https://www.maxmind.com/en/geolite2/signup" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                      Registrer deg her
+                    </a>
+                  </p>
+                  <div>
+                    <Label>Lisens-nøkkel</Label>
+                    <Input type="password" value={configs.maxmind.licenseKey} onChange={e => updateConfig('maxmind', 'licenseKey', e.target.value)} placeholder="Din MaxMind lisens-nøkkel" className="bg-muted border-border font-mono mt-1" />
+                  </div>
+                  <div className="flex gap-2">
+                    {renderSaveButton('maxmind')}
+                  </div>
+                </CardContent>
+              </Card>
+
               {/* TrueNAS */}
               <Card className="bg-card border-border">
                 <CardHeader className="border-b border-border">
@@ -660,29 +684,7 @@ export default function Settings() {
                 </CardContent>
               </Card>
 
-              {/* MaxMind GeoIP */}
-              <Card className="bg-card border-border">
-                <CardHeader className="border-b border-border">
-                  <CardTitle className="flex items-center justify-between">
-                    <div className="flex items-center gap-2"><Globe className="h-5 w-5 text-primary" />MaxMind GeoIP</div>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-4 space-y-4">
-                  <p className="text-xs text-muted-foreground">
-                    Brukes for offline GeoIP-oppslag i IDS/IPS og angreps-kart. Gratis GeoLite2-lisens.{' '}
-                    <a href="https://www.maxmind.com/en/geolite2/signup" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                      Registrer deg her
-                    </a>
-                  </p>
-                  <div>
-                    <Label>Lisens-nøkkel</Label>
-                    <Input type="password" value={configs.maxmind.licenseKey} onChange={e => updateConfig('maxmind', 'licenseKey', e.target.value)} placeholder="Din MaxMind lisens-nøkkel" className="bg-muted border-border font-mono mt-1" />
-                  </div>
-                  <div className="flex gap-2">
-                    {renderSaveButton('maxmind')}
-                  </div>
-                </CardContent>
-              </Card>
+
             </div>
           </TabsContent>
 
