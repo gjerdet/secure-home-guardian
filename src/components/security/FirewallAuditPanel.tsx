@@ -106,6 +106,8 @@ export function FirewallAuditPanel() {
   const [firewallGroups, setFirewallGroups] = useState<FirewallGroup[]>(emptyFirewallGroups);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [fromCache, setFromCache] = useState(false);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -120,49 +122,75 @@ export function FirewallAuditPanel() {
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [selectedRule, setSelectedRule] = useState<FirewallRule | null>(null);
 
+  const processFirewallData = (data: any) => {
+    let rules: FirewallRule[] = [];
+    if (data.isZoneBased && data.firewallPolicies?.length > 0) {
+      rules = data.firewallPolicies.map((p: any) => ({
+        _id: p._id || p.id || Math.random().toString(),
+        name: p.name || p.description || 'Unnamed Policy',
+        enabled: p.enabled !== false,
+        action: p.action || p.predefined_matching_target || 'accept',
+        ruleset: p.source?.zone?.name && p.destination?.zone?.name 
+          ? `${p.source.zone.name} → ${p.destination.zone.name}` 
+          : p.ruleset || 'zone-policy',
+        rule_index: p.index ?? p.rule_index ?? 0,
+        protocol: p.protocol || p.matching_target?.protocol || 'all',
+        src_zone: p.source?.zone?.name || '',
+        dst_zone: p.destination?.zone?.name || '',
+        src_address: p.source?.address || '',
+        dst_address: p.destination?.address || '',
+        dst_port: p.destination?.port || p.matching_target?.port || '',
+        src_port: p.source?.port || '',
+        description: p.description || '',
+        logging: p.logging || false,
+        ip_version: p.ip_version || 'both',
+        schedule: p.schedule?.mode || '',
+      }));
+    } else {
+      rules = data.firewallRules || [];
+    }
+    
+    setFirewallRules(rules);
+    setPortForwards(data.portForwards || []);
+    setFirewallGroups(data.firewallGroups || []);
+    setLastUpdated(data.lastUpdated || null);
+    setFromCache(!!data.fromCache);
+    if (data.error) setError(data.error);
+    return rules;
+  };
+
+  // Auto-load cached rules on mount
+  useState(() => {
+    const loadCached = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/security/firewall-rules/cached`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (!data.empty) {
+            const rules = processFirewallData(data);
+            if (rules.length > 0) {
+              console.log(`Loaded ${rules.length} cached firewall rules`);
+            }
+          }
+        }
+      } catch { /* silent */ }
+    };
+    loadCached();
+  });
+
   const fetchRules = async () => {
     setIsLoading(true);
     setError(null);
+    setFromCache(false);
     try {
       const res = await fetch(`${API_BASE}/api/security/firewall-rules`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         const data = await res.json();
-        
-        // Handle zone-based firewall policies (newer UDM firmware)
-        let rules: FirewallRule[] = [];
-        if (data.isZoneBased && data.firewallPolicies?.length > 0) {
-          // Map zone-based policies to FirewallRule format
-          rules = data.firewallPolicies.map((p: any) => ({
-            _id: p._id || p.id || Math.random().toString(),
-            name: p.name || p.description || 'Unnamed Policy',
-            enabled: p.enabled !== false,
-            action: p.action || p.predefined_matching_target || 'accept',
-            ruleset: p.source?.zone?.name && p.destination?.zone?.name 
-              ? `${p.source.zone.name} → ${p.destination.zone.name}` 
-              : p.ruleset || 'zone-policy',
-            rule_index: p.index ?? p.rule_index ?? 0,
-            protocol: p.protocol || p.matching_target?.protocol || 'all',
-            src_zone: p.source?.zone?.name || '',
-            dst_zone: p.destination?.zone?.name || '',
-            src_address: p.source?.address || '',
-            dst_address: p.destination?.address || '',
-            dst_port: p.destination?.port || p.matching_target?.port || '',
-            src_port: p.source?.port || '',
-            description: p.description || '',
-            logging: p.logging || false,
-            ip_version: p.ip_version || 'both',
-            schedule: p.schedule?.mode || '',
-          }));
-        } else {
-          rules = data.firewallRules || [];
-        }
-        
-        setFirewallRules(rules);
-        setPortForwards(data.portForwards || []);
-        setFirewallGroups(data.firewallGroups || []);
-        if (data.error) setError(data.error);
+        const rules = processFirewallData(data);
         toast.success(`Hentet ${rules.length} brannmurregler og ${(data.portForwards || []).length} port forwards`);
       } else {
         toast.error("Kunne ikke hente brannmurregler");
@@ -323,18 +351,23 @@ export function FirewallAuditPanel() {
       <Card className="bg-card border-border">
         <CardHeader className="border-b border-border py-3">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-sm flex items-center gap-2">
+            <div className="flex items-center gap-2">
               <Shield className="h-4 w-4 text-primary" />
-              Brannmur-oversikt (UDM Pro)
-            </CardTitle>
-            <Button onClick={fetchRules} disabled={isLoading} className="bg-primary text-primary-foreground" size="sm">
-              {isLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-              {isLoading ? "Henter..." : "Hent regler"}
-            </Button>
+              <CardTitle className="text-sm">Brannmur-oversikt (UDM Pro)</CardTitle>
+              {fromCache && <Badge variant="outline" className="text-[10px] px-1.5 py-0">Cache</Badge>}
+            </div>
+            <div className="flex items-center gap-2">
+              {lastUpdated && (
+                <span className="text-[10px] text-muted-foreground">
+                  Sist: {new Date(lastUpdated).toLocaleString('nb-NO')}
+                </span>
+              )}
+              <Button onClick={fetchRules} disabled={isLoading} className="bg-primary text-primary-foreground" size="sm">
+                {isLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+                {isLoading ? "Henter..." : "Oppdater"}
+              </Button>
+            </div>
           </div>
-          <p className="text-xs text-muted-foreground mt-1">
-            Komplett oversikt over brannmurregler og port forwards fra UniFi Dream Machine Pro.
-          </p>
         </CardHeader>
       </Card>
 

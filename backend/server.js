@@ -1505,7 +1505,30 @@ app.post('/api/security/ssl-check', authenticateToken, async (req, res) => {
   res.json({ results });
 });
 
-// Firewall Audit - Get UDM Pro firewall rules (uses API key)
+// Firewall cache file
+const FIREWALL_CACHE_FILE = path.join(DATA_DIR, 'firewall-cache.json');
+let firewallCache = null;
+
+// Load firewall cache from disk on startup
+try {
+  if (fs.existsSync(FIREWALL_CACHE_FILE)) {
+    firewallCache = JSON.parse(fs.readFileSync(FIREWALL_CACHE_FILE, 'utf8'));
+    console.log(`[UniFi] Loaded firewall cache: ${firewallCache?.firewallRules?.length || 0} rules, ${firewallCache?.portForwards?.length || 0} port forwards`);
+  }
+} catch (e) {
+  console.log('[UniFi] No firewall cache found');
+}
+
+// Get cached firewall rules (no UniFi call)
+app.get('/api/security/firewall-rules/cached', authenticateToken, (req, res) => {
+  if (firewallCache) {
+    res.json({ ...firewallCache, fromCache: true });
+  } else {
+    res.json({ firewallRules: [], portForwards: [], firewallGroups: [], fromCache: true, empty: true });
+  }
+});
+
+// Firewall Audit - Get UDM Pro firewall rules (uses API key) + cache result
 app.get('/api/security/firewall-rules', authenticateToken, async (req, res) => {
   try {
     const baseUrl = process.env.UNIFI_CONTROLLER_URL;
@@ -1525,27 +1548,20 @@ app.get('/api/security/firewall-rules', authenticateToken, async (req, res) => {
       trafficRoutesRes,
       zonesRes,
     ] = await Promise.all([
-      // Zone-based firewall policies (Network 9.x+)
       axios.get(`${baseUrl}/proxy/network/v2/api/site/${site}/firewall-policies`, axOpts)
         .then(r => { console.log(`[UniFi] Firewall policies: ${(r.data || []).length}`); return r; })
         .catch(e => { console.log(`[UniFi] Firewall policies: ${e.response?.status || e.message}`); return { data: [] }; }),
-      // Legacy firewall rules (pre-zone firmware)
       axios.get(`${baseUrl}/proxy/network/api/s/${site}/rest/firewallrule`, axOpts)
         .then(r => { console.log(`[UniFi] Legacy fw rules: ${(r.data?.data || []).length}`); return r; })
         .catch(e => { console.log(`[UniFi] Legacy fw rules: ${e.response?.status || e.message}`); return { data: { data: [] } }; }),
-      // Port forwards
       unifiRequest('/rest/portforward').catch(() => ({ data: [] })),
-      // Firewall groups
       unifiRequest('/rest/firewallgroup').catch(() => ({ data: [] })),
-      // Traffic rules
       axios.get(`${baseUrl}/proxy/network/v2/api/site/${site}/trafficrules`, axOpts)
         .then(r => { console.log(`[UniFi] Traffic rules: ${(r.data || []).length}`); return r; })
         .catch(e => { console.log(`[UniFi] Traffic rules: ${e.response?.status || e.message}`); return { data: [] }; }),
-      // Traffic routes (policy-based routing)
       axios.get(`${baseUrl}/proxy/network/v2/api/site/${site}/trafficroutes`, axOpts)
         .then(r => { console.log(`[UniFi] Traffic routes: ${(r.data || []).length}`); return r; })
         .catch(e => { console.log(`[UniFi] Traffic routes: ${e.response?.status || e.message}`); return { data: [] }; }),
-      // Firewall zones
       axios.get(`${baseUrl}/proxy/network/v2/api/site/${site}/firewall/zones`, axOpts)
         .then(r => { console.log(`[UniFi] Firewall zones: ${(r.data || []).length}`); return r; })
         .catch(e => { console.log(`[UniFi] Firewall zones: ${e.response?.status || e.message}`); return { data: [] }; }),
@@ -1553,11 +1569,9 @@ app.get('/api/security/firewall-rules', authenticateToken, async (req, res) => {
 
     const firewallPolicies = policiesRes.data || [];
     const legacyRules = legacyRulesRes.data?.data || [];
-    
-    // Combine: use zone-based policies if available, fall back to legacy rules
     const firewallRules = firewallPolicies.length > 0 ? firewallPolicies : legacyRules;
 
-    res.json({
+    const result = {
       firewallRules,
       firewallPolicies,
       portForwards: pfRes?.data || [],
@@ -1566,19 +1580,36 @@ app.get('/api/security/firewall-rules', authenticateToken, async (req, res) => {
       trafficRoutes: trafficRoutesRes.data || [],
       firewallZones: zonesRes.data || [],
       isZoneBased: firewallPolicies.length > 0,
-    });
+      lastUpdated: new Date().toISOString(),
+    };
+
+    // Cache to memory and disk
+    firewallCache = result;
+    try {
+      fs.writeFileSync(FIREWALL_CACHE_FILE, JSON.stringify(result, null, 2));
+      console.log(`[UniFi] Firewall cache saved: ${firewallRules.length} rules`);
+    } catch (e) {
+      console.error('[UniFi] Failed to save firewall cache:', e.message);
+    }
+
+    res.json(result);
   } catch (error) {
     console.error('[UniFi] Firewall endpoint error:', error.message);
-    res.json({
-      firewallRules: [],
-      firewallPolicies: [],
-      portForwards: [],
-      firewallGroups: [],
-      trafficRules: [],
-      trafficRoutes: [],
-      firewallZones: [],
-      error: error.message,
-    });
+    // Return cache if available on error
+    if (firewallCache) {
+      res.json({ ...firewallCache, fromCache: true, error: error.message });
+    } else {
+      res.json({
+        firewallRules: [],
+        firewallPolicies: [],
+        portForwards: [],
+        firewallGroups: [],
+        trafficRules: [],
+        trafficRoutes: [],
+        firewallZones: [],
+        error: error.message,
+      });
+    }
   }
 });
 
