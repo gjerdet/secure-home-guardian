@@ -40,7 +40,7 @@ export function IoTDeviceList({ devices, className }: IoTDeviceListProps) {
       )}
     >
       <div className="border-b border-border px-4 py-3 flex items-center justify-between">
-        <h3 className="font-semibold text-foreground">IoT Enheter</h3>
+        <h3 className="font-semibold text-foreground">Enheter</h3>
         <span className="text-xs text-muted-foreground">
           <span className="text-success font-mono">{onlineCount}</span> /{" "}
           <span className="font-mono">{devices.length}</span> online

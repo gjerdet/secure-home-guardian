@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { 
   Settings as SettingsIcon, Server, Wifi, HardDrive, Shield, ShieldAlert,
   Save, TestTube, CheckCircle, XCircle, Users, UserPlus, Trash2, User, Loader2, RefreshCw, Pencil, KeyRound,
-  Download, GitBranch, ArrowUpCircle, Clock, AlertTriangle
+  Download, GitBranch, ArrowUpCircle, Clock, AlertTriangle, Globe
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
@@ -41,6 +41,7 @@ interface ServiceConfigs {
   proxmox: { url: string; user: string; tokenId: string; tokenSecret: string };
   openvas: { url: string; username: string; password: string };
   abuseipdb: { apiKey: string };
+  maxmind: { licenseKey: string };
 }
 
 const roleLabels: Record<UserRole, string> = {
@@ -59,6 +60,7 @@ const defaultConfigs: ServiceConfigs = {
   proxmox: { url: '', user: 'root@pam', tokenId: '', tokenSecret: '' },
   openvas: { url: '', username: 'admin', password: '' },
   abuseipdb: { apiKey: '' },
+  maxmind: { licenseKey: '' },
 };
 
 export default function Settings() {
@@ -655,6 +657,30 @@ export default function Settings() {
                     {renderSaveButton('abuseipdb')}
                   </div>
                   {renderStatusMessage('abuseipdb')}
+                </CardContent>
+              </Card>
+
+              {/* MaxMind GeoIP */}
+              <Card className="bg-card border-border">
+                <CardHeader className="border-b border-border">
+                  <CardTitle className="flex items-center justify-between">
+                    <div className="flex items-center gap-2"><Globe className="h-5 w-5 text-primary" />MaxMind GeoIP</div>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-4 space-y-4">
+                  <p className="text-xs text-muted-foreground">
+                    Brukes for offline GeoIP-oppslag i IDS/IPS og angreps-kart. Gratis GeoLite2-lisens.{' '}
+                    <a href="https://www.maxmind.com/en/geolite2/signup" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                      Registrer deg her
+                    </a>
+                  </p>
+                  <div>
+                    <Label>Lisens-nøkkel</Label>
+                    <Input type="password" value={configs.maxmind.licenseKey} onChange={e => updateConfig('maxmind', 'licenseKey', e.target.value)} placeholder="Din MaxMind lisens-nøkkel" className="bg-muted border-border font-mono mt-1" />
+                  </div>
+                  <div className="flex gap-2">
+                    {renderSaveButton('maxmind')}
+                  </div>
                 </CardContent>
               </Card>
             </div>

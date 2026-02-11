@@ -435,6 +435,9 @@ app.get('/api/config/services', authenticateToken, (req, res) => {
     abuseipdb: {
       apiKey: process.env.ABUSEIPDB_API_KEY ? '••••••••' : '',
     },
+    maxmind: {
+      licenseKey: process.env.MAXMIND_LICENSE_KEY ? '••••••••' : '',
+    },
   });
 });
 
@@ -500,6 +503,12 @@ app.post('/api/config/services', authenticateToken, (req, res) => {
         break;
       case 'abuseipdb':
         updateEnv('ABUSEIPDB_API_KEY', config.apiKey);
+        break;
+      case 'maxmind':
+        updateEnv('MAXMIND_LICENSE_KEY', config.licenseKey);
+        // Re-initialize MaxMind with new key
+        maxmindReader = null;
+        initMaxMind();
         break;
       default:
         return res.status(400).json({ error: `Ukjent tjeneste: ${service}` });
