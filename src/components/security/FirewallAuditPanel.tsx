@@ -8,9 +8,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription
+} from "@/components/ui/dialog";
 import { 
   Shield, Loader2, CheckCircle, AlertTriangle, XCircle,
-  RefreshCw, ArrowRight, Globe, Server, Search, Filter, ArrowUpDown, Eye, EyeOff
+  RefreshCw, ArrowRight, Globe, Server, Search, Filter, ArrowUpDown, Eye, EyeOff, Info
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -121,8 +124,12 @@ export function FirewallAuditPanel() {
   const [actionFilter, setActionFilter] = useState<string>("all");
   const [protocolFilter, setProtocolFilter] = useState<string>("all");
   const [enabledFilter, setEnabledFilter] = useState<string>("all");
+  const [portFilter, setPortFilter] = useState<string>("all");
+  const [sourceFilter, setSourceFilter] = useState<string>("all");
+  const [destinationFilter, setDestinationFilter] = useState<string>("all");
   const [sortField, setSortField] = useState<SortField>("rule_index");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [selectedRule, setSelectedRule] = useState<FirewallRule | null>(null);
 
   const fetchRules = async () => {
     setIsLoading(true);
@@ -148,6 +155,20 @@ export function FirewallAuditPanel() {
     }
   };
 
+  // Helper to resolve source/destination display text
+  const getSourceDisplay = (rule: FirewallRule) => {
+    return rule.src_address || 
+      (rule.src_firewallgroup_ids?.length 
+        ? rule.src_firewallgroup_ids.map(id => getGroupName(id)).join(', ')
+        : rule.src_networkconf_type || 'Alle');
+  };
+  const getDestDisplay = (rule: FirewallRule) => {
+    return rule.dst_address || 
+      (rule.dst_firewallgroup_ids?.length 
+        ? rule.dst_firewallgroup_ids.map(id => getGroupName(id)).join(', ')
+        : rule.dst_networkconf_type || 'Alle');
+  };
+
   // Extract unique values for filters
   const uniqueRulesets = useMemo(() => 
     [...new Set(firewallRules.map(r => r.ruleset).filter(Boolean))].sort(),
@@ -160,6 +181,18 @@ export function FirewallAuditPanel() {
   const uniqueProtocols = useMemo(() => 
     [...new Set(firewallRules.map(r => r.protocol).filter(Boolean))].sort(),
     [firewallRules]
+  );
+  const uniquePorts = useMemo(() => 
+    [...new Set(firewallRules.map(r => r.dst_port).filter(Boolean))].sort(),
+    [firewallRules]
+  );
+  const uniqueSources = useMemo(() => 
+    [...new Set(firewallRules.map(r => getSourceDisplay(r)).filter(v => v && v !== 'Alle'))].sort(),
+    [firewallRules, firewallGroups]
+  );
+  const uniqueDestinations = useMemo(() => 
+    [...new Set(firewallRules.map(r => getDestDisplay(r)).filter(v => v && v !== 'Alle'))].sort(),
+    [firewallRules, firewallGroups]
   );
 
   // Friendly ruleset names
@@ -203,6 +236,15 @@ export function FirewallAuditPanel() {
     if (enabledFilter !== "all") {
       result = result.filter(r => enabledFilter === "enabled" ? r.enabled : !r.enabled);
     }
+    if (portFilter !== "all") {
+      result = result.filter(r => r.dst_port === portFilter);
+    }
+    if (sourceFilter !== "all") {
+      result = result.filter(r => getSourceDisplay(r) === sourceFilter);
+    }
+    if (destinationFilter !== "all") {
+      result = result.filter(r => getDestDisplay(r) === destinationFilter);
+    }
 
     result.sort((a, b) => {
       let cmp = 0;
@@ -217,7 +259,7 @@ export function FirewallAuditPanel() {
     });
 
     return result;
-  }, [firewallRules, searchQuery, rulesetFilter, actionFilter, protocolFilter, enabledFilter, sortField, sortDir]);
+  }, [firewallRules, searchQuery, rulesetFilter, actionFilter, protocolFilter, enabledFilter, portFilter, sourceFilter, destinationFilter, sortField, sortDir]);
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
@@ -400,6 +442,39 @@ export function FirewallAuditPanel() {
                       <SelectItem value="disabled">Deaktiverte</SelectItem>
                     </SelectContent>
                   </Select>
+                  <Select value={portFilter} onValueChange={setPortFilter}>
+                    <SelectTrigger className="w-[140px] bg-muted border-border">
+                      <SelectValue placeholder="Port" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-card border-border z-50">
+                      <SelectItem value="all">Alle porter</SelectItem>
+                      {uniquePorts.map(p => (
+                        <SelectItem key={p} value={p!}>{p}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={sourceFilter} onValueChange={setSourceFilter}>
+                    <SelectTrigger className="w-[160px] bg-muted border-border">
+                      <SelectValue placeholder="Kilde" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-card border-border z-50">
+                      <SelectItem value="all">Alle kilder</SelectItem>
+                      {uniqueSources.map(s => (
+                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={destinationFilter} onValueChange={setDestinationFilter}>
+                    <SelectTrigger className="w-[160px] bg-muted border-border">
+                      <SelectValue placeholder="Destinasjon" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-card border-border z-50">
+                      <SelectItem value="all">Alle destinasjoner</SelectItem>
+                      {uniqueDestinations.map(d => (
+                        <SelectItem key={d} value={d}>{d}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </CardContent>
             </Card>
@@ -431,7 +506,11 @@ export function FirewallAuditPanel() {
                         </TableRow>
                       ) : (
                         filteredRules.map(rule => (
-                          <TableRow key={rule._id} className={`border-border hover:bg-muted/50 ${!rule.enabled ? 'opacity-50' : ''}`}>
+                          <TableRow 
+                            key={rule._id} 
+                            className={`border-border hover:bg-muted/50 cursor-pointer ${!rule.enabled ? 'opacity-50' : ''}`}
+                            onClick={() => setSelectedRule(rule)}
+                          >
                             <TableCell className="font-mono text-xs text-muted-foreground w-[50px]">
                               {rule.rule_index ?? '-'}
                             </TableCell>
@@ -467,18 +546,10 @@ export function FirewallAuditPanel() {
                               </span>
                             </TableCell>
                             <TableCell className="text-xs font-mono text-muted-foreground max-w-[150px]">
-                              {rule.src_address || 
-                               (rule.src_firewallgroup_ids?.length 
-                                 ? rule.src_firewallgroup_ids.map(id => getGroupName(id)).join(', ')
-                                 : rule.src_networkconf_type || 'Alle'
-                               )}
+                              {getSourceDisplay(rule)}
                             </TableCell>
                             <TableCell className="text-xs font-mono text-muted-foreground max-w-[150px]">
-                              {rule.dst_address || 
-                               (rule.dst_firewallgroup_ids?.length 
-                                 ? rule.dst_firewallgroup_ids.map(id => getGroupName(id)).join(', ')
-                                 : rule.dst_networkconf_type || 'Alle'
-                               )}
+                              {getDestDisplay(rule)}
                             </TableCell>
                             <TableCell className="text-xs font-mono text-muted-foreground">
                               {rule.dst_port || '-'}
@@ -574,6 +645,110 @@ export function FirewallAuditPanel() {
           </CardContent>
         </Card>
       )}
+
+      {/* Rule Detail Dialog */}
+      <Dialog open={!!selectedRule} onOpenChange={(open) => !open && setSelectedRule(null)}>
+        <DialogContent className="bg-card border-border max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5 text-primary" />
+              {selectedRule?.name}
+            </DialogTitle>
+            <DialogDescription>
+              Regeldetaljer fra UDM Pro
+            </DialogDescription>
+          </DialogHeader>
+          {selectedRule && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-muted rounded-lg p-3">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Status</p>
+                  <Badge className={selectedRule.enabled ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground'}>
+                    {selectedRule.enabled ? 'Aktiv' : 'Deaktivert'}
+                  </Badge>
+                </div>
+                <div className="bg-muted rounded-lg p-3">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Handling</p>
+                  <Badge className={
+                    selectedRule.action === 'drop' || selectedRule.action === 'reject'
+                      ? 'bg-destructive/10 text-destructive'
+                      : 'bg-success/10 text-success'
+                  }>
+                    {selectedRule.action?.toUpperCase()}
+                  </Badge>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                {[
+                  { label: 'Regel-indeks', value: selectedRule.rule_index?.toString() ?? '-' },
+                  { label: 'Ruleset', value: rulesetLabels[selectedRule.ruleset] || selectedRule.ruleset },
+                  { label: 'Protokoll', value: selectedRule.protocol === 'all' ? 'Alle' : selectedRule.protocol?.toUpperCase() },
+                  { label: 'Kilde', value: getSourceDisplay(selectedRule) },
+                  { label: 'Kilde-port', value: selectedRule.src_port || '-' },
+                  { label: 'Kilde MAC', value: selectedRule.src_mac_address || '-' },
+                  { label: 'Destinasjon', value: getDestDisplay(selectedRule) },
+                  { label: 'Destinasjon-port', value: selectedRule.dst_port || '-' },
+                ].map(item => (
+                  <div key={item.label} className="flex justify-between items-center py-1.5 border-b border-border last:border-0">
+                    <span className="text-xs text-muted-foreground">{item.label}</span>
+                    <span className="text-sm font-mono text-foreground">{item.value}</span>
+                  </div>
+                ))}
+              </div>
+
+              {(selectedRule.state_established || selectedRule.state_related || selectedRule.state_new || selectedRule.state_invalid) && (
+                <div className="bg-muted rounded-lg p-3">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">Connection state</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedRule.state_established && <Badge variant="outline" className="text-[10px]">Established</Badge>}
+                    {selectedRule.state_related && <Badge variant="outline" className="text-[10px]">Related</Badge>}
+                    {selectedRule.state_new && <Badge variant="outline" className="text-[10px]">New</Badge>}
+                    {selectedRule.state_invalid && <Badge variant="outline" className="text-[10px]">Invalid</Badge>}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex flex-wrap gap-2">
+                {selectedRule.logging && (
+                  <Badge className="bg-primary/10 text-primary text-[10px]">Logging aktiv</Badge>
+                )}
+                {selectedRule.ipsec && selectedRule.ipsec !== 'not-set' && (
+                  <Badge className="bg-primary/10 text-primary text-[10px]">IPsec: {selectedRule.ipsec}</Badge>
+                )}
+              </div>
+
+              {(selectedRule.src_firewallgroup_ids?.length || selectedRule.dst_firewallgroup_ids?.length) ? (
+                <div className="bg-muted rounded-lg p-3">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">Brannmurgrupper</p>
+                  <div className="space-y-1.5">
+                    {selectedRule.src_firewallgroup_ids?.map(id => {
+                      const group = firewallGroups.find(g => g._id === id);
+                      return (
+                        <div key={id} className="text-xs">
+                          <span className="text-muted-foreground">Kilde: </span>
+                          <span className="font-mono text-foreground">{group?.name || id}</span>
+                          {group && <span className="text-muted-foreground ml-1">({group.group_members.join(', ')})</span>}
+                        </div>
+                      );
+                    })}
+                    {selectedRule.dst_firewallgroup_ids?.map(id => {
+                      const group = firewallGroups.find(g => g._id === id);
+                      return (
+                        <div key={id} className="text-xs">
+                          <span className="text-muted-foreground">Dest: </span>
+                          <span className="font-mono text-foreground">{group?.name || id}</span>
+                          {group && <span className="text-muted-foreground ml-1">({group.group_members.join(', ')})</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
