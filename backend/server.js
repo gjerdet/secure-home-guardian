@@ -144,6 +144,9 @@ app.post('/api/auth/setup', async (req, res) => {
     
     const updateEnv = (key, value) => {
       if (!value) return;
+      // Set in process.env immediately
+      process.env[key] = value;
+      // Also write to .env file
       const index = envContent.findIndex(line => line.startsWith(`${key}=`));
       if (index >= 0) {
         envContent[index] = `${key}=${value}`;
@@ -510,6 +513,7 @@ app.post('/api/config/services', authenticateToken, (req, res) => {
 // ============================================
 
 let unifiCookie = null;
+let unifiSiteId = null; // Cached discovered site ID
 
 // Determine auth method: API key (preferred) or legacy username/password
 function getUnifiAuthMethod() {
@@ -518,22 +522,48 @@ function getUnifiAuthMethod() {
   return null;
 }
 
-async function unifiLogin() {
-  try {
-    const response = await axios.post(
-      `${process.env.UNIFI_CONTROLLER_URL}/api/login`,
-      {
-        username: process.env.UNIFI_USERNAME,
-        password: process.env.UNIFI_PASSWORD,
-      },
-      { httpsAgent, withCredentials: true }
-    );
-    unifiCookie = response.headers['set-cookie'];
-    return true;
-  } catch (error) {
-    console.error('UniFi login feilet:', error.message);
-    return false;
+// Auto-discover the correct site ID from UniFi
+async function discoverUnifiSiteId() {
+  if (unifiSiteId) return unifiSiteId;
+  
+  const baseUrl = process.env.UNIFI_CONTROLLER_URL;
+  const apiKey = process.env.UNIFI_API_KEY;
+  
+  if (!baseUrl || !apiKey) return 'default';
+  
+  // Try to list sites to find the correct site ID
+  const sitePaths = [
+    `${baseUrl}/proxy/network/api/self/sites`,
+    `${baseUrl}/api/self/sites`,
+  ];
+  
+  for (const url of sitePaths) {
+    try {
+      const response = await axios.get(url, {
+        httpsAgent,
+        headers: { 'X-API-Key': apiKey },
+        timeout: 10000,
+      });
+      
+      const sites = response.data?.data || [];
+      console.log(`[UniFi] Oppdaget ${sites.length} site(s):`, sites.map(s => `${s.name} (desc: ${s.desc})`).join(', '));
+      
+      if (sites.length > 0) {
+        // Use first site, or match by description
+        const configuredSite = process.env.UNIFI_SITE || 'default';
+        const match = sites.find(s => s.desc === configuredSite || s.name === configuredSite) || sites[0];
+        unifiSiteId = match.name; // API uses the 'name' field (e.g. 'default'), not 'desc'
+        console.log(`[UniFi] Bruker site: "${unifiSiteId}" (desc: "${match.desc}")`);
+        return unifiSiteId;
+      }
+    } catch (error) {
+      console.log(`[UniFi] Site discovery feilet på ${url}: ${error.response?.status || error.message}`);
+    }
   }
+  
+  console.log('[UniFi] Kunne ikke oppdage sites, bruker "default"');
+  unifiSiteId = 'default';
+  return unifiSiteId;
 }
 
 async function unifiRequest(endpoint) {
@@ -544,16 +574,16 @@ async function unifiRequest(endpoint) {
   }
 
   const baseUrl = process.env.UNIFI_CONTROLLER_URL;
-  const site = encodeURIComponent(process.env.UNIFI_SITE || 'default');
-
-  console.log(`[UniFi] Request: ${endpoint} (method: ${authMethod}, base: ${baseUrl})`);
 
   if (authMethod === 'apikey') {
-    // API key auth - works with UniFi OS (UDM Pro, Cloud Gateway, etc.)
-    // Try multiple endpoint paths since firmware versions differ
+    // Auto-discover site ID first
+    const site = await discoverUnifiSiteId();
+    
+    console.log(`[UniFi] Request: ${endpoint} (site: ${site})`);
+
+    // Try endpoint paths in order
     const paths = [
       `${baseUrl}/proxy/network/api/s/${site}${endpoint}`,
-      `${baseUrl}/proxy/network/v2/api/site/${site}${endpoint}`,
       `${baseUrl}/api/s/${site}${endpoint}`,
     ];
 
@@ -571,13 +601,14 @@ async function unifiRequest(endpoint) {
       } catch (error) {
         lastError = error;
         console.log(`[UniFi] Feil: ${url} -> ${error.response?.status || error.code || error.message}`);
-        // Only try next path on 401 or 404
         if (error.response?.status !== 401 && error.response?.status !== 404) {
           throw new Error(`UniFi API feil (${error.response?.status || 'network'}): ${error.message}`);
         }
       }
     }
-    throw new Error(`UniFi: Alle API-stier feilet for ${endpoint}. Siste feil: ${lastError?.response?.status || lastError?.message}. Sjekk at API-nøkkelen er gyldig.`);
+    // Reset cached site ID on failure so next request retries discovery
+    unifiSiteId = null;
+    throw new Error(`UniFi: Alle API-stier feilet for ${endpoint}. Siste feil: ${lastError?.response?.status || lastError?.message}.`);
   }
 
   // Legacy cookie-based auth
