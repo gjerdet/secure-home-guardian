@@ -460,9 +460,12 @@ app.post('/api/config/services', authenticateToken, (req, res) => {
     switch (service) {
       case 'unifi':
         updateEnv('UNIFI_CONTROLLER_URL', config.url);
+        updateEnv('UNIFI_API_KEY', config.apiKey);
         updateEnv('UNIFI_USERNAME', config.username);
         updateEnv('UNIFI_PASSWORD', config.password);
         updateEnv('UNIFI_SITE', config.site);
+        // Reset cookie when config changes
+        unifiCookie = null;
         break;
       case 'truenas':
         updateEnv('TRUENAS_URL', config.url);
@@ -506,6 +509,13 @@ app.post('/api/config/services', authenticateToken, (req, res) => {
 
 let unifiCookie = null;
 
+// Determine auth method: API key (preferred) or legacy username/password
+function getUnifiAuthMethod() {
+  if (process.env.UNIFI_API_KEY) return 'apikey';
+  if (process.env.UNIFI_USERNAME && process.env.UNIFI_PASSWORD) return 'legacy';
+  return null;
+}
+
 async function unifiLogin() {
   try {
     const response = await axios.post(
@@ -525,13 +535,50 @@ async function unifiLogin() {
 }
 
 async function unifiRequest(endpoint) {
+  const authMethod = getUnifiAuthMethod();
+  
+  if (!authMethod) {
+    throw new Error('UniFi er ikke konfigurert. Legg til API-nøkkel eller brukernavn/passord i Innstillinger.');
+  }
+
+  const baseUrl = process.env.UNIFI_CONTROLLER_URL;
+  const site = process.env.UNIFI_SITE || 'default';
+
+  if (authMethod === 'apikey') {
+    // API key auth - works with UniFi OS (UDM Pro, Cloud Gateway, etc.)
+    try {
+      const response = await axios.get(
+        `${baseUrl}/proxy/network/api/s/${site}${endpoint}`,
+        {
+          httpsAgent,
+          headers: { 'X-API-Key': process.env.UNIFI_API_KEY },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      // Some endpoints may use different path on older firmware
+      if (error.response?.status === 404) {
+        const fallback = await axios.get(
+          `${baseUrl}/api/s/${site}${endpoint}`,
+          {
+            httpsAgent,
+            headers: { 'X-API-Key': process.env.UNIFI_API_KEY },
+          }
+        );
+        return fallback.data;
+      }
+      throw error;
+    }
+  }
+
+  // Legacy cookie-based auth
   if (!unifiCookie) {
     await unifiLogin();
   }
   
   try {
     const response = await axios.get(
-      `${process.env.UNIFI_CONTROLLER_URL}/api/s/${process.env.UNIFI_SITE}${endpoint}`,
+      `${baseUrl}/api/s/${site}${endpoint}`,
       {
         httpsAgent,
         headers: { Cookie: unifiCookie?.join('; ') },
@@ -539,10 +586,16 @@ async function unifiRequest(endpoint) {
     );
     return response.data;
   } catch (error) {
-    // Prøv å logge inn på nytt hvis session er utgått
     if (error.response?.status === 401) {
       await unifiLogin();
-      return unifiRequest(endpoint);
+      const retry = await axios.get(
+        `${baseUrl}/api/s/${site}${endpoint}`,
+        {
+          httpsAgent,
+          headers: { Cookie: unifiCookie?.join('; ') },
+        }
+      );
+      return retry.data;
     }
     throw error;
   }
@@ -1489,12 +1542,23 @@ app.post('/api/health/test/:service', authenticateToken, async (req, res) => {
           message = 'UniFi URL ikke konfigurert i .env';
           break;
         }
-        await axios.get(`${process.env.UNIFI_CONTROLLER_URL}/status`, { 
-          httpsAgent, 
-          timeout: 10000 
-        });
-        success = true;
-        message = 'UniFi Controller tilgjengelig';
+        if (process.env.UNIFI_API_KEY) {
+          // Test with API key
+          const unifiTestRes = await axios.get(`${process.env.UNIFI_CONTROLLER_URL}/proxy/network/api/s/${process.env.UNIFI_SITE || 'default'}/stat/health`, { 
+            httpsAgent, 
+            headers: { 'X-API-Key': process.env.UNIFI_API_KEY },
+            timeout: 10000 
+          });
+          success = true;
+          message = `UniFi Controller tilgjengelig (API-nøkkel, ${unifiTestRes.data?.data?.length || 0} subsystemer)`;
+        } else {
+          await axios.get(`${process.env.UNIFI_CONTROLLER_URL}/status`, { 
+            httpsAgent, 
+            timeout: 10000 
+          });
+          success = true;
+          message = 'UniFi Controller tilgjengelig (legacy auth)';
+        }
         break;
         
       case 'truenas':

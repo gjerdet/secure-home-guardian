@@ -36,7 +36,7 @@ interface ConnectionStatus {
 }
 
 interface ServiceConfigs {
-  unifi: { url: string; username: string; password: string; site: string };
+  unifi: { url: string; apiKey: string; username: string; password: string; site: string };
   truenas: { url: string; apiKey: string };
   proxmox: { url: string; user: string; tokenId: string; tokenSecret: string };
   openvas: { url: string; username: string; password: string };
@@ -54,7 +54,7 @@ const roleBadgeClass: Record<UserRole, string> = {
 };
 
 const defaultConfigs: ServiceConfigs = {
-  unifi: { url: '', username: '', password: '', site: 'default' },
+  unifi: { url: '', apiKey: '', username: '', password: '', site: 'default' },
   truenas: { url: '', apiKey: '' },
   proxmox: { url: '', user: 'root@pam', tokenId: '', tokenSecret: '' },
   openvas: { url: '', username: 'admin', password: '' },
@@ -504,18 +504,29 @@ export default function Settings() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <Label>Controller URL</Label>
-                      <Input value={configs.unifi.url} onChange={e => updateConfig('unifi', 'url', e.target.value)} placeholder="https://192.168.1.1:8443" className="bg-muted border-border font-mono mt-1" />
+                      <Input value={configs.unifi.url} onChange={e => updateConfig('unifi', 'url', e.target.value)} placeholder="https://192.168.1.1" className="bg-muted border-border font-mono mt-1" />
                     </div>
                     <div>
                       <Label>Site Name</Label>
                       <Input value={configs.unifi.site} onChange={e => updateConfig('unifi', 'site', e.target.value)} placeholder="default" className="bg-muted border-border font-mono mt-1" />
                     </div>
+                    <div className="md:col-span-2">
+                      <Label className="flex items-center gap-2">
+                        <KeyRound className="h-3.5 w-3.5 text-primary" />
+                        API-nøkkel (anbefalt)
+                      </Label>
+                      <Input type="password" value={configs.unifi.apiKey} onChange={e => updateConfig('unifi', 'apiKey', e.target.value)} placeholder="Opprett i UDM > Network > Settings > System > Integrations" className="bg-muted border-border font-mono mt-1" />
+                      <p className="text-xs text-muted-foreground mt-1">Sikrere og mer stabilt enn brukernavn/passord. Fungerer med UDM Pro, Cloud Gateway, etc.</p>
+                    </div>
+                    <div className="md:col-span-2 border-t border-border pt-3">
+                      <p className="text-xs text-muted-foreground mb-2">Alternativt: brukernavn/passord (legacy)</p>
+                    </div>
                     <div>
-                      <Label>Brukernavn</Label>
+                      <Label>Brukernavn (valgfritt)</Label>
                       <Input value={configs.unifi.username} onChange={e => updateConfig('unifi', 'username', e.target.value)} placeholder="admin" className="bg-muted border-border mt-1" />
                     </div>
                     <div>
-                      <Label>Passord</Label>
+                      <Label>Passord (valgfritt)</Label>
                       <Input type="password" value={configs.unifi.password} onChange={e => updateConfig('unifi', 'password', e.target.value)} className="bg-muted border-border mt-1" />
                     </div>
                   </div>

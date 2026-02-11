@@ -18,6 +18,7 @@ interface SetupConfig {
   adminPasswordConfirm: string;
   // UniFi
   unifiUrl: string;
+  unifiApiKey: string;
   unifiUsername: string;
   unifiPassword: string;
   unifiSite: string;
@@ -47,6 +48,7 @@ export default function Setup() {
     adminPassword: '',
     adminPasswordConfirm: '',
     unifiUrl: '',
+    unifiApiKey: '',
     unifiUsername: '',
     unifiPassword: '',
     unifiSite: 'default',
@@ -115,6 +117,7 @@ export default function Setup() {
           services: {
             unifi: {
               url: config.unifiUrl,
+              apiKey: config.unifiApiKey,
               username: config.unifiUsername,
               password: config.unifiPassword,
               site: config.unifiSite,
@@ -250,27 +253,43 @@ export default function Setup() {
                   id="unifiUrl"
                   value={config.unifiUrl}
                   onChange={(e) => updateConfig('unifiUrl', e.target.value)}
-                  placeholder="https://192.168.1.1:8443"
+                  placeholder="https://192.168.1.1"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="unifiUsername">Brukernavn</Label>
-                  <Input
-                    id="unifiUsername"
-                    value={config.unifiUsername}
-                    onChange={(e) => updateConfig('unifiUsername', e.target.value)}
-                    placeholder="admin"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="unifiPassword">Passord</Label>
-                  <Input
-                    id="unifiPassword"
-                    type="password"
-                    value={config.unifiPassword}
-                    onChange={(e) => updateConfig('unifiPassword', e.target.value)}
-                  />
+              <div className="space-y-2">
+                <Label htmlFor="unifiApiKey" className="flex items-center gap-2">
+                  API-nøkkel (anbefalt)
+                </Label>
+                <Input
+                  id="unifiApiKey"
+                  type="password"
+                  value={config.unifiApiKey}
+                  onChange={(e) => updateConfig('unifiApiKey', e.target.value)}
+                  placeholder="Opprett i UDM > Network > Settings > System > Integrations"
+                />
+                <p className="text-xs text-muted-foreground">Sikrere og mer stabilt enn brukernavn/passord</p>
+              </div>
+              <div className="border-t border-border pt-3">
+                <p className="text-xs text-muted-foreground mb-3">Alternativt: brukernavn/passord (legacy)</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="unifiUsername">Brukernavn</Label>
+                    <Input
+                      id="unifiUsername"
+                      value={config.unifiUsername}
+                      onChange={(e) => updateConfig('unifiUsername', e.target.value)}
+                      placeholder="admin"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="unifiPassword">Passord</Label>
+                    <Input
+                      id="unifiPassword"
+                      type="password"
+                      value={config.unifiPassword}
+                      onChange={(e) => updateConfig('unifiPassword', e.target.value)}
+                    />
+                  </div>
                 </div>
               </div>
               <div className="space-y-2">
