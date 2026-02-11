@@ -971,6 +971,8 @@ app.get('/api/unifi/events', authenticateToken, async (req, res) => {
       action: e.inner_alert_action || e.action || '',
       deviceName: e.sw_name || e.ap_name || e.gw_name || '',
       deviceMac: e.sw || e.ap || e.gw || '',
+      clientName: e.hostname || e.guest || e.user || '',
+      clientMac: e.client || e.sta || '',
     }));
 
     console.log(`[UniFi] Events: returning ${normalized.length} events (IDS: ${normalized.filter(e => e.type === 'ids').length}, FW: ${normalized.filter(e => e.type === 'firewall').length}, SYS: ${normalized.filter(e => e.type === 'system').length})`);

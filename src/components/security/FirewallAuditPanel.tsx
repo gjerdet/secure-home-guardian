@@ -92,7 +92,7 @@ interface FirewallGroup {
   group_members: string[];
 }
 
-type SortField = 'name' | 'action' | 'ruleset' | 'protocol' | 'rule_index' | 'enabled' | 'dst_port' | 'src_zone' | 'dst_zone';
+type SortField = 'name' | 'action' | 'ruleset' | 'protocol' | 'rule_index' | 'enabled' | 'dst_port' | 'src_zone' | 'dst_zone' | 'src_address' | 'dst_address';
 type SortDir = 'asc' | 'desc';
 
 const emptyFirewallGroups: FirewallGroup[] = [];
@@ -310,6 +310,8 @@ export function FirewallAuditPanel() {
         case 'dst_port': cmp = (a.dst_port || '').localeCompare(b.dst_port || '', undefined, { numeric: true }); break;
         case 'src_zone': cmp = (a.src_zone || '').localeCompare(b.src_zone || ''); break;
         case 'dst_zone': cmp = (a.dst_zone || '').localeCompare(b.dst_zone || ''); break;
+        case 'src_address': cmp = (getSourceDisplay(a)).localeCompare(getSourceDisplay(b)); break;
+        case 'dst_address': cmp = (getDestDisplay(a)).localeCompare(getDestDisplay(b)); break;
       }
       return sortDir === 'asc' ? cmp : -cmp;
     });
@@ -549,8 +551,8 @@ export function FirewallAuditPanel() {
                         <SortableHeader field="action">Handling</SortableHeader>
                         <SortableHeader field="ruleset">Ruleset</SortableHeader>
                         <SortableHeader field="protocol">Protokoll</SortableHeader>
-                        <TableHead>Kilde</TableHead>
-                        <TableHead>Destinasjon</TableHead>
+                        <SortableHeader field="src_address">Kilde</SortableHeader>
+                        <SortableHeader field="dst_address">Destinasjon</SortableHeader>
                         <TableHead>Port</TableHead>
                       </TableRow>
                     </TableHeader>

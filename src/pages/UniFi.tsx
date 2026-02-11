@@ -161,6 +161,8 @@ interface SystemEvent {
   action: string;
   deviceName: string;
   deviceMac: string;
+  clientName: string;
+  clientMac: string;
 }
 
 const firewallLogs: FirewallLog[] = [];
@@ -614,6 +616,29 @@ export default function UniFi() {
     }
   };
 
+  // MAC/IP to client name lookup
+  const clientLookup = useMemo(() => {
+    const byMac: Record<string, string> = {};
+    const byIp: Record<string, string> = {};
+    liveClients.forEach(c => {
+      if (c.mac) byMac[c.mac.toLowerCase()] = c.name;
+      if (c.ip) byIp[c.ip] = c.name;
+    });
+    return { byMac, byIp };
+  }, [liveClients]);
+
+  const resolveClient = (mac?: string, ip?: string) => {
+    if (mac) {
+      const name = clientLookup.byMac[mac.toLowerCase()];
+      if (name) return name;
+    }
+    if (ip) {
+      const name = clientLookup.byIp[ip];
+      if (name) return name;
+    }
+    return null;
+  };
+
   const sortedAlerts = useMemo(() => {
     let filtered = [...idsAlerts];
     
@@ -823,7 +848,7 @@ export default function UniFi() {
           <TabsList className="bg-muted flex-wrap">
             <TabsTrigger value="flows" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               <ArrowUpDown className="h-4 w-4 mr-2" />
-              Trafikkstraumar
+              Traffic Flows
             </TabsTrigger>
             <TabsTrigger value="ids" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               <ShieldAlert className="h-4 w-4 mr-2" />
@@ -858,7 +883,7 @@ export default function UniFi() {
                 <div className="flex items-center justify-between">
                   <CardTitle className="flex items-center gap-2">
                     <ArrowUpDown className="h-5 w-5 text-primary" />
-                    Trafikkstraumar ({trafficFlows.length})
+                    Traffic Flows ({trafficFlows.length})
                   </CardTitle>
                   <div className="flex items-center gap-2">
                     <Select value={flowFilter} onValueChange={setFlowFilter}>
@@ -950,11 +975,11 @@ export default function UniFi() {
                         {trafficFlows.length === 0 && (
                           <tr>
                             <td colSpan={9} className="p-8 text-center text-muted-foreground">
-                              {isLoading ? "Henter trafikkstraumar..." : (
+                              {isLoading ? "Henter traffic flows..." : (
                                 <div className="flex flex-col items-center gap-2">
                                   <ArrowUpDown className="h-8 w-8 text-muted-foreground/50" />
-                                  <p>Ingen trafikkstraumar tilgjengeleg</p>
-                                  <p className="text-[10px]">Krev UniFi Network 9.1+ og UDM Pro / UCG Max</p>
+                                  <p>Ingen traffic flows tilgjengelig</p>
+                                  <p className="text-[10px]">Krever UniFi Network 9.1+ og UDM Pro / UCG Max</p>
                                 </div>
                               )}
                             </td>
@@ -1270,7 +1295,9 @@ export default function UniFi() {
                       <div className="p-8 text-center text-muted-foreground text-sm">
                         {isLoading ? "Laster hendelser..." : "Ingen systemhendelser funnet"}
                       </div>
-                    ) : systemEvents.map((event) => (
+                    ) : systemEvents.map((event) => {
+                      const clientName = event.clientName || resolveClient(event.clientMac, event.srcIp) || resolveClient(event.deviceMac);
+                      return (
                       <div key={event.id} className="p-4 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => setSelectedEvent(event)}>
                         <div className="flex items-start justify-between mb-1">
                           <div className="flex flex-wrap items-center gap-2">
@@ -1282,6 +1309,12 @@ export default function UniFi() {
                               {event.type === 'ids' ? 'IDS/IPS' : event.type === 'firewall' ? 'Brannmur' : 'System'}
                             </Badge>
                             <Badge variant="secondary" className="text-[10px] font-mono">{event.key}</Badge>
+                            {clientName && (
+                              <Badge className="text-[10px] bg-primary/10 text-primary border-primary/20">
+                                <Users className="h-3 w-3 mr-1" />
+                                {clientName}
+                              </Badge>
+                            )}
                             {event.deviceName && (
                               <Badge variant="outline" className="text-[10px]">{event.deviceName}</Badge>
                             )}
@@ -1292,15 +1325,15 @@ export default function UniFi() {
                           </span>
                         </div>
                         <p className="text-sm text-foreground">{event.msg}</p>
-                        {(event.srcIp || event.dstIp) && (
-                          <div className="flex gap-4 mt-1 text-xs text-muted-foreground font-mono">
-                            {event.srcIp && <span>Kilde: {event.srcIp}{event.srcPort ? `:${event.srcPort}` : ''}</span>}
-                            {event.dstIp && <span>Mål: {event.dstIp}{event.dstPort ? `:${event.dstPort}` : ''}</span>}
-                            {event.proto && <span>{event.proto}</span>}
-                          </div>
-                        )}
+                        <div className="flex gap-4 mt-1 text-xs text-muted-foreground font-mono flex-wrap">
+                          {event.clientMac && !clientName && <span>MAC: {event.clientMac}</span>}
+                          {event.srcIp && <span>Kilde: {event.srcIp}{event.srcPort ? `:${event.srcPort}` : ''}</span>}
+                          {event.dstIp && <span>Mål: {event.dstIp}{event.dstPort ? `:${event.dstPort}` : ''}</span>}
+                          {event.proto && <span>{event.proto}</span>}
+                        </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </ScrollArea>
               </CardContent>
