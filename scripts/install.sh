@@ -8,7 +8,7 @@
 #   --skip-security    Hopp over sikkerhetsverktøy
 #   --help             Vis hjelp
 
-set -e
+set -eo pipefail
 
 # Farger for output
 RED='\033[0;31m'
@@ -150,25 +150,30 @@ status "Nginx installert"
 # 4. Kopier frontend filer
 echo -e "\n${YELLOW}Steg 4/$TOTAL_STEPS: Setter opp frontend...${NC}"
 mkdir -p $INSTALL_DIR
-cp -r $CURRENT_DIR/* $INSTALL_DIR/ 2>/dev/null || true
-cp -r $CURRENT_DIR/.* $INSTALL_DIR/ 2>/dev/null || true
-cd $INSTALL_DIR
-npm install 2>&1 | tail -3
-npx vite build 2>&1 | tail -5
+cp -r $CURRENT_DIR/. $INSTALL_DIR/
 
-if [ ! -f "$INSTALL_DIR/dist/index.html" ]; then
-    error "Frontend-bygg feilet! dist/index.html ble ikke generert."
-    error "Kjør 'cd $INSTALL_DIR && npm run build' manuelt for å se feilmeldinger."
+cd $INSTALL_DIR
+info "Installerer npm-pakker (dette kan ta litt tid)..."
+npm install
+if [ ! -d "$INSTALL_DIR/node_modules/.bin" ]; then
+    error "npm install feilet – node_modules/.bin mangler"
     exit 1
 fi
-status "Frontend bygget ($(ls $INSTALL_DIR/dist/assets/*.js 2>/dev/null | wc -l) JS-filer)"
+
+info "Bygger frontend..."
+$INSTALL_DIR/node_modules/.bin/vite build
+if [ ! -f "$INSTALL_DIR/dist/index.html" ]; then
+    error "Frontend-bygg feilet! dist/index.html ble ikke generert."
+    exit 1
+fi
+status "Frontend bygget"
 
 # 5. Sett opp backend
 echo -e "\n${YELLOW}Steg 5/$TOTAL_STEPS: Setter opp backend API...${NC}"
 mkdir -p $API_DIR
 cp -r $INSTALL_DIR/backend/* $API_DIR/
 cd $API_DIR
-npm install 2>&1 | tail -3
+npm install
 cp .env.example .env 2>/dev/null || true
 
 # Generer JWT_SECRET hvis ikke satt
