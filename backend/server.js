@@ -548,29 +548,31 @@ async function unifiRequest(endpoint) {
 
   if (authMethod === 'apikey') {
     // API key auth - works with UniFi OS (UDM Pro, Cloud Gateway, etc.)
-    try {
-      const response = await axios.get(
-        `${baseUrl}/proxy/network/api/s/${site}${endpoint}`,
-        {
+    // Try multiple endpoint paths since firmware versions differ
+    const paths = [
+      `${baseUrl}/proxy/network/api/s/${site}${endpoint}`,
+      `${baseUrl}/proxy/network/v2/api/site/${site}${endpoint}`,
+      `${baseUrl}/api/s/${site}${endpoint}`,
+    ];
+
+    let lastError = null;
+    for (const url of paths) {
+      try {
+        const response = await axios.get(url, {
           httpsAgent,
           headers: { 'X-API-Key': process.env.UNIFI_API_KEY },
+          timeout: 10000,
+        });
+        return response.data;
+      } catch (error) {
+        lastError = error;
+        // Only try next path on 401 or 404
+        if (error.response?.status !== 401 && error.response?.status !== 404) {
+          throw new Error(`UniFi API feil (${error.response?.status || 'network'}): ${error.message}`);
         }
-      );
-      return response.data;
-    } catch (error) {
-      // Some endpoints may use different path on older firmware
-      if (error.response?.status === 404) {
-        const fallback = await axios.get(
-          `${baseUrl}/api/s/${site}${endpoint}`,
-          {
-            httpsAgent,
-            headers: { 'X-API-Key': process.env.UNIFI_API_KEY },
-          }
-        );
-        return fallback.data;
       }
-      throw error;
     }
+    throw new Error(`UniFi API-nøkkel avvist (401). Sjekk at nøkkelen er gyldig og har riktige rettigheter. Opprett ny under Network > Settings > System > Integrations.`);
   }
 
   // Legacy cookie-based auth
@@ -737,16 +739,37 @@ app.get('/api/truenas/system', async (req, res) => {
 // ============================================
 
 async function proxmoxRequest(endpoint) {
-  const response = await axios.get(
-    `${process.env.PROXMOX_URL}/api2/json${endpoint}`,
-    {
-      httpsAgent,
-      headers: {
-        Authorization: `PVEAPIToken=${process.env.PROXMOX_USER}!${process.env.PROXMOX_TOKEN_ID}=${process.env.PROXMOX_TOKEN_SECRET}`,
-      },
+  const url = process.env.PROXMOX_URL;
+  const user = process.env.PROXMOX_USER;
+  const tokenId = process.env.PROXMOX_TOKEN_ID;
+  const tokenSecret = process.env.PROXMOX_TOKEN_SECRET;
+
+  if (!url || !tokenId || !tokenSecret) {
+    throw new Error('Proxmox er ikke konfigurert. Legg til URL, Token ID og Token Secret i Innstillinger.');
+  }
+
+  const authValue = `PVEAPIToken=${user}!${tokenId}=${tokenSecret}`;
+  console.log(`[Proxmox] ${endpoint} -> ${url}/api2/json${endpoint} (user: ${user}, token: ${tokenId})`);
+
+  try {
+    const response = await axios.get(
+      `${url}/api2/json${endpoint}`,
+      {
+        httpsAgent,
+        headers: { Authorization: authValue },
+        timeout: 10000,
+      }
+    );
+    return response.data;
+  } catch (error) {
+    const status = error.response?.status;
+    const msg = error.response?.data?.errors || error.message;
+    console.error(`[Proxmox] Feil ${status}: ${JSON.stringify(msg)}`);
+    if (status === 401) {
+      throw new Error(`Proxmox 401: Token avvist. Sjekk at Token ID (${tokenId}) og Secret er riktige for bruker ${user}. Token ID skal IKKE inkludere "user@pam!" prefiks.`);
     }
-  );
-  return response.data;
+    throw new Error(`Proxmox feil (${status || 'network'}): ${error.message}`);
+  }
 }
 
 app.get('/api/proxmox/nodes', authenticateToken, async (req, res) => {
