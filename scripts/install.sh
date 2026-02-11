@@ -122,9 +122,9 @@ fi
 
 # Beregn antall steg
 if [ "$INSTALL_SECURITY" = true ]; then
-    TOTAL_STEPS=10
+    TOTAL_STEPS=11
 else
-    TOTAL_STEPS=7
+    TOTAL_STEPS=8
 fi
 
 # 1. Oppdater system
@@ -165,8 +165,56 @@ npm install
 cp .env.example .env 2>/dev/null || true
 status "Backend satt opp"
 
-# 6. Konfigurer Nginx
-echo -e "\n${YELLOW}Steg 6/$TOTAL_STEPS: Konfigurerer Nginx...${NC}"
+# 6. Opprett admin-bruker
+echo -e "\n${YELLOW}Steg 6/$TOTAL_STEPS: Oppretter admin-bruker...${NC}"
+echo -e "${CYAN}Du trenger en admin-konto for å logge inn i NetGuard.${NC}"
+echo ""
+
+# Les brukernavn
+read -p "Velg brukernavn [admin]: " ADMIN_USER
+ADMIN_USER=${ADMIN_USER:-admin}
+
+# Les passord (skjult input)
+while true; do
+    read -s -p "Velg passord (minst 8 tegn): " ADMIN_PASS
+    echo
+    if [ ${#ADMIN_PASS} -lt 8 ]; then
+        warn "Passord må være minst 8 tegn. Prøv igjen."
+        continue
+    fi
+    read -s -p "Bekreft passord: " ADMIN_PASS_CONFIRM
+    echo
+    if [ "$ADMIN_PASS" != "$ADMIN_PASS_CONFIRM" ]; then
+        warn "Passordene stemmer ikke overens. Prøv igjen."
+        continue
+    fi
+    break
+done
+
+# Opprett bruker via Node.js (bruker bcryptjs fra backend)
+mkdir -p $API_DIR/data
+node -e "
+const bcrypt = require('bcryptjs');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+
+const usersFile = path.join('$API_DIR', 'data', 'users.json');
+const hash = bcrypt.hashSync('$ADMIN_PASS', 10);
+const users = [{
+  id: crypto.randomUUID(),
+  username: '$ADMIN_USER',
+  password: hash,
+  role: 'admin',
+  createdAt: new Date().toISOString()
+}];
+fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
+console.log('Admin-bruker opprettet.');
+"
+status "Admin-bruker '$ADMIN_USER' opprettet"
+
+# 7. Konfigurer Nginx
+echo -e "\n${YELLOW}Steg 7/$TOTAL_STEPS: Konfigurerer Nginx...${NC}"
 cp $INSTALL_DIR/scripts/nginx.conf /etc/nginx/sites-available/netguard
 ln -sf /etc/nginx/sites-available/netguard /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
@@ -175,8 +223,8 @@ systemctl restart nginx
 systemctl enable nginx
 status "Nginx konfigurert"
 
-# 7. Sett opp systemd service
-echo -e "\n${YELLOW}Steg 7/$TOTAL_STEPS: Setter opp systemd service...${NC}"
+# 8. Sett opp systemd service
+echo -e "\n${YELLOW}Steg 8/$TOTAL_STEPS: Setter opp systemd service...${NC}"
 cp $INSTALL_DIR/scripts/netguard-api.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable netguard-api
@@ -186,13 +234,13 @@ status "Systemd service aktivert"
 # Sikkerhetsverktøy (valgfritt)
 if [ "$INSTALL_SECURITY" = true ]; then
     
-    # 8. Installer Nmap
-    echo -e "\n${YELLOW}Steg 8/$TOTAL_STEPS: Installerer Nmap...${NC}"
+    # 9. Installer Nmap
+    echo -e "\n${YELLOW}Steg 9/$TOTAL_STEPS: Installerer Nmap...${NC}"
     apt install -y nmap
     status "Nmap installert: $(nmap --version | head -n1)"
     
-    # 9. Installer Docker
-    echo -e "\n${YELLOW}Steg 9/$TOTAL_STEPS: Installerer Docker...${NC}"
+    # 10. Installer Docker
+    echo -e "\n${YELLOW}Steg 10/$TOTAL_STEPS: Installerer Docker...${NC}"
     if ! command -v docker &> /dev/null; then
         # Installer Docker avhengigheter
         apt install -y apt-transport-https ca-certificates curl gnupg lsb-release
@@ -216,8 +264,8 @@ if [ "$INSTALL_SECURITY" = true ]; then
         status "Docker allerede installert: $(docker --version)"
     fi
     
-    # 10. Start OpenVAS container
-    echo -e "\n${YELLOW}Steg 10/$TOTAL_STEPS: Starter OpenVAS/Greenbone...${NC}"
+    # 11. Start OpenVAS container
+    echo -e "\n${YELLOW}Steg 11/$TOTAL_STEPS: Starter OpenVAS/Greenbone...${NC}"
     
     # Stopp eksisterende container hvis den finnes
     docker stop openvas 2>/dev/null || true
