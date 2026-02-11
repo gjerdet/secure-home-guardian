@@ -225,7 +225,7 @@ export default function UniFi() {
             memUsage: Math.round((d["sys_stats"]?.mem_used || 0) / (d["sys_stats"]?.mem_total || 1) * 100),
             cpuUsage: Math.round(d["system-stats"]?.cpu || 0),
             satisfaction: d.satisfaction ?? 0,
-            connectedClients: [],
+            connectedClients: [] as { name: string; ip: string; signal: number; band: string; rxRate: number; txRate: number }[],
           }));
 
         const switches: SwitchDevice[] = devicesRes.data.data
@@ -282,7 +282,7 @@ export default function UniFi() {
         if (alerts.length > 0) setIdsAlerts(alerts);
       }
 
-      // Parse clients
+      // Parse clients and link to APs
       if (clientsRes.ok && clientsRes.data?.data) {
         const clients = clientsRes.data.data.slice(0, 100).map((c: any) => ({
           id: c._id || c.mac,
@@ -301,8 +301,26 @@ export default function UniFi() {
           rxBytes: c.rx_bytes || 0,
           txBytes: c.tx_bytes || 0,
           channel: c.channel?.toString() || null,
+          ap_mac: c.ap_mac || null,
         }));
         setLiveClients(clients);
+
+        // Link wireless clients to their APs
+        if (devicesRes.ok && devicesRes.data?.data) {
+          setLiveAPs(prev => prev.map(ap => ({
+            ...ap,
+            connectedClients: clients
+              .filter((c: any) => c.ap_mac && c.ap_mac === ap.mac)
+              .map((c: any) => ({
+                name: c.name,
+                ip: c.ip,
+                signal: c.signal,
+                band: c.connection.replace('WiFi ', ''),
+                rxRate: c.rxRate,
+                txRate: c.txRate,
+              })),
+          })));
+        }
       }
 
       // Parse health/traffic

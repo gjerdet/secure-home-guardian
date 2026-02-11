@@ -1432,65 +1432,22 @@ app.post('/api/security/ssl-check', authenticateToken, async (req, res) => {
   res.json({ results });
 });
 
-// Firewall Audit - Get UDM Pro firewall rules
+// Firewall Audit - Get UDM Pro firewall rules (uses unifiRequest with API key)
 app.get('/api/security/firewall-rules', authenticateToken, async (req, res) => {
   try {
-    const config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
-    const unifiConfig = config.unifi || {};
-    
-    if (!unifiConfig.url) {
-      return res.status(400).json({ error: 'UniFi er ikke konfigurert' });
-    }
-
-    // Login to UniFi
-    const loginRes = await axios.post(`${unifiConfig.url}/api/auth/login`, {
-      username: unifiConfig.username,
-      password: unifiConfig.password,
-    }, { httpsAgent, withCredentials: true });
-
-    const cookies = loginRes.headers['set-cookie'];
-    const cookieHeader = cookies ? cookies.map(c => c.split(';')[0]).join('; ') : '';
-    const csrfToken = loginRes.headers['x-csrf-token'] || '';
-
-    const site = unifiConfig.site || 'default';
-    
-    // Get firewall rules
-    const rulesRes = await axios.get(
-      `${unifiConfig.url}/proxy/network/api/s/${site}/rest/firewallrule`,
-      { httpsAgent, headers: { Cookie: cookieHeader, 'x-csrf-token': csrfToken } }
-    );
-
-    // Get port forwarding rules
-    let portForwards = [];
-    try {
-      const pfRes = await axios.get(
-        `${unifiConfig.url}/proxy/network/api/s/${site}/rest/portforward`,
-        { httpsAgent, headers: { Cookie: cookieHeader, 'x-csrf-token': csrfToken } }
-      );
-      portForwards = pfRes.data?.data || [];
-    } catch (e) {
-      // Port forwarding endpoint might not exist
-    }
-
-    // Get firewall groups (for name resolution)
-    let firewallGroups = [];
-    try {
-      const fgRes = await axios.get(
-        `${unifiConfig.url}/proxy/network/api/s/${site}/rest/firewallgroup`,
-        { httpsAgent, headers: { Cookie: cookieHeader, 'x-csrf-token': csrfToken } }
-      );
-      firewallGroups = fgRes.data?.data || [];
-    } catch (e) {
-      // Firewall groups endpoint might not exist
-    }
+    // Use the same unifiRequest function that works with API key auth
+    const [rulesData, pfData, fgData] = await Promise.all([
+      unifiRequest('/rest/firewallrule').catch(e => { console.log('[UniFi] firewallrule:', e.message); return { data: [] }; }),
+      unifiRequest('/rest/portforward').catch(() => ({ data: [] })),
+      unifiRequest('/rest/firewallgroup').catch(() => ({ data: [] })),
+    ]);
 
     res.json({
-      firewallRules: rulesRes.data?.data || [],
-      portForwards,
-      firewallGroups,
+      firewallRules: rulesData?.data || [],
+      portForwards: pfData?.data || [],
+      firewallGroups: fgData?.data || [],
     });
   } catch (error) {
-    // Return mock/empty data if UniFi not reachable
     res.json({
       firewallRules: [],
       portForwards: [],
