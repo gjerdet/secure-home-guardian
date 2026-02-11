@@ -1639,7 +1639,7 @@ app.get('/api/system/services', authenticateToken, async (req, res) => {
     { id: 'nodejs', name: 'Node.js', cmd: 'node --version', activeCmd: null },
     { id: 'nginx', name: 'Nginx', cmd: 'nginx -v 2>&1', activeCmd: 'systemctl is-active nginx' },
     { id: 'docker', name: 'Docker', cmd: 'docker --version', activeCmd: 'systemctl is-active docker' },
-    { id: 'nmap', name: 'Nmap', cmd: 'nmap --version 2>&1 | head -n1', activeCmd: null },
+    { id: 'nmap', name: 'Nmap', cmd: 'which nmap > /dev/null 2>&1 && nmap --version 2>&1 | head -n1', activeCmd: null },
     { id: 'openvas', name: 'OpenVAS/Greenbone', cmd: 'docker inspect openvas --format="{{.Config.Image}}" 2>/dev/null', activeCmd: 'docker inspect openvas --format="{{.State.Status}}" 2>/dev/null' },
   ];
 
