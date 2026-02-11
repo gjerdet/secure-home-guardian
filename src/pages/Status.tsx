@@ -7,6 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { ContainerLogsDialog } from "@/components/status/ContainerLogsDialog";
+import { SystemInfoCard } from "@/components/installer/SystemInfoCard";
 import { 
   Activity, Box, CheckCircle, XCircle, RefreshCw, Loader2,
   Play, Square, RotateCcw, Server, Database, Shield, Wifi,
@@ -173,6 +174,8 @@ export default function Status() {
             Oppdater
           </Button>
         </div>
+        {/* System Info Card */}
+        <SystemInfoCard />
 
         {/* Quick Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
