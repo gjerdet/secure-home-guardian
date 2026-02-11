@@ -1011,7 +1011,7 @@ app.get('/api/unifi/events', authenticateToken, async (req, res) => {
   }
 });
 
-// Debug endpoint: probe all IDS/IPS and event paths and report what works
+// Debug endpoint: probe all IDS/IPS, event, and traffic paths
 app.get('/api/unifi/debug-ids', authenticateToken, async (req, res) => {
   try {
     const baseUrl = process.env.UNIFI_CONTROLLER_URL;
@@ -1031,13 +1031,35 @@ app.get('/api/unifi/debug-ids', authenticateToken, async (req, res) => {
       `${baseUrl}/proxy/network/v2/api/site/${site}/flows`,
       `${baseUrl}/proxy/network/v2/api/site/${site}/flows/active`,
       `${baseUrl}/proxy/network/v2/api/site/${site}/insight/flows`,
+      // DPI / traffic stats endpoints
+      `${baseUrl}/proxy/network/api/s/${site}/stat/dpi`,
+      `${baseUrl}/proxy/network/api/s/${site}/stat/sitedpi`,
+      `${baseUrl}/proxy/network/api/s/${site}/stat/stadpi`,
+      `${baseUrl}/proxy/network/v2/api/site/${site}/trafficroutes`,
+      `${baseUrl}/proxy/network/v2/api/site/${site}/trafficrules`,
+      // Routing / firewall logs  
+      `${baseUrl}/proxy/network/v2/api/site/${site}/routing`,
+      `${baseUrl}/proxy/network/v2/api/site/${site}/firewall/activity`,
+      `${baseUrl}/proxy/network/v2/api/site/${site}/firewall/logs`,
     ];
+
+    // Also show event key distribution from stat/event
+    let eventKeyDistribution = {};
 
     for (const url of paths) {
       try {
         const r = await axios.get(url, axOpts);
         const data = r.data?.data || r.data || [];
         const items = Array.isArray(data) ? data : (typeof data === 'object' ? [data] : []);
+        
+        // For stat/event, analyze key distribution
+        if (url.includes('stat/event') && items.length > 0) {
+          items.forEach(e => {
+            const key = e.key || 'unknown';
+            eventKeyDistribution[key] = (eventKeyDistribution[key] || 0) + 1;
+          });
+        }
+        
         results.push({
           url: url.replace(baseUrl, ''),
           status: r.status,
@@ -1055,7 +1077,35 @@ app.get('/api/unifi/debug-ids', authenticateToken, async (req, res) => {
       }
     }
 
-    res.json({ site, baseUrl: baseUrl?.replace(/\/\/.*@/, '//***@'), results });
+    // Also try POST endpoints for DPI stats
+    const postPaths = [
+      { url: `${baseUrl}/proxy/network/api/s/${site}/stat/report/daily.site`, body: { attrs: ['bytes', 'num_sta', 'wlan_bytes', 'wan-tx_bytes', 'wan-rx_bytes'], start: Date.now() - 30 * 86400000, end: Date.now() } },
+      { url: `${baseUrl}/proxy/network/api/s/${site}/stat/report/monthly.site`, body: { attrs: ['bytes', 'num_sta', 'wan-tx_bytes', 'wan-rx_bytes'] } },
+    ];
+
+    for (const p of postPaths) {
+      try {
+        const r = await axios.post(p.url, p.body, axOpts);
+        const data = r.data?.data || r.data || [];
+        const items = Array.isArray(data) ? data : [];
+        results.push({
+          url: p.url.replace(baseUrl, '') + ' (POST)',
+          status: r.status,
+          items: items.length,
+          sampleKeys: items[0] ? Object.keys(items[0]).slice(0, 15) : [],
+          sample: items[0] ? JSON.stringify(items[0]).slice(0, 300) : null,
+        });
+      } catch (e) {
+        results.push({
+          url: p.url.replace(baseUrl, '') + ' (POST)',
+          status: e.response?.status || 'error',
+          error: e.message,
+          items: 0,
+        });
+      }
+    }
+
+    res.json({ site, baseUrl: baseUrl?.replace(/\/\/.*@/, '//***@'), results, eventKeyDistribution });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
