@@ -1453,7 +1453,7 @@ app.get('/api/health/all', async (req, res) => {
   // Check Docker
   try {
     const start = Date.now();
-    await execAsync('docker info', { timeout: 5000 });
+    await execAsync('docker ps -q 2>/dev/null', { timeout: 5000 });
     services.push({
       name: 'docker',
       status: 'online',
