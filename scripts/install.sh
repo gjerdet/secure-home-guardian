@@ -271,29 +271,33 @@ if [ "$INSTALL_SECURITY" = true ]; then
     # Opprett volum for persistens
     docker volume create openvas-data 2>/dev/null || true
     
-    # Start OpenVAS container
+    # Start OpenVAS container (immauss/openvas er vedlikeholdt og inkluderer alt)
     info "Laster ned og starter OpenVAS container (dette kan ta 5-10 minutter)..."
     docker run -d \
         --name openvas \
         --restart unless-stopped \
         -p 9392:9392 \
-        -v openvas-data:/var/lib/openvas \
-        greenbone/gsm-community:stable
+        -p 443:443 \
+        -v openvas-data:/data \
+        -e PASSWORD="admin" \
+        immauss/openvas:latest
     
-    status "OpenVAS container startet"
-    
-    # Generer tilfeldig passord for OpenVAS
-    OPENVAS_PASSWORD=$(openssl rand -base64 12 | tr -dc 'a-zA-Z0-9' | head -c 16)
+    if docker ps --format '{{.Names}}' | grep -q openvas; then
+        status "OpenVAS container startet"
+    else
+        warn "OpenVAS container startet ikke umiddelbart. Sjekk: docker logs openvas"
+    fi
     
     # Oppdater .env med OpenVAS konfigurasjon
     if [ -f "$API_DIR/.env" ]; then
-        sed -i "s|OPENVAS_URL=.*|OPENVAS_URL=http://localhost:9392|g" $API_DIR/.env
+        sed -i "s|OPENVAS_URL=.*|OPENVAS_URL=https://localhost:9392|g" $API_DIR/.env
         sed -i "s|OPENVAS_USERNAME=.*|OPENVAS_USERNAME=admin|g" $API_DIR/.env
-        sed -i "s|OPENVAS_PASSWORD=.*|OPENVAS_PASSWORD=$OPENVAS_PASSWORD|g" $API_DIR/.env
+        sed -i "s|OPENVAS_PASSWORD=.*|OPENVAS_PASSWORD=admin|g" $API_DIR/.env
     fi
     
     info "OpenVAS initialiseres i bakgrunnen (tar 5-10 min første gang)"
-    info "Standard admin-passord genereres automatisk av containeren"
+    info "Standard innlogging: admin / admin"
+    info "Endre passord: docker exec openvas greenbone-manage-users --user admin --new-password NYTT"
     
     # Restart backend for å ta i bruk nye konfigurasjon
     systemctl restart netguard-api
