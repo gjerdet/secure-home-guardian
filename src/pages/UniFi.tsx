@@ -60,15 +60,145 @@ const connectedDevices = [
   { id: "8", name: "Ring Doorbell", type: "camera", ip: "192.168.10.25", mac: "E0:4F:43:CD:EF:23", connection: "2.4GHz", signal: -62, rxRate: 72, txRate: 72, uptime: "14d 6h", connectedTo: "U6-Mesh Garasje", network: "IoT", vlan: 10, rxBytes: 67000000000, txBytes: 2300000000, channel: "6" },
 ];
 
-const networkDevices = {
+interface APDevice {
+  name: string;
+  model: string;
+  status: "online" | "offline" | "upgrading";
+  clients: number;
+  channel2g: string;
+  channel5g: string;
+  experience: number;
+  ip: string;
+  mac: string;
+  firmware: string;
+  uptime: string;
+  txPower2g: number;
+  txPower5g: number;
+  load: number;
+  memUsage: number;
+  cpuUsage: number;
+  satisfaction: number;
+  connectedClients: { name: string; ip: string; signal: number; band: string; rxRate: number; txRate: number }[];
+}
+
+interface SwitchPort {
+  port: number;
+  name: string;
+  status: "up" | "down" | "disabled";
+  speed: string;
+  poeEnabled: boolean;
+  poeWatts: number;
+  device: string;
+  vlan: number;
+  rxBytes: number;
+  txBytes: number;
+}
+
+interface SwitchDevice {
+  name: string;
+  model: string;
+  status: "online" | "offline";
+  ports: number;
+  portsUsed: number;
+  poeWatts: number;
+  poeBudget: number;
+  ip: string;
+  mac: string;
+  firmware: string;
+  uptime: string;
+  temperature: number;
+  fanLevel: number;
+  portList: SwitchPort[];
+}
+
+const networkDevices: {
+  aps: APDevice[];
+  switches: SwitchDevice[];
+  gateway: { name: string; status: string; wanIp: string; uptime: string };
+} = {
   aps: [
-    { name: "U6-Pro Stue", status: "online", clients: 8, channel: "36/80", experience: 98 },
-    { name: "U6-Lite Kontor", status: "online", clients: 4, channel: "149/80", experience: 95 },
-    { name: "U6-Mesh Garasje", status: "online", clients: 2, channel: "6", experience: 88 },
+    {
+      name: "U6-Pro Stue", model: "U6-Pro", status: "online", clients: 8,
+      channel2g: "6", channel5g: "36/80", experience: 98,
+      ip: "192.168.1.201", mac: "24:5A:4C:AA:BB:01", firmware: "6.6.77",
+      uptime: "45d 12h", txPower2g: 20, txPower5g: 23, load: 32,
+      memUsage: 45, cpuUsage: 12, satisfaction: 98,
+      connectedClients: [
+        { name: "MacBook Pro", ip: "192.168.1.10", signal: -45, band: "5GHz", rxRate: 866, txRate: 866 },
+        { name: "iPhone 14 Pro", ip: "192.168.1.45", signal: -52, band: "5GHz", rxRate: 780, txRate: 780 },
+        { name: "Sonos Speaker", ip: "192.168.10.15", signal: -58, band: "2.4GHz", rxRate: 72, txRate: 72 },
+      ]
+    },
+    {
+      name: "U6-Lite Kontor", model: "U6-Lite", status: "online", clients: 4,
+      channel2g: "11", channel5g: "149/80", experience: 95,
+      ip: "192.168.1.202", mac: "24:5A:4C:AA:BB:02", firmware: "6.6.77",
+      uptime: "45d 12h", txPower2g: 18, txPower5g: 20, load: 18,
+      memUsage: 38, cpuUsage: 8, satisfaction: 95,
+      connectedClients: [
+        { name: "Samsung TV", ip: "192.168.1.52", signal: -68, band: "2.4GHz", rxRate: 72, txRate: 72 },
+        { name: "iPad Air", ip: "192.168.1.55", signal: -48, band: "5GHz", rxRate: 573, txRate: 573 },
+      ]
+    },
+    {
+      name: "U6-Mesh Garasje", model: "U6-Mesh", status: "online", clients: 2,
+      channel2g: "1", channel5g: "44/40", experience: 88,
+      ip: "192.168.1.203", mac: "24:5A:4C:AA:BB:03", firmware: "6.6.65",
+      uptime: "30d 4h", txPower2g: 20, txPower5g: 23, load: 8,
+      memUsage: 32, cpuUsage: 5, satisfaction: 88,
+      connectedClients: [
+        { name: "Ring Doorbell", ip: "192.168.10.25", signal: -62, band: "2.4GHz", rxRate: 72, txRate: 72 },
+        { name: "Ukjent Enhet", ip: "192.168.1.99", signal: -75, band: "2.4GHz", rxRate: 54, txRate: 54 },
+      ]
+    },
   ],
   switches: [
-    { name: "USW-24-POE", status: "online", ports: 24, portsUsed: 18, poeWatts: 145 },
-    { name: "USW-Lite-8-POE", status: "online", ports: 8, portsUsed: 6, poeWatts: 52 },
+    {
+      name: "USW-24-POE", model: "USW-24-PoE", status: "online", ports: 24, portsUsed: 18,
+      poeWatts: 145, poeBudget: 250, ip: "192.168.1.210", mac: "24:5A:4C:CC:DD:01",
+      firmware: "6.6.61", uptime: "90d 3h", temperature: 42, fanLevel: 1,
+      portList: [
+        { port: 1, name: "UDM-Pro Uplink", status: "up", speed: "1 Gbps", poeEnabled: false, poeWatts: 0, device: "UDM-Pro", vlan: 1, rxBytes: 1240000000000, txBytes: 890000000000 },
+        { port: 2, name: "U6-Pro Stue", status: "up", speed: "1 Gbps", poeEnabled: true, poeWatts: 12.5, device: "U6-Pro", vlan: 1, rxBytes: 234000000000, txBytes: 67000000000 },
+        { port: 3, name: "U6-Lite Kontor", status: "up", speed: "1 Gbps", poeEnabled: true, poeWatts: 8.2, device: "U6-Lite", vlan: 1, rxBytes: 156000000000, txBytes: 34000000000 },
+        { port: 4, name: "USW-Lite-8", status: "up", speed: "1 Gbps", poeEnabled: false, poeWatts: 0, device: "USW-Lite-8-POE", vlan: 1, rxBytes: 89000000000, txBytes: 23000000000 },
+        { port: 5, name: "Windows Desktop", status: "up", speed: "1 Gbps", poeEnabled: false, poeWatts: 0, device: "PC", vlan: 1, rxBytes: 534000000000, txBytes: 156000000000 },
+        { port: 6, name: "NAS", status: "up", speed: "1 Gbps", poeEnabled: false, poeWatts: 0, device: "TrueNAS", vlan: 1, rxBytes: 2340000000000, txBytes: 1200000000000 },
+        { port: 7, name: "Proxmox Node 1", status: "up", speed: "1 Gbps", poeEnabled: false, poeWatts: 0, device: "Proxmox", vlan: 1, rxBytes: 678000000000, txBytes: 345000000000 },
+        { port: 8, name: "Proxmox Node 2", status: "up", speed: "1 Gbps", poeEnabled: false, poeWatts: 0, device: "Proxmox", vlan: 1, rxBytes: 567000000000, txBytes: 234000000000 },
+        { port: 9, name: "IP Kamera 1", status: "up", speed: "100 Mbps", poeEnabled: true, poeWatts: 8.0, device: "Kamera", vlan: 10, rxBytes: 12000000000, txBytes: 890000000000 },
+        { port: 10, name: "IP Kamera 2", status: "up", speed: "100 Mbps", poeEnabled: true, poeWatts: 7.5, device: "Kamera", vlan: 10, rxBytes: 11000000000, txBytes: 780000000000 },
+        { port: 11, name: "IP Kamera 3", status: "up", speed: "100 Mbps", poeEnabled: true, poeWatts: 8.2, device: "Kamera", vlan: 10, rxBytes: 10500000000, txBytes: 720000000000 },
+        { port: 12, name: "VoIP Telefon", status: "up", speed: "100 Mbps", poeEnabled: true, poeWatts: 5.5, device: "Telefon", vlan: 30, rxBytes: 4500000000, txBytes: 4200000000 },
+        { port: 13, name: "U6-Mesh Garasje", status: "up", speed: "1 Gbps", poeEnabled: true, poeWatts: 10.8, device: "U6-Mesh", vlan: 1, rxBytes: 45000000000, txBytes: 12000000000 },
+        { port: 14, name: "", status: "down", speed: "-", poeEnabled: false, poeWatts: 0, device: "", vlan: 1, rxBytes: 0, txBytes: 0 },
+        { port: 15, name: "", status: "down", speed: "-", poeEnabled: false, poeWatts: 0, device: "", vlan: 1, rxBytes: 0, txBytes: 0 },
+        { port: 16, name: "Smart Plug", status: "up", speed: "100 Mbps", poeEnabled: false, poeWatts: 0, device: "IoT", vlan: 10, rxBytes: 230000000, txBytes: 120000000 },
+        { port: 17, name: "Printer", status: "up", speed: "100 Mbps", poeEnabled: false, poeWatts: 0, device: "Printer", vlan: 1, rxBytes: 1200000000, txBytes: 890000000 },
+        { port: 18, name: "Rack Switch", status: "up", speed: "1 Gbps", poeEnabled: false, poeWatts: 0, device: "Switch", vlan: 1, rxBytes: 345000000000, txBytes: 123000000000 },
+        { port: 19, name: "", status: "down", speed: "-", poeEnabled: false, poeWatts: 0, device: "", vlan: 1, rxBytes: 0, txBytes: 0 },
+        { port: 20, name: "", status: "down", speed: "-", poeEnabled: false, poeWatts: 0, device: "", vlan: 1, rxBytes: 0, txBytes: 0 },
+        { port: 21, name: "", status: "down", speed: "-", poeEnabled: false, poeWatts: 0, device: "", vlan: 1, rxBytes: 0, txBytes: 0 },
+        { port: 22, name: "", status: "down", speed: "-", poeEnabled: false, poeWatts: 0, device: "", vlan: 1, rxBytes: 0, txBytes: 0 },
+        { port: 23, name: "SFP+ Uplink 1", status: "up", speed: "10 Gbps", poeEnabled: false, poeWatts: 0, device: "Uplink", vlan: 1, rxBytes: 5600000000000, txBytes: 3400000000000 },
+        { port: 24, name: "SFP+ Uplink 2", status: "down", speed: "-", poeEnabled: false, poeWatts: 0, device: "", vlan: 1, rxBytes: 0, txBytes: 0 },
+      ]
+    },
+    {
+      name: "USW-Lite-8-POE", model: "USW-Lite-8-PoE", status: "online", ports: 8, portsUsed: 6,
+      poeWatts: 52, poeBudget: 60, ip: "192.168.1.211", mac: "24:5A:4C:CC:DD:02",
+      firmware: "6.6.61", uptime: "90d 3h", temperature: 38, fanLevel: 0,
+      portList: [
+        { port: 1, name: "USW-24-POE Uplink", status: "up", speed: "1 Gbps", poeEnabled: false, poeWatts: 0, device: "Switch", vlan: 1, rxBytes: 89000000000, txBytes: 23000000000 },
+        { port: 2, name: "Smart TV Kontor", status: "up", speed: "100 Mbps", poeEnabled: false, poeWatts: 0, device: "TV", vlan: 1, rxBytes: 45000000000, txBytes: 1200000000 },
+        { port: 3, name: "HP Printer", status: "up", speed: "100 Mbps", poeEnabled: false, poeWatts: 0, device: "Printer", vlan: 1, rxBytes: 1200000000, txBytes: 890000000 },
+        { port: 4, name: "IP Kamera Kontor", status: "up", speed: "100 Mbps", poeEnabled: true, poeWatts: 7.8, device: "Kamera", vlan: 10, rxBytes: 8900000000, txBytes: 670000000000 },
+        { port: 5, name: "VoIP Kontor", status: "up", speed: "100 Mbps", poeEnabled: true, poeWatts: 5.2, device: "Telefon", vlan: 30, rxBytes: 2300000000, txBytes: 2100000000 },
+        { port: 6, name: "Raspberry Pi", status: "up", speed: "1 Gbps", poeEnabled: true, poeWatts: 4.5, device: "Pi", vlan: 1, rxBytes: 12000000000, txBytes: 8900000000 },
+        { port: 7, name: "", status: "down", speed: "-", poeEnabled: false, poeWatts: 0, device: "", vlan: 1, rxBytes: 0, txBytes: 0 },
+        { port: 8, name: "", status: "down", speed: "-", poeEnabled: false, poeWatts: 0, device: "", vlan: 1, rxBytes: 0, txBytes: 0 },
+      ]
+    },
   ],
   gateway: { name: "UDM-Pro", status: "online", wanIp: "85.123.45.67", uptime: "45d 12h" },
 };
@@ -139,6 +269,8 @@ export default function UniFi() {
   const [idsAlerts, setIdsAlerts] = useState<IdsAlert[]>(initialAlerts);
   const [isLookingUp, setIsLookingUp] = useState(false);
   const [selectedDevice, setSelectedDevice] = useState<typeof connectedDevices[0] | null>(null);
+  const [selectedAP, setSelectedAP] = useState<APDevice | null>(null);
+  const [selectedSwitch, setSelectedSwitch] = useState<SwitchDevice | null>(null);
   const { toast } = useToast();
 
   // Load cached GeoIP data on mount
@@ -349,10 +481,10 @@ export default function UniFi() {
             <CardContent className="p-0">
               <div className="divide-y divide-border">
                 {networkDevices.aps.map((ap) => (
-                  <div key={ap.name} className="p-3 flex items-center justify-between">
+                  <div key={ap.name} className="p-3 flex items-center justify-between cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setSelectedAP(ap)}>
                     <div>
                       <p className="text-sm font-medium text-foreground">{ap.name}</p>
-                      <p className="text-xs text-muted-foreground">Ch {ap.channel} • {ap.clients} klienter</p>
+                      <p className="text-xs text-muted-foreground">Ch {ap.channel5g} • {ap.clients} klienter</p>
                     </div>
                     <Badge variant="outline" className="text-xs">{ap.experience}%</Badge>
                   </div>
@@ -371,7 +503,7 @@ export default function UniFi() {
             <CardContent className="p-0">
               <div className="divide-y divide-border">
                 {networkDevices.switches.map((sw) => (
-                  <div key={sw.name} className="p-3 flex items-center justify-between">
+                  <div key={sw.name} className="p-3 flex items-center justify-between cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setSelectedSwitch(sw)}>
                     <div>
                       <p className="text-sm font-medium text-foreground">{sw.name}</p>
                       <p className="text-xs text-muted-foreground">{sw.portsUsed}/{sw.ports} porter • {sw.poeWatts}W PoE</p>
@@ -799,6 +931,194 @@ export default function UniFi() {
                   <p className="text-xs text-muted-foreground mb-1">Opplastet totalt</p>
                   <p className="font-mono font-bold text-foreground">{formatBytes(selectedDevice.txBytes)}</p>
                 </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* AP Detail Dialog */}
+      <Dialog open={!!selectedAP} onOpenChange={(open) => !open && setSelectedAP(null)}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div className="rounded-lg p-2.5 bg-primary/10">
+                <Radio className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <span>{selectedAP?.name}</span>
+                <p className="text-xs text-muted-foreground font-normal mt-1">{selectedAP?.model} • {selectedAP?.firmware}</p>
+              </div>
+              <Badge className="ml-auto bg-success/10 text-success border-success/20">{selectedAP?.status}</Badge>
+            </DialogTitle>
+          </DialogHeader>
+          {selectedAP && (
+            <div className="space-y-4">
+              {/* Device Info */}
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="space-y-2">
+                  <div className="flex justify-between"><span className="text-muted-foreground">IP-adresse</span><span className="font-mono text-foreground">{selectedAP.ip}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">MAC-adresse</span><span className="font-mono text-foreground text-xs">{selectedAP.mac}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Firmware</span><span className="font-mono text-foreground">{selectedAP.firmware}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Oppetid</span><span className="font-mono text-foreground">{selectedAP.uptime}</span></div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between"><span className="text-muted-foreground">2.4GHz Kanal</span><span className="font-mono text-foreground">Ch {selectedAP.channel2g}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">5GHz Kanal</span><span className="font-mono text-foreground">Ch {selectedAP.channel5g}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">TX 2.4GHz</span><span className="font-mono text-foreground">{selectedAP.txPower2g} dBm</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">TX 5GHz</span><span className="font-mono text-foreground">{selectedAP.txPower5g} dBm</span></div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Resource Usage */}
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground font-medium">Ressursbruk</p>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-muted-foreground w-16">CPU</span>
+                    <Progress value={selectedAP.cpuUsage} className="h-2 flex-1" />
+                    <span className="text-xs font-mono text-foreground w-10 text-right">{selectedAP.cpuUsage}%</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-muted-foreground w-16">Minne</span>
+                    <Progress value={selectedAP.memUsage} className="h-2 flex-1" />
+                    <span className="text-xs font-mono text-foreground w-10 text-right">{selectedAP.memUsage}%</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-muted-foreground w-16">Kanalbruk</span>
+                    <Progress value={selectedAP.load} className="h-2 flex-1" />
+                    <span className="text-xs font-mono text-foreground w-10 text-right">{selectedAP.load}%</span>
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Satisfaction */}
+              <div className="bg-muted/50 rounded-lg p-4 text-center">
+                <p className="text-xs text-muted-foreground mb-1">WiFi Satisfaction</p>
+                <p className={`text-3xl font-mono font-bold ${selectedAP.satisfaction >= 90 ? "text-success" : selectedAP.satisfaction >= 70 ? "text-warning" : "text-destructive"}`}>
+                  {selectedAP.satisfaction}%
+                </p>
+              </div>
+
+              <Separator />
+
+              {/* Connected Clients */}
+              <div>
+                <p className="text-xs text-muted-foreground font-medium mb-2">Tilkoblede klienter ({selectedAP.connectedClients.length})</p>
+                <div className="divide-y divide-border rounded-lg border border-border overflow-hidden">
+                  {selectedAP.connectedClients.map((client, idx) => (
+                    <div key={idx} className="p-3 flex items-center justify-between text-sm">
+                      <div>
+                        <p className="font-medium text-foreground">{client.name}</p>
+                        <p className="text-xs text-muted-foreground font-mono">{client.ip} • {client.band}</p>
+                      </div>
+                      <div className="text-right text-xs">
+                        <p className={`font-mono ${client.signal > -50 ? "text-success" : client.signal > -65 ? "text-foreground" : "text-warning"}`}>
+                          {client.signal} dBm
+                        </p>
+                        <p className="text-muted-foreground">{client.txRate}/{client.rxRate} Mbps</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Switch Detail Dialog */}
+      <Dialog open={!!selectedSwitch} onOpenChange={(open) => !open && setSelectedSwitch(null)}>
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div className="rounded-lg p-2.5 bg-primary/10">
+                <Network className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <span>{selectedSwitch?.name}</span>
+                <p className="text-xs text-muted-foreground font-normal mt-1">{selectedSwitch?.model} • {selectedSwitch?.firmware}</p>
+              </div>
+              <Badge className="ml-auto bg-success/10 text-success border-success/20">{selectedSwitch?.status}</Badge>
+            </DialogTitle>
+          </DialogHeader>
+          {selectedSwitch && (
+            <div className="space-y-4">
+              {/* Switch Info */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="bg-muted/50 rounded-lg p-3 text-center">
+                  <p className="text-xs text-muted-foreground mb-1">Porter i bruk</p>
+                  <p className="font-mono font-bold text-foreground">{selectedSwitch.portsUsed}/{selectedSwitch.ports}</p>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-3 text-center">
+                  <p className="text-xs text-muted-foreground mb-1">PoE Forbruk</p>
+                  <p className="font-mono font-bold text-foreground">{selectedSwitch.poeWatts}W / {selectedSwitch.poeBudget}W</p>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-3 text-center">
+                  <p className="text-xs text-muted-foreground mb-1">Temperatur</p>
+                  <p className={`font-mono font-bold ${selectedSwitch.temperature > 55 ? "text-destructive" : selectedSwitch.temperature > 45 ? "text-warning" : "text-foreground"}`}>
+                    {selectedSwitch.temperature}°C
+                  </p>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-3 text-center">
+                  <p className="text-xs text-muted-foreground mb-1">Oppetid</p>
+                  <p className="font-mono font-bold text-foreground">{selectedSwitch.uptime}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="flex justify-between"><span className="text-muted-foreground">IP-adresse</span><span className="font-mono text-foreground">{selectedSwitch.ip}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">MAC-adresse</span><span className="font-mono text-foreground text-xs">{selectedSwitch.mac}</span></div>
+              </div>
+
+              {/* PoE Budget Bar */}
+              <div>
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="text-muted-foreground">PoE Budsjett</span>
+                  <span className="font-mono text-foreground">{Math.round((selectedSwitch.poeWatts / selectedSwitch.poeBudget) * 100)}%</span>
+                </div>
+                <Progress value={(selectedSwitch.poeWatts / selectedSwitch.poeBudget) * 100} className="h-2" />
+              </div>
+
+              <Separator />
+
+              {/* Port List */}
+              <div>
+                <p className="text-xs text-muted-foreground font-medium mb-2">Porter</p>
+                <ScrollArea className="h-[400px]">
+                  <div className="divide-y divide-border rounded-lg border border-border overflow-hidden">
+                    <div className="grid grid-cols-[50px_1fr_80px_80px_70px_80px_80px] gap-2 p-2 bg-muted/80 text-[10px] text-muted-foreground font-medium sticky top-0">
+                      <span>Port</span>
+                      <span>Enhet</span>
+                      <span>Status</span>
+                      <span>Hastighet</span>
+                      <span>VLAN</span>
+                      <span>PoE</span>
+                      <span>Trafikk</span>
+                    </div>
+                    {selectedSwitch.portList.map((port) => (
+                      <div key={port.port} className={`grid grid-cols-[50px_1fr_80px_80px_70px_80px_80px] gap-2 p-2 text-xs items-center ${port.status === "down" ? "opacity-50" : ""}`}>
+                        <span className="font-mono font-bold text-foreground">{port.port}</span>
+                        <span className="text-foreground truncate">{port.name || <span className="text-muted-foreground italic">Ledig</span>}</span>
+                        <Badge variant={port.status === "up" ? "default" : "secondary"} className={`text-[10px] justify-center ${port.status === "up" ? "bg-success/10 text-success" : ""}`}>
+                          {port.status === "up" ? "● Oppe" : "○ Nede"}
+                        </Badge>
+                        <span className="font-mono text-foreground text-[11px]">{port.speed}</span>
+                        <span className="font-mono text-foreground">{port.vlan}</span>
+                        <span className="font-mono text-foreground text-[11px]">
+                          {port.poeEnabled ? `${port.poeWatts}W` : <span className="text-muted-foreground">—</span>}
+                        </span>
+                        <span className="font-mono text-foreground text-[11px]">
+                          {port.status === "up" ? `${formatBytes(port.rxBytes + port.txBytes)}` : "—"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
               </div>
             </div>
           )}
