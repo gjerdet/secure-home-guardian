@@ -280,6 +280,8 @@ export default function UniFi() {
   const [isCyclingPort, setIsCyclingPort] = useState<number | null>(null);
   const [liveAPs, setLiveAPs] = useState<APDevice[]>(networkDevices.aps);
   const [liveSwitches, setLiveSwitches] = useState<SwitchDevice[]>(networkDevices.switches);
+  const [abuseData, setAbuseData] = useState<Record<string, any>>({});
+  const [isLoadingAbuse, setIsLoadingAbuse] = useState(false);
   const { toast } = useToast();
 
   const token = localStorage.getItem("netguard_token");
@@ -400,6 +402,38 @@ export default function UniFi() {
       setIsCyclingPort(null);
     }
   };
+  // AbuseIPDB lookup
+  const fetchAbuseData = useCallback(async (ip: string) => {
+    if (abuseData[ip] || isLoadingAbuse) return;
+    // Skip private IPs
+    const parts = ip.split('.').map(Number);
+    if (parts[0] === 10 || parts[0] === 127 || (parts[0] === 192 && parts[1] === 168) || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31)) return;
+
+    setIsLoadingAbuse(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/abuseipdb/check/${ip}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAbuseData(prev => ({ ...prev, [ip]: data }));
+      } else if (res.status === 400) {
+        // API key not configured - silent fail
+        setAbuseData(prev => ({ ...prev, [ip]: { notConfigured: true } }));
+      }
+    } catch {
+      // Silent fail
+    } finally {
+      setIsLoadingAbuse(false);
+    }
+  }, [abuseData, isLoadingAbuse, token]);
+
+  // Auto-fetch AbuseIPDB when alert is selected
+  useEffect(() => {
+    if (selectedAlert?.srcIp) {
+      fetchAbuseData(selectedAlert.srcIp);
+    }
+  }, [selectedAlert?.srcIp, fetchAbuseData]);
 
   useEffect(() => {
     const cached = localStorage.getItem("ids_geoip_cache");
@@ -1483,6 +1517,73 @@ export default function UniFi() {
                   <Search className="h-3 w-3" /> Shodan
                 </Button>
               </div>
+
+              {/* AbuseIPDB Score */}
+              {(() => {
+                const abuse = abuseData[selectedAlert.srcIp];
+                if (!abuse || abuse.notConfigured) return null;
+                const score = abuse.abuseConfidenceScore ?? 0;
+                const scoreColor = score >= 75 ? 'text-destructive' : score >= 25 ? 'text-warning' : 'text-success';
+                const scoreBg = score >= 75 ? 'bg-destructive/10 border-destructive/30' : score >= 25 ? 'bg-warning/10 border-warning/30' : 'bg-success/10 border-success/30';
+                return (
+                  <div className={`rounded-lg p-4 border ${scoreBg}`}>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <ShieldAlert className={`h-4 w-4 ${scoreColor}`} />
+                        <span className="text-sm font-medium text-foreground">AbuseIPDB</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-2xl font-bold ${scoreColor}`}>{score}%</span>
+                        <span className="text-xs text-muted-foreground">abuse score</span>
+                      </div>
+                    </div>
+                    <Progress value={score} className="h-2 mb-3" />
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                      {abuse.totalReports != null && (
+                        <div className="flex justify-between"><span className="text-muted-foreground">Rapporter:</span><span className="font-mono text-foreground">{abuse.totalReports}</span></div>
+                      )}
+                      {abuse.numDistinctUsers != null && (
+                        <div className="flex justify-between"><span className="text-muted-foreground">Rapportører:</span><span className="font-mono text-foreground">{abuse.numDistinctUsers}</span></div>
+                      )}
+                      {abuse.isp && (
+                        <div className="flex justify-between col-span-2"><span className="text-muted-foreground">ISP:</span><span className="font-mono text-foreground truncate ml-2">{abuse.isp}</span></div>
+                      )}
+                      {abuse.domain && (
+                        <div className="flex justify-between col-span-2"><span className="text-muted-foreground">Domene:</span><span className="font-mono text-foreground">{abuse.domain}</span></div>
+                      )}
+                      {abuse.usageType && (
+                        <div className="flex justify-between col-span-2"><span className="text-muted-foreground">Type:</span><span className="font-mono text-foreground">{abuse.usageType}</span></div>
+                      )}
+                      {abuse.isTor && (
+                        <div className="col-span-2"><Badge variant="destructive" className="text-xs">Tor Exit Node</Badge></div>
+                      )}
+                      {abuse.lastReportedAt && (
+                        <div className="flex justify-between col-span-2"><span className="text-muted-foreground">Sist rapportert:</span><span className="font-mono text-foreground">{new Date(abuse.lastReportedAt).toLocaleDateString('nb-NO')}</span></div>
+                      )}
+                    </div>
+                    {abuse.reports?.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-border">
+                        <p className="text-xs font-medium text-foreground mb-2">Siste rapporter:</p>
+                        <div className="space-y-1.5 max-h-24 overflow-y-auto">
+                          {abuse.reports.map((r: any, i: number) => (
+                            <div key={i} className="text-xs text-muted-foreground">
+                              <span className="font-mono">{new Date(r.reportedAt).toLocaleDateString('nb-NO')}</span>
+                              {r.comment && <span className="ml-2 text-foreground">— {r.comment.slice(0, 80)}{r.comment.length > 80 ? '…' : ''}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {isLoadingAbuse && !abuseData[selectedAlert.srcIp] && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground p-3 bg-muted/30 rounded-lg">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Henter AbuseIPDB data...
+                </div>
+              )}
 
               {/* Threat Info */}
               <div className="bg-muted/30 rounded-lg p-3 border border-border">

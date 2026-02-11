@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { 
-  Settings as SettingsIcon, Server, Wifi, HardDrive, Shield,
+  Settings as SettingsIcon, Server, Wifi, HardDrive, Shield, ShieldAlert,
   Save, TestTube, CheckCircle, XCircle, Users, UserPlus, Trash2, User, Loader2, RefreshCw
 } from "lucide-react";
 import { toast } from "sonner";
@@ -38,6 +38,7 @@ interface ServiceConfigs {
   truenas: { url: string; apiKey: string };
   proxmox: { url: string; user: string; tokenId: string; tokenSecret: string };
   openvas: { url: string; username: string; password: string };
+  abuseipdb: { apiKey: string };
 }
 
 const roleLabels: Record<UserRole, string> = {
@@ -55,6 +56,7 @@ const defaultConfigs: ServiceConfigs = {
   truenas: { url: '', apiKey: '' },
   proxmox: { url: '', user: 'root@pam', tokenId: '', tokenSecret: '' },
   openvas: { url: '', username: 'admin', password: '' },
+  abuseipdb: { apiKey: '' },
 };
 
 export default function Settings() {
@@ -76,6 +78,7 @@ export default function Settings() {
     truenas: { status: 'idle' },
     proxmox: { status: 'idle' },
     openvas: { status: 'idle' },
+    abuseipdb: { status: 'idle' },
     backend: { status: 'idle' },
   });
 
@@ -202,7 +205,7 @@ export default function Settings() {
   };
 
   const testAllConnections = async () => {
-    for (const service of ['backend', 'unifi', 'truenas', 'proxmox', 'openvas']) {
+    for (const service of ['backend', 'unifi', 'truenas', 'proxmox', 'openvas', 'abuseipdb']) {
       await testConnection(service);
     }
   };
@@ -440,6 +443,33 @@ export default function Settings() {
                     {renderSaveButton('openvas')}
                   </div>
                   {renderStatusMessage('openvas')}
+                </CardContent>
+              </Card>
+
+              {/* AbuseIPDB */}
+              <Card className="bg-card border-border">
+                <CardHeader className="border-b border-border">
+                  <CardTitle className="flex items-center justify-between">
+                    <div className="flex items-center gap-2"><ShieldAlert className="h-5 w-5 text-primary" />AbuseIPDB</div>
+                    {getStatusBadge('abuseipdb')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-4 space-y-4">
+                  <p className="text-xs text-muted-foreground">
+                    Brukes for IP-reputasjonsoppslag i IDS/IPS-varsler. Gratis plan gir 1000 oppslag/dag.{' '}
+                    <a href="https://www.abuseipdb.com/account/plans" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                      Registrer deg her
+                    </a>
+                  </p>
+                  <div>
+                    <Label>API-nøkkel</Label>
+                    <Input type="password" value={configs.abuseipdb.apiKey} onChange={e => updateConfig('abuseipdb', 'apiKey', e.target.value)} placeholder="Din AbuseIPDB API-nøkkel" className="bg-muted border-border font-mono mt-1" />
+                  </div>
+                  <div className="flex gap-2">
+                    {renderTestButton('abuseipdb')}
+                    {renderSaveButton('abuseipdb')}
+                  </div>
+                  {renderStatusMessage('abuseipdb')}
                 </CardContent>
               </Card>
             </div>
