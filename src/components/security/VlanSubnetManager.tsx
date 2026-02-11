@@ -19,14 +19,7 @@ export interface VlanSubnet {
   icon: "network" | "wifi" | "server" | "shield" | "monitor";
 }
 
-const defaultVlans: VlanSubnet[] = [
-  { id: "1", name: "Management", vlanId: 1, subnet: "192.168.1.0/24", description: "Administrasjon og infrastruktur", icon: "server" },
-  { id: "2", name: "LAN", vlanId: 10, subnet: "192.168.10.0/24", description: "Klienter og arbeidsstasjoner", icon: "monitor" },
-  { id: "3", name: "IoT", vlanId: 20, subnet: "192.168.20.0/24", description: "IoT-enheter (isolert)", icon: "wifi" },
-  { id: "4", name: "Gjest", vlanId: 30, subnet: "192.168.30.0/24", description: "Gjestenettverk", icon: "wifi" },
-  { id: "5", name: "Servere", vlanId: 40, subnet: "10.0.40.0/24", description: "Server-VLAN", icon: "server" },
-  { id: "6", name: "Sikkerhet", vlanId: 50, subnet: "10.0.50.0/24", description: "Kameraer og sikkerhetssystemer", icon: "shield" },
-];
+const defaultVlans: VlanSubnet[] = [];
 
 const iconMap = {
   network: Network,
