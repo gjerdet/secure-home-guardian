@@ -129,11 +129,41 @@ export function FirewallAuditPanel() {
       });
       if (res.ok) {
         const data = await res.json();
-        setFirewallRules(data.firewallRules || []);
+        
+        // Handle zone-based firewall policies (newer UDM firmware)
+        let rules: FirewallRule[] = [];
+        if (data.isZoneBased && data.firewallPolicies?.length > 0) {
+          // Map zone-based policies to FirewallRule format
+          rules = data.firewallPolicies.map((p: any) => ({
+            _id: p._id || p.id || Math.random().toString(),
+            name: p.name || p.description || 'Unnamed Policy',
+            enabled: p.enabled !== false,
+            action: p.action || p.predefined_matching_target || 'accept',
+            ruleset: p.source?.zone?.name && p.destination?.zone?.name 
+              ? `${p.source.zone.name} → ${p.destination.zone.name}` 
+              : p.ruleset || 'zone-policy',
+            rule_index: p.index ?? p.rule_index ?? 0,
+            protocol: p.protocol || p.matching_target?.protocol || 'all',
+            src_zone: p.source?.zone?.name || '',
+            dst_zone: p.destination?.zone?.name || '',
+            src_address: p.source?.address || '',
+            dst_address: p.destination?.address || '',
+            dst_port: p.destination?.port || p.matching_target?.port || '',
+            src_port: p.source?.port || '',
+            description: p.description || '',
+            logging: p.logging || false,
+            ip_version: p.ip_version || 'both',
+            schedule: p.schedule?.mode || '',
+          }));
+        } else {
+          rules = data.firewallRules || [];
+        }
+        
+        setFirewallRules(rules);
         setPortForwards(data.portForwards || []);
         setFirewallGroups(data.firewallGroups || []);
         if (data.error) setError(data.error);
-        toast.success(`Hentet ${(data.firewallRules || []).length} brannmurregler og ${(data.portForwards || []).length} port forwards`);
+        toast.success(`Hentet ${rules.length} brannmurregler og ${(data.portForwards || []).length} port forwards`);
       } else {
         toast.error("Kunne ikke hente brannmurregler");
       }
