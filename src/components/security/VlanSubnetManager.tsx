@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,10 +40,17 @@ interface VlanSubnetManagerProps {
   selectedVlans: string[];
   onSelectionChange: (selectedIds: string[]) => void;
   onScanTargetChange: (target: string) => void;
+  onVlansChange?: (vlans: VlanSubnet[]) => void;
 }
 
-export function VlanSubnetManager({ selectedVlans, onSelectionChange, onScanTargetChange }: VlanSubnetManagerProps) {
+export function VlanSubnetManager({ selectedVlans, onSelectionChange, onScanTargetChange, onVlansChange }: VlanSubnetManagerProps) {
   const [vlans, setVlans] = useState<VlanSubnet[]>(defaultVlans);
+
+  // Notify parent of vlan changes
+  const updateVlans = (newVlans: VlanSubnet[]) => {
+    setVlans(newVlans);
+    onVlansChange?.(newVlans);
+  };
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingVlan, setEditingVlan] = useState<VlanSubnet | null>(null);
   const [newName, setNewName] = useState("");
@@ -51,6 +58,11 @@ export function VlanSubnetManager({ selectedVlans, onSelectionChange, onScanTarg
   const [newSubnet, setNewSubnet] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [newIcon, setNewIcon] = useState<VlanSubnet["icon"]>("network");
+
+  // Emit initial vlans on mount
+  useEffect(() => {
+    onVlansChange?.(vlans);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleVlan = (id: string) => {
     const updated = selectedVlans.includes(id)
@@ -103,14 +115,15 @@ export function VlanSubnetManager({ selectedVlans, onSelectionChange, onScanTarg
     if (!newName || !newVlanId || !newSubnet) return;
 
     if (editingVlan) {
-      setVlans(prev => prev.map(v => v.id === editingVlan.id ? {
+      const updated = vlans.map(v => v.id === editingVlan.id ? {
         ...v,
         name: newName,
         vlanId: parseInt(newVlanId),
         subnet: newSubnet,
         description: newDescription,
         icon: newIcon,
-      } : v));
+      } : v);
+      updateVlans(updated);
     } else {
       const newVlan: VlanSubnet = {
         id: Date.now().toString(),
@@ -120,13 +133,13 @@ export function VlanSubnetManager({ selectedVlans, onSelectionChange, onScanTarg
         description: newDescription,
         icon: newIcon,
       };
-      setVlans(prev => [...prev, newVlan]);
+      updateVlans([...vlans, newVlan]);
     }
     setDialogOpen(false);
   };
 
   const handleDelete = (id: string) => {
-    setVlans(prev => prev.filter(v => v.id !== id));
+    updateVlans(vlans.filter(v => v.id !== id));
     onSelectionChange(selectedVlans.filter(v => v !== id));
   };
 
@@ -161,7 +174,7 @@ export function VlanSubnetManager({ selectedVlans, onSelectionChange, onScanTarg
               return (
                 <div
                   key={vlan.id}
-                  className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                  className={`group flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
                     isSelected
                       ? "border-primary bg-primary/5"
                       : "border-border hover:border-muted-foreground/30 bg-muted/20"
@@ -185,7 +198,7 @@ export function VlanSubnetManager({ selectedVlans, onSelectionChange, onScanTarg
                     </div>
                     <p className="text-xs font-mono text-muted-foreground">{vlan.subnet}</p>
                   </div>
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <Button
                       variant="ghost"
                       size="icon"

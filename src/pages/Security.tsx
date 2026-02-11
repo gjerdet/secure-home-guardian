@@ -14,10 +14,10 @@ import { toast } from "sonner";
 import { ScanReportDialog } from "@/components/security/ScanReportDialog";
 import { AttackMap } from "@/components/AttackMap";
 import { batchLookupGeoIP } from "@/lib/ids-utils";
-import { VlanSubnetManager } from "@/components/security/VlanSubnetManager";
+import { VlanSubnetManager, type VlanSubnet } from "@/components/security/VlanSubnetManager";
 import { 
   Radar, Shield, Search, Clock, AlertTriangle, CheckCircle,
-  Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin
+  Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin, Network
 } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -57,6 +57,12 @@ interface NmapProgress {
   hostsFound: number;
   status: 'idle' | 'scanning' | 'complete' | 'error';
   message?: string;
+}
+
+interface VlanScanResult {
+  vlan: VlanSubnet;
+  hosts: NmapHost[];
+  progress: NmapProgress;
 }
 
 const severityColors = {
@@ -113,11 +119,17 @@ export default function Security() {
     status: 'idle'
   });
   const eventSourceRef = useRef<EventSource | null>(null);
+  const vlanEventSourcesRef = useRef<Map<string, EventSource>>(new Map());
+  
+  // Per-VLAN scan results
+  const [vlanScanResults, setVlanScanResults] = useState<Map<string, VlanScanResult>>(new Map());
+  const [isParallelScanning, setIsParallelScanning] = useState(false);
   
   const [openvasScans, setOpenvasScans] = useState<OpenVASScan[]>([]);
   const [vulnerabilities, setVulnerabilities] = useState<Vulnerability[]>([]);
   const [isLoadingOpenvas, setIsLoadingOpenvas] = useState(false);
   const [selectedVlans, setSelectedVlans] = useState<string[]>([]);
+  const [availableVlans, setAvailableVlans] = useState<VlanSubnet[]>([]);
   
   // OpenVAS new scan dialog
   const [openvasDialogOpen, setOpenvasDialogOpen] = useState(false);
@@ -223,6 +235,95 @@ export default function Security() {
     };
   };
 
+  // Parallel VLAN scan
+  const handleParallelVlanScan = () => {
+    if (selectedVlans.length === 0) {
+      toast.error("Velg minst ett VLAN å skanne");
+      return;
+    }
+
+    const vlansToScan = availableVlans.filter(v => selectedVlans.includes(v.id));
+    
+    // Stop any existing parallel scans
+    handleStopParallelScan();
+    setIsParallelScanning(true);
+
+    const newResults = new Map<string, VlanScanResult>();
+    vlansToScan.forEach(vlan => {
+      newResults.set(vlan.id, {
+        vlan,
+        hosts: [],
+        progress: { percent: 0, hostsFound: 0, status: 'scanning' },
+      });
+    });
+    setVlanScanResults(new Map(newResults));
+
+    vlansToScan.forEach(vlan => {
+      const url = `${API_BASE}/api/nmap/scan-stream?target=${encodeURIComponent(vlan.subnet)}&scanType=${nmapScanType}`;
+      const es = new EventSource(url);
+      vlanEventSourcesRef.current.set(vlan.id, es);
+
+      es.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        setVlanScanResults(prev => {
+          const updated = new Map(prev);
+          const current = updated.get(vlan.id);
+          if (!current) return prev;
+
+          switch (data.type) {
+            case 'progress':
+              updated.set(vlan.id, { ...current, progress: { ...current.progress, percent: data.percent } });
+              break;
+            case 'hosts_update':
+              updated.set(vlan.id, { ...current, progress: { ...current.progress, hostsFound: data.count } });
+              break;
+            case 'complete': {
+              const hosts = parseNmapXML(data.result);
+              updated.set(vlan.id, { ...current, hosts, progress: { percent: 100, hostsFound: hosts.length, status: 'complete' } });
+              es.close();
+              vlanEventSourcesRef.current.delete(vlan.id);
+              // Check if all done
+              const allDone = [...updated.values()].every(r => r.progress.status !== 'scanning');
+              if (allDone) setIsParallelScanning(false);
+              toast.success(`${vlan.name} (VLAN ${vlan.vlanId}): ${hosts.length} hosts funnet`);
+              break;
+            }
+            case 'error':
+              updated.set(vlan.id, { ...current, progress: { ...current.progress, status: 'error', message: data.message } });
+              es.close();
+              vlanEventSourcesRef.current.delete(vlan.id);
+              toast.error(`${vlan.name}: ${data.message}`);
+              break;
+          }
+          return updated;
+        });
+      };
+
+      es.onerror = () => {
+        setVlanScanResults(prev => {
+          const updated = new Map(prev);
+          const current = updated.get(vlan.id);
+          if (current) {
+            updated.set(vlan.id, { ...current, progress: { ...current.progress, status: 'error', message: 'Forbindelse tapt' } });
+          }
+          return updated;
+        });
+        es.close();
+        vlanEventSourcesRef.current.delete(vlan.id);
+      };
+    });
+
+    toast.info(`Starter parallell scan av ${vlansToScan.length} VLAN(s)...`);
+  };
+
+  // Stop parallel scans
+  const handleStopParallelScan = () => {
+    vlanEventSourcesRef.current.forEach(es => es.close());
+    vlanEventSourcesRef.current.clear();
+    setIsParallelScanning(false);
+    toast.info("Parallelle scans stoppet");
+  };
+
   // Stop Nmap scan
   const handleStopNmapScan = () => {
     if (eventSourceRef.current) {
@@ -325,10 +426,12 @@ export default function Security() {
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
       }
+      vlanEventSourcesRef.current.forEach(es => es.close());
     };
   }, []);
 
   const isScanning = nmapProgress.status === 'scanning';
+  const totalParallelHosts = [...vlanScanResults.values()].reduce((sum, r) => sum + r.hosts.length, 0);
 
   return (
     <div className="min-h-screen bg-background cyber-grid">
@@ -408,14 +511,32 @@ export default function Security() {
                 selectedVlans={selectedVlans}
                 onSelectionChange={setSelectedVlans}
                 onScanTargetChange={setNmapTarget}
+                onVlansChange={setAvailableVlans}
               />
 
               <Card className="bg-card border-border">
                 <CardHeader className="border-b border-border py-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Target className="h-4 w-4 text-primary" />
-                    Nmap Skanning
-                  </CardTitle>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Target className="h-4 w-4 text-primary" />
+                      Nmap Skanning
+                    </CardTitle>
+                    {selectedVlans.length > 1 && (
+                      <div className="flex items-center gap-2">
+                        {isParallelScanning ? (
+                          <Button size="sm" variant="destructive" onClick={handleStopParallelScan}>
+                            <StopCircle className="h-3.5 w-3.5 mr-1.5" />
+                            Stopp alle
+                          </Button>
+                        ) : (
+                          <Button size="sm" onClick={handleParallelVlanScan} className="bg-primary text-primary-foreground">
+                            <Network className="h-3.5 w-3.5 mr-1.5" />
+                            Parallell scan ({selectedVlans.length} VLANs)
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </CardHeader>
                 <CardContent className="p-4 space-y-4">
                   <div className="flex gap-4">
@@ -426,7 +547,7 @@ export default function Security() {
                       className="flex-1 bg-muted border-border font-mono"
                       disabled={isScanning}
                     />
-                    <Select value={nmapScanType} onValueChange={setNmapScanType} disabled={isScanning}>
+                    <Select value={nmapScanType} onValueChange={setNmapScanType} disabled={isScanning || isParallelScanning}>
                       <SelectTrigger className="w-[140px]">
                         <SelectValue />
                       </SelectTrigger>
@@ -448,9 +569,10 @@ export default function Security() {
                       <Button 
                         onClick={handleNmapScan}
                         className="bg-primary text-primary-foreground"
+                        disabled={isParallelScanning}
                       >
                         <Search className="h-4 w-4 mr-2" />
-                        Start Scan
+                        Enkelt Scan
                       </Button>
                     )}
                   </div>
@@ -481,6 +603,87 @@ export default function Security() {
                 </CardContent>
               </Card>
 
+              {/* Per-VLAN Parallel Results */}
+              {vlanScanResults.size > 0 && (
+                <Card className="bg-card border-border">
+                  <CardHeader className="border-b border-border">
+                    <CardTitle className="flex items-center gap-2">
+                      <Network className="h-5 w-5 text-primary" />
+                      Parallelle VLAN-resultater ({totalParallelHosts} hosts totalt)
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <ScrollArea className="max-h-[500px]">
+                      <div className="divide-y divide-border">
+                        {[...vlanScanResults.values()].map((result) => (
+                          <div key={result.vlan.id} className="p-4">
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-3">
+                                <Badge variant="outline" className="font-mono text-xs">
+                                  VLAN {result.vlan.vlanId}
+                                </Badge>
+                                <span className="font-medium text-foreground">{result.vlan.name}</span>
+                                <span className="text-xs font-mono text-muted-foreground">{result.vlan.subnet}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {result.progress.status === 'scanning' && (
+                                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                                )}
+                                {result.progress.status === 'complete' && (
+                                  <CheckCircle className="h-4 w-4 text-success" />
+                                )}
+                                {result.progress.status === 'error' && (
+                                  <AlertTriangle className="h-4 w-4 text-destructive" />
+                                )}
+                                <Badge variant={result.progress.status === 'complete' ? 'default' : 'secondary'}>
+                                  {result.hosts.length} hosts
+                                </Badge>
+                              </div>
+                            </div>
+
+                            {result.progress.status === 'scanning' && (
+                              <Progress value={result.progress.percent} className="h-1.5 mb-3" />
+                            )}
+
+                            {result.hosts.length > 0 && (
+                              <div className="space-y-1 ml-4 border-l-2 border-primary/20 pl-4">
+                                {result.hosts.map((host) => (
+                                  <div key={host.host} className="flex items-center justify-between py-1.5">
+                                    <div className="flex items-center gap-2">
+                                      <Server className="h-3.5 w-3.5 text-success" />
+                                      <span className="font-mono text-sm text-foreground">{host.host}</span>
+                                      <span className="text-xs text-muted-foreground">{host.hostname}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      {host.ports.length > 0 && (
+                                        <div className="flex gap-1">
+                                          {host.ports.slice(0, 5).map(port => (
+                                            <Badge key={port} variant="secondary" className="font-mono text-[10px] px-1.5 py-0">
+                                              {port}
+                                            </Badge>
+                                          ))}
+                                          {host.ports.length > 5 && (
+                                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                                              +{host.ports.length - 5}
+                                            </Badge>
+                                          )}
+                                        </div>
+                                      )}
+                                      <Badge variant="outline" className="text-[10px] ml-2">{host.os}</Badge>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Single scan results */}
               <Card className="bg-card border-border">
                 <CardHeader className="border-b border-border">
                   <CardTitle className="flex items-center gap-2">
