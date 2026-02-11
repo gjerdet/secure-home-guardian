@@ -21,6 +21,7 @@ import { SslCheckPanel } from "@/components/security/SslCheckPanel";
 import { FirewallAuditPanel } from "@/components/security/FirewallAuditPanel";
 import { DnsLeakPanel } from "@/components/security/DnsLeakPanel";
 import { SecurityScorePanel } from "@/components/security/SecurityScorePanel";
+import { IdsIpsPanel } from "@/components/security/IdsIpsPanel";
 import { NmapHostDetailDialog, type NmapHostDetail } from "@/components/security/NmapHostDetailDialog";
 import { VulnerabilityDetailDialog, type VulnerabilityDetail } from "@/components/security/VulnerabilityDetailDialog";
 import { 
@@ -683,6 +684,10 @@ export default function Security() {
               <Activity className="h-4 w-4 mr-2" />
               Score
             </TabsTrigger>
+            <TabsTrigger value="ids" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <Shield className="h-4 w-4 mr-2" />
+              IDS/IPS
+            </TabsTrigger>
             <TabsTrigger value="nmap" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               <Target className="h-4 w-4 mr-2" />
               Nmap
@@ -723,6 +728,10 @@ export default function Security() {
 
           <TabsContent value="score">
             <SecurityScorePanel />
+          </TabsContent>
+
+          <TabsContent value="ids">
+            <IdsIpsPanel />
           </TabsContent>
 
           <TabsContent value="nmap">
