@@ -18,7 +18,7 @@ import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
+import { API_BASE, fetchJsonSafely } from '@/lib/api';
 
 type UserRole = "admin" | "user";
 
@@ -198,7 +198,7 @@ export default function Settings() {
     setConnectionStatus(prev => ({ ...prev, [service]: { status: 'testing' } }));
     try {
       const start = Date.now();
-      const response = await fetch(`${API_BASE}/api/health/test/${service}`, {
+      const result = await fetchJsonSafely(`${API_BASE}/api/health/test/${service}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -206,21 +206,21 @@ export default function Settings() {
         },
       });
       const responseTime = Date.now() - start;
-      if (response.ok) {
-        const data = await response.json();
-        setConnectionStatus(prev => ({
-          ...prev,
-          [service]: {
-            status: data.success ? 'success' : 'error',
-            message: data.message,
-            responseTime,
-          }
-        }));
-        if (data.success) toast.success(`${service} tilkobling OK (${responseTime}ms)`);
-        else toast.error(`${service}: ${data.message}`);
-      } else {
-        throw new Error('Tilkoblingsfeil');
+
+      if (!result.ok || !result.data) {
+        throw new Error(result.error || 'Tilkoblingsfeil');
       }
+
+      setConnectionStatus(prev => ({
+        ...prev,
+        [service]: {
+          status: result.data.success ? 'success' : 'error',
+          message: result.data.message,
+          responseTime,
+        }
+      }));
+      if (result.data.success) toast.success(`${service} tilkobling OK (${responseTime}ms)`);
+      else toast.error(`${service}: ${result.data.message}`);
     } catch (error) {
       setConnectionStatus(prev => ({
         ...prev,
