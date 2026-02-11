@@ -483,7 +483,7 @@ export function FirewallAuditPanel() {
             {/* Rules table */}
             <Card className="bg-card border-border">
               <CardContent className="p-0">
-                <ScrollArea className="max-h-[600px]">
+                <div className="max-h-[600px] overflow-auto">
                   <Table>
                     <TableHeader>
                       <TableRow className="border-border hover:bg-transparent">
@@ -560,7 +560,7 @@ export function FirewallAuditPanel() {
                       )}
                     </TableBody>
                   </Table>
-                </ScrollArea>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
