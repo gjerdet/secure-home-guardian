@@ -1119,15 +1119,29 @@ app.get('/api/security/firewall-rules', authenticateToken, async (req, res) => {
       // Port forwarding endpoint might not exist
     }
 
+    // Get firewall groups (for name resolution)
+    let firewallGroups = [];
+    try {
+      const fgRes = await axios.get(
+        `${unifiConfig.url}/proxy/network/api/s/${site}/rest/firewallgroup`,
+        { httpsAgent, headers: { Cookie: cookieHeader, 'x-csrf-token': csrfToken } }
+      );
+      firewallGroups = fgRes.data?.data || [];
+    } catch (e) {
+      // Firewall groups endpoint might not exist
+    }
+
     res.json({
       firewallRules: rulesRes.data?.data || [],
       portForwards,
+      firewallGroups,
     });
   } catch (error) {
     // Return mock/empty data if UniFi not reachable
     res.json({
       firewallRules: [],
       portForwards: [],
+      firewallGroups: [],
       error: error.message,
     });
   }
