@@ -292,10 +292,12 @@ export function FirewallAuditPanel() {
       result = result.filter(r => r.dst_port === portFilter);
     }
     if (sourceFilter !== "all") {
-      result = result.filter(r => getSourceDisplay(r) === sourceFilter);
+      const q = sourceFilter.toLowerCase();
+      result = result.filter(r => getSourceDisplay(r).toLowerCase().includes(q));
     }
     if (destinationFilter !== "all") {
-      result = result.filter(r => getDestDisplay(r) === destinationFilter);
+      const q = destinationFilter.toLowerCase();
+      result = result.filter(r => getDestDisplay(r).toLowerCase().includes(q));
     }
 
     result.sort((a, b) => {
@@ -512,28 +514,24 @@ export function FirewallAuditPanel() {
                       ))}
                     </SelectContent>
                   </Select>
-                  <Select value={sourceFilter} onValueChange={setSourceFilter}>
-                    <SelectTrigger className="w-[160px] bg-muted border-border">
-                      <SelectValue placeholder="Kilde" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-card border-border z-50">
-                      <SelectItem value="all">Alle kilder</SelectItem>
-                      {uniqueSources.map(s => (
-                        <SelectItem key={s} value={s}>{s}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select value={destinationFilter} onValueChange={setDestinationFilter}>
-                    <SelectTrigger className="w-[160px] bg-muted border-border">
-                      <SelectValue placeholder="Destinasjon" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-card border-border z-50">
-                      <SelectItem value="all">Alle destinasjoner</SelectItem>
-                      {uniqueDestinations.map(d => (
-                        <SelectItem key={d} value={d}>{d}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="relative min-w-[160px]">
+                    <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Kilde IP/adresse..."
+                      value={sourceFilter === "all" ? "" : sourceFilter}
+                      onChange={e => setSourceFilter(e.target.value || "all")}
+                      className="pl-9 bg-muted border-border"
+                    />
+                  </div>
+                  <div className="relative min-w-[160px]">
+                    <Server className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Destinasjon IP/adresse..."
+                      value={destinationFilter === "all" ? "" : destinationFilter}
+                      onChange={e => setDestinationFilter(e.target.value || "all")}
+                      className="pl-9 bg-muted border-border"
+                    />
+                  </div>
                 </div>
               </CardContent>
             </Card>

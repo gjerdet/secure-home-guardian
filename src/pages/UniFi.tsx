@@ -1291,49 +1291,72 @@ export default function UniFi() {
               <CardContent className="p-0">
                 <ScrollArea className="h-[500px]">
                   <div className="divide-y divide-border">
-                    {systemEvents.length === 0 ? (
-                      <div className="p-8 text-center text-muted-foreground text-sm">
-                        {isLoading ? "Laster hendelser..." : "Ingen systemhendelser funnet"}
-                      </div>
-                    ) : systemEvents.map((event) => {
-                      const clientName = event.clientName || resolveClient(event.clientMac, event.srcIp) || resolveClient(event.deviceMac);
-                      return (
-                      <div key={event.id} className="p-4 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => setSelectedEvent(event)}>
-                        <div className="flex items-start justify-between mb-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Badge variant="outline" className={`text-xs ${
-                              event.type === 'ids' ? 'border-destructive/30 text-destructive' :
-                              event.type === 'firewall' ? 'border-warning/30 text-warning' :
-                              'border-primary/30 text-primary'
-                            }`}>
-                              {event.type === 'ids' ? 'IDS/IPS' : event.type === 'firewall' ? 'Brannmur' : 'System'}
-                            </Badge>
-                            <Badge variant="secondary" className="text-[10px] font-mono">{event.key}</Badge>
-                            {clientName && (
-                              <Badge className="text-[10px] bg-primary/10 text-primary border-primary/20">
-                                <Users className="h-3 w-3 mr-1" />
-                                {clientName}
-                              </Badge>
-                            )}
-                            {event.deviceName && (
-                              <Badge variant="outline" className="text-[10px]">{event.deviceName}</Badge>
-                            )}
-                          </div>
-                          <span className="text-[10px] text-muted-foreground font-mono flex items-center gap-1 shrink-0">
-                            <Clock className="h-3 w-3" />
-                            {event.timestamp ? new Date(event.timestamp).toLocaleString('nb-NO') : '—'}
-                          </span>
-                        </div>
-                        <p className="text-sm text-foreground">{event.msg}</p>
-                        <div className="flex gap-4 mt-1 text-xs text-muted-foreground font-mono flex-wrap">
-                          {event.clientMac && !clientName && <span>MAC: {event.clientMac}</span>}
-                          {event.srcIp && <span>Kilde: {event.srcIp}{event.srcPort ? `:${event.srcPort}` : ''}</span>}
-                          {event.dstIp && <span>Mål: {event.dstIp}{event.dstPort ? `:${event.dstPort}` : ''}</span>}
-                          {event.proto && <span>{event.proto}</span>}
-                        </div>
-                      </div>
-                      );
-                    })}
+                     {systemEvents.length === 0 ? (
+                       <div className="p-8 text-center text-muted-foreground text-sm">
+                         {isLoading ? "Laster hendelser..." : "Ingen systemhendelser funnet"}
+                       </div>
+                     ) : systemEvents.map((event) => {
+                       const clientName = event.clientName || resolveClient(event.clientMac, event.srcIp) || resolveClient(event.deviceMac);
+                       const macClient = event.clientMac ? liveClients.find(c => c.mac?.toLowerCase() === event.clientMac?.toLowerCase()) : null;
+                       const ipClient = !macClient && event.srcIp ? liveClients.find(c => c.ip === event.srcIp) : null;
+                       const linkedClient = macClient || ipClient;
+                       return (
+                       <div key={event.id} className="p-4 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => setSelectedEvent(event)}>
+                         <div className="flex items-start justify-between mb-1">
+                           <div className="flex flex-wrap items-center gap-2">
+                             <Badge variant="outline" className={`text-xs ${
+                               event.type === 'ids' ? 'border-destructive/30 text-destructive' :
+                               event.type === 'firewall' ? 'border-warning/30 text-warning' :
+                               'border-primary/30 text-primary'
+                             }`}>
+                               {event.type === 'ids' ? 'IDS/IPS' : event.type === 'firewall' ? 'Brannmur' : 'System'}
+                             </Badge>
+                             <Badge variant="secondary" className="text-[10px] font-mono">{event.key}</Badge>
+                             {(clientName || linkedClient) && (
+                               <Badge 
+                                 className={`text-[10px] bg-primary/10 text-primary border-primary/20 ${linkedClient ? 'cursor-pointer hover:bg-primary/20' : ''}`}
+                                 onClick={(e) => {
+                                   if (linkedClient) {
+                                     e.stopPropagation();
+                                     setSelectedDevice(linkedClient);
+                                   }
+                                 }}
+                               >
+                                 <Users className="h-3 w-3 mr-1" />
+                                 {clientName || linkedClient?.name}
+                                 {linkedClient && <ArrowUpRight className="h-3 w-3 ml-1" />}
+                               </Badge>
+                             )}
+                             {event.deviceName && (
+                               <Badge variant="outline" className="text-[10px]">{event.deviceName}</Badge>
+                             )}
+                           </div>
+                           <span className="text-[10px] text-muted-foreground font-mono flex items-center gap-1 shrink-0">
+                             <Clock className="h-3 w-3" />
+                             {event.timestamp ? new Date(event.timestamp).toLocaleString('nb-NO') : '—'}
+                           </span>
+                         </div>
+                         <p className="text-sm text-foreground">{event.msg}</p>
+                         <div className="flex gap-4 mt-1 text-xs text-muted-foreground font-mono flex-wrap">
+                           {event.clientMac && !clientName && !linkedClient && (
+                             <span 
+                               className="cursor-pointer hover:text-primary transition-colors"
+                               onClick={(e) => {
+                                 e.stopPropagation();
+                                 const dev = liveClients.find(c => c.mac?.toLowerCase() === event.clientMac?.toLowerCase());
+                                 if (dev) setSelectedDevice(dev);
+                               }}
+                             >
+                               MAC: {event.clientMac}
+                             </span>
+                           )}
+                           {event.srcIp && <span>Kilde: {event.srcIp}{event.srcPort ? `:${event.srcPort}` : ''}</span>}
+                           {event.dstIp && <span>Mål: {event.dstIp}{event.dstPort ? `:${event.dstPort}` : ''}</span>}
+                           {event.proto && <span>{event.proto}</span>}
+                         </div>
+                       </div>
+                       );
+                     })}
                   </div>
                 </ScrollArea>
               </CardContent>

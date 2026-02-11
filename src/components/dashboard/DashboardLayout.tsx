@@ -22,7 +22,7 @@ const defaultModules: ModuleConfig[] = [
   { id: "system-metrics", title: "System Metrikker", enabled: true },
   { id: "logs", title: "Logger", enabled: true },
   { id: "scan", title: "Sikkerhetsskanning", enabled: true },
-  { id: "iot", title: "IoT Enheter", enabled: true },
+  { id: "iot", title: "Klienter", enabled: true },
 ];
 
 const moduleComponents: Record<ModuleType, React.ComponentType> = {
@@ -38,7 +38,7 @@ const moduleTitles: Record<ModuleType, string> = {
   "system-metrics": "System Metrikker",
   "logs": "Logger",
   "scan": "Sikkerhetsskanning",
-  "iot": "IoT Enheter",
+  "iot": "Klienter",
 };
 
 const STORAGE_KEY = "netguard-dashboard-modules";
