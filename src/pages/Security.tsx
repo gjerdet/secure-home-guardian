@@ -17,7 +17,7 @@ import { batchLookupGeoIP } from "@/lib/ids-utils";
 import { VlanSubnetManager, type VlanSubnet } from "@/components/security/VlanSubnetManager";
 import { 
   Radar, Shield, Search, Clock, AlertTriangle, CheckCircle,
-  Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin, Network
+  Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin, Network, Wifi, ExternalLink
 } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -145,6 +145,14 @@ export default function Security() {
   // Geo map state for scan results
   const [scanGeoLocations, setScanGeoLocations] = useState<Array<{ lat: number; lng: number; severity: string; country: string }>>([]);
   const [isGeoLookingUp, setIsGeoLookingUp] = useState(false);
+
+  // WAN scan state
+  const [wanIp, setWanIp] = useState<string>("");
+  const [isLoadingWanIp, setIsLoadingWanIp] = useState(false);
+  const [wanScanType, setWanScanType] = useState("ports");
+  const [wanResults, setWanResults] = useState<NmapHost[]>([]);
+  const [wanProgress, setWanProgress] = useState<NmapProgress>({ percent: 0, hostsFound: 0, status: 'idle' });
+  const wanEventSourceRef = useRef<EventSource | null>(null);
 
   // Stats
   const stats = {
@@ -419,12 +427,102 @@ export default function Security() {
     }
   };
 
+  // Fetch WAN IP
+  const fetchWanIp = async () => {
+    setIsLoadingWanIp(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/network/wan-ip`);
+      if (res.ok) {
+        const data = await res.json();
+        setWanIp(data.ip);
+        toast.success(`WAN IP: ${data.ip}`);
+      } else {
+        toast.error("Kunne ikke hente WAN IP");
+      }
+    } catch {
+      toast.error("Kunne ikke koble til backend for WAN IP");
+    } finally {
+      setIsLoadingWanIp(false);
+    }
+  };
+
+  // Run WAN scan
+  const handleWanScan = () => {
+    if (!wanIp) {
+      toast.error("Hent WAN IP først");
+      return;
+    }
+
+    if (wanEventSourceRef.current) {
+      wanEventSourceRef.current.close();
+    }
+
+    setWanProgress({ percent: 0, hostsFound: 0, status: 'scanning' });
+    setWanResults([]);
+
+    const url = `${API_BASE}/api/nmap/scan-stream?target=${encodeURIComponent(wanIp)}&scanType=${wanScanType}`;
+    const eventSource = new EventSource(url);
+    wanEventSourceRef.current = eventSource;
+
+    eventSource.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      switch (data.type) {
+        case 'started':
+          toast.info(`Starter WAN scan av ${data.target}...`);
+          break;
+        case 'progress':
+          setWanProgress(prev => ({ ...prev, percent: data.percent }));
+          break;
+        case 'hosts_update':
+          setWanProgress(prev => ({ ...prev, hostsFound: data.count }));
+          break;
+        case 'complete': {
+          const hosts = parseNmapXML(data.result);
+          setWanResults(hosts);
+          setWanProgress({ percent: 100, hostsFound: hosts.length, status: 'complete' });
+          const totalPorts = hosts.reduce((sum, h) => sum + h.ports.length, 0);
+          if (totalPorts === 0) {
+            toast.success("WAN scan fullført! Ingen åpne porter funnet – bra!");
+          } else {
+            toast.warning(`WAN scan fullført! ${totalPorts} åpne porter funnet!`);
+          }
+          eventSource.close();
+          break;
+        }
+        case 'error':
+          setWanProgress(prev => ({ ...prev, status: 'error', message: data.message }));
+          toast.error(`WAN scan feilet: ${data.message}`);
+          eventSource.close();
+          break;
+      }
+    };
+
+    eventSource.onerror = () => {
+      setWanProgress(prev => ({ ...prev, status: 'error', message: 'Forbindelsen ble avbrutt' }));
+      toast.error("Forbindelse til server tapt");
+      eventSource.close();
+    };
+  };
+
+  const handleStopWanScan = () => {
+    if (wanEventSourceRef.current) {
+      wanEventSourceRef.current.close();
+      wanEventSourceRef.current = null;
+      setWanProgress(prev => ({ ...prev, status: 'idle' }));
+      toast.info("WAN scan avbrutt");
+    }
+  };
+
   // Initial load
   useEffect(() => {
     fetchOpenvasData();
+    fetchWanIp();
     return () => {
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
+      }
+      if (wanEventSourceRef.current) {
+        wanEventSourceRef.current.close();
       }
       vlanEventSourcesRef.current.forEach(es => es.close());
     };
@@ -489,6 +587,10 @@ export default function Security() {
             <TabsTrigger value="nmap" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               <Target className="h-4 w-4 mr-2" />
               Nmap
+            </TabsTrigger>
+            <TabsTrigger value="wan" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <Wifi className="h-4 w-4 mr-2" />
+              WAN Scan
             </TabsTrigger>
             <TabsTrigger value="openvas" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               <Shield className="h-4 w-4 mr-2" />
@@ -727,6 +829,189 @@ export default function Security() {
                         ))}
                       </div>
                     </ScrollArea>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="wan">
+            <div className="space-y-4">
+              <Card className="bg-card border-border">
+                <CardHeader className="border-b border-border py-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Wifi className="h-4 w-4 text-primary" />
+                      Ekstern WAN Skanning
+                    </CardTitle>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Skann din offentlige IP-adresse utenfra for å se hvilke porter og tjenester som er synlige fra internett.
+                  </p>
+                </CardHeader>
+                <CardContent className="p-4 space-y-4">
+                  <div className="flex gap-4 items-end">
+                    <div className="flex-1 space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Din WAN IP</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          value={wanIp}
+                          onChange={(e) => setWanIp(e.target.value)}
+                          placeholder="Henter WAN IP..."
+                          className="font-mono bg-muted border-border"
+                          disabled={wanProgress.status === 'scanning'}
+                        />
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={fetchWanIp}
+                          disabled={isLoadingWanIp}
+                          title="Hent WAN IP automatisk"
+                        >
+                          {isLoadingWanIp ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <RefreshCw className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Scan type</Label>
+                      <Select value={wanScanType} onValueChange={setWanScanType} disabled={wanProgress.status === 'scanning'}>
+                        <SelectTrigger className="w-[160px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="ports">Port Scan</SelectItem>
+                          <SelectItem value="full">Full Scan</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {wanProgress.status === 'scanning' ? (
+                      <Button variant="destructive" onClick={handleStopWanScan}>
+                        <StopCircle className="h-4 w-4 mr-2" />
+                        Stopp
+                      </Button>
+                    ) : (
+                      <Button onClick={handleWanScan} disabled={!wanIp} className="bg-primary text-primary-foreground">
+                        <Search className="h-4 w-4 mr-2" />
+                        Skann WAN
+                      </Button>
+                    )}
+                  </div>
+
+                  {wanProgress.status === 'scanning' && (
+                    <div className="space-y-2 animate-in fade-in">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Skanner WAN IP...
+                        </span>
+                        <span className="font-mono text-primary">
+                          {wanProgress.percent.toFixed(0)}%
+                        </span>
+                      </div>
+                      <Progress value={wanProgress.percent} className="h-2" />
+                    </div>
+                  )}
+
+                  <p className="text-xs text-muted-foreground">
+                    Kommando: nmap {wanScanType === 'ports' ? '-sT -F' : '-sV -sC'} {wanIp || '<WAN IP>'}
+                  </p>
+                </CardContent>
+              </Card>
+
+              {/* WAN Results */}
+              <Card className="bg-card border-border">
+                <CardHeader className="border-b border-border">
+                  <CardTitle className="flex items-center gap-2">
+                    <Globe className="h-5 w-5 text-primary" />
+                    WAN Scan Resultater
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {wanProgress.status === 'complete' && wanResults.length > 0 ? (
+                    <div>
+                      {/* Summary */}
+                      {(() => {
+                        const totalPorts = wanResults.reduce((sum, h) => sum + h.ports.length, 0);
+                        return (
+                          <div className={`p-4 border-b border-border ${totalPorts === 0 ? 'bg-success/5' : 'bg-destructive/5'}`}>
+                            {totalPorts === 0 ? (
+                              <div className="flex items-center gap-2 text-success">
+                                <CheckCircle className="h-5 w-5" />
+                                <div>
+                                  <p className="font-medium">Ingen åpne porter funnet</p>
+                                  <p className="text-xs text-muted-foreground">Din WAN IP ({wanIp}) har ingen synlige porter fra internett.</p>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2 text-destructive">
+                                <AlertTriangle className="h-5 w-5" />
+                                <div>
+                                  <p className="font-medium">{totalPorts} åpne porter funnet!</p>
+                                  <p className="text-xs text-muted-foreground">Disse portene er synlige fra internett og bør vurderes for sikkerhet.</p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                      <ScrollArea className="max-h-[400px]">
+                        <div className="divide-y divide-border">
+                          {wanResults.map((host) => (
+                            <div key={host.host} className="p-4 hover:bg-muted/50 transition-colors">
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-3">
+                                  <div className="rounded-lg p-2 bg-primary/10">
+                                    <Wifi className="h-4 w-4 text-primary" />
+                                  </div>
+                                  <div>
+                                    <p className="font-mono font-medium text-foreground">{host.host}</p>
+                                    <p className="text-xs text-muted-foreground">{host.hostname}</p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="outline">{host.os}</Badge>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => window.open(`https://www.shodan.io/host/${host.host}`, '_blank')}
+                                    title="Se på Shodan"
+                                  >
+                                    <ExternalLink className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              </div>
+                              {host.ports.length > 0 ? (
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                  {host.ports.map((port) => (
+                                    <Badge key={port} variant="destructive" className="font-mono text-xs">
+                                      {port}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-success mt-1">Ingen åpne porter</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </ScrollArea>
+                    </div>
+                  ) : wanProgress.status === 'complete' && wanResults.length === 0 ? (
+                    <div className="p-8 text-center">
+                      <CheckCircle className="h-12 w-12 mx-auto mb-3 text-success opacity-70" />
+                      <p className="font-medium text-success">Alt ser bra ut!</p>
+                      <p className="text-sm text-muted-foreground mt-1">Ingen hosts eller åpne porter synlig fra internett.</p>
+                    </div>
+                  ) : (
+                    <div className="p-8 text-center text-muted-foreground">
+                      <Wifi className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                      <p>Kjør en WAN scan for å se hva som er synlig fra internett.</p>
+                      <p className="text-xs mt-1">Denne scannen sjekker din offentlige IP ({wanIp || '...'}) for åpne porter.</p>
+                    </div>
                   )}
                 </CardContent>
               </Card>

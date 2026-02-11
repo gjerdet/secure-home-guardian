@@ -922,6 +922,22 @@ app.get('/api/nmap/scan-stream', (req, res) => {
   });
 });
 
+// Get WAN IP
+app.get('/api/network/wan-ip', async (req, res) => {
+  try {
+    const response = await axios.get('https://api.ipify.org?format=json', { timeout: 10000 });
+    res.json({ ip: response.data.ip });
+  } catch (error) {
+    // Fallback services
+    try {
+      const response = await axios.get('https://ifconfig.me/ip', { timeout: 10000, responseType: 'text' });
+      res.json({ ip: response.data.trim() });
+    } catch (err) {
+      res.status(500).json({ error: 'Kunne ikke hente WAN IP' });
+    }
+  }
+});
+
 // Standard POST endpoint (fallback)
 app.post('/api/nmap/scan', async (req, res) => {
   try {
