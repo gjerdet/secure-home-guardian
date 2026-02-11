@@ -282,27 +282,59 @@ export default function UniFi() {
         if (alerts.length > 0) setIdsAlerts(alerts);
       }
 
-      // Parse clients and link to APs
+      // Parse clients and link to APs/switches
       if (clientsRes.ok && clientsRes.data?.data) {
-        const clients = clientsRes.data.data.slice(0, 100).map((c: any) => ({
-          id: c._id || c.mac,
-          name: c.hostname || c.name || c.oui || c.mac,
-          type: c.is_wired ? "desktop" : c.dev_cat === 7 ? "phone" : "laptop",
-          ip: c.ip || "",
-          mac: c.mac || "",
-          connection: c.is_wired ? "Wired" : `WiFi ${c.channel && c.channel > 14 ? "5G" : "2.4G"}`,
-          signal: c.rssi || 0,
-          rxRate: Math.round((c.rx_rate || 0) / 1000),
-          txRate: Math.round((c.tx_rate || 0) / 1000),
-          uptime: c.uptime ? `${Math.floor(c.uptime / 3600)}h ${Math.floor((c.uptime % 3600) / 60)}m` : "-",
-          connectedTo: c.ap_mac || c.sw_mac || "-",
-          network: c.network || c.essid || "-",
-          vlan: c.vlan || 1,
-          rxBytes: c.rx_bytes || 0,
-          txBytes: c.tx_bytes || 0,
-          channel: c.channel?.toString() || null,
-          ap_mac: c.ap_mac || null,
-        }));
+        // Build device lookup from raw data for name resolution
+        const allDevices = devicesRes.ok ? (devicesRes.data?.data || []) : [];
+        const deviceByMac: Record<string, { name: string; type: string; ports?: any[] }> = {};
+        allDevices.forEach((d: any) => {
+          if (d.mac) {
+            deviceByMac[d.mac.toLowerCase()] = {
+              name: d.name || d.model || d.mac,
+              type: d.type,
+              ports: d.port_table,
+            };
+          }
+        });
+
+        const clients = clientsRes.data.data.slice(0, 100).map((c: any) => {
+          const apMac = c.ap_mac?.toLowerCase();
+          const swMac = c.sw_mac?.toLowerCase();
+          const apDevice = apMac ? deviceByMac[apMac] : null;
+          const swDevice = swMac ? deviceByMac[swMac] : null;
+
+          let connectedTo = "-";
+          if (!c.is_wired && apDevice) {
+            connectedTo = apDevice.name;
+          } else if (c.is_wired && swDevice) {
+            const portNum = c.sw_port;
+            connectedTo = portNum ? `${swDevice.name} Port ${portNum}` : swDevice.name;
+          } else if (apMac) {
+            connectedTo = apMac;
+          } else if (swMac) {
+            connectedTo = swMac;
+          }
+
+          return {
+            id: c._id || c.mac,
+            name: c.hostname || c.name || c.oui || c.mac,
+            type: c.is_wired ? "desktop" : c.dev_cat === 7 ? "phone" : "laptop",
+            ip: c.ip || "",
+            mac: c.mac || "",
+            connection: c.is_wired ? "Wired" : `WiFi ${c.channel && c.channel > 14 ? "5G" : "2.4G"}`,
+            signal: c.rssi || 0,
+            rxRate: Math.round((c.rx_rate || 0) / 1000),
+            txRate: Math.round((c.tx_rate || 0) / 1000),
+            uptime: c.uptime ? `${Math.floor(c.uptime / 3600)}h ${Math.floor((c.uptime % 3600) / 60)}m` : "-",
+            connectedTo,
+            network: c.network || c.essid || "-",
+            vlan: c.vlan || 1,
+            rxBytes: c.rx_bytes || 0,
+            txBytes: c.tx_bytes || 0,
+            channel: c.channel?.toString() || null,
+            ap_mac: c.ap_mac || null,
+          };
+        });
         setLiveClients(clients);
 
         // Link wireless clients to their APs
@@ -310,7 +342,7 @@ export default function UniFi() {
           setLiveAPs(prev => prev.map(ap => ({
             ...ap,
             connectedClients: clients
-              .filter((c: any) => c.ap_mac && c.ap_mac === ap.mac)
+              .filter((c: any) => c.ap_mac && c.ap_mac.toLowerCase() === ap.mac.toLowerCase())
               .map((c: any) => ({
                 name: c.name,
                 ip: c.ip,
