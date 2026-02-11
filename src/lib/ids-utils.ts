@@ -76,8 +76,8 @@ function downloadFile(content: string, filename: string, mimeType: string) {
   URL.revokeObjectURL(url);
 }
 
-// GeoIP lookup using free ip-api.com (no API key needed, 45 requests/minute limit)
-// For production, consider running a local MaxMind GeoLite2 database
+// GeoIP lookup via backend MaxMind GeoLite2 database
+// Falls back to ip-api.com if backend GeoIP is unavailable
 export async function lookupGeoIP(ip: string): Promise<{
   country: string;
   countryCode: string;
@@ -86,15 +86,38 @@ export async function lookupGeoIP(ip: string): Promise<{
   lng: number;
   isp: string;
 } | null> {
-  // Skip private/internal IPs
-  if (isPrivateIP(ip)) {
-    return null;
+  if (isPrivateIP(ip)) return null;
+
+  const token = localStorage.getItem('auth_token');
+  
+  try {
+    // Try backend MaxMind first
+    const response = await fetch(`${getApiBase()}/api/geoip/${ip}`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      if (data.status === 'success' && data.lat != null) {
+        return {
+          country: data.country,
+          countryCode: data.countryCode,
+          city: data.city,
+          lat: data.lat,
+          lng: data.lng,
+          isp: data.isp,
+        };
+      }
+      return null;
+    }
+  } catch {
+    // Backend unavailable, fall through to ip-api.com
   }
 
+  // Fallback: ip-api.com (rate limited)
   try {
     const response = await fetch(`http://ip-api.com/json/${ip}?fields=status,country,countryCode,city,lat,lon,isp`);
     const data = await response.json();
-    
     if (data.status === "success") {
       return {
         country: data.country,
@@ -102,17 +125,16 @@ export async function lookupGeoIP(ip: string): Promise<{
         city: data.city,
         lat: data.lat,
         lng: data.lon,
-        isp: data.isp
+        isp: data.isp,
       };
     }
-    return null;
   } catch (error) {
     console.error("GeoIP lookup failed:", error);
-    return null;
   }
+  return null;
 }
 
-// Batch lookup with rate limiting (max 15 per batch to stay under limit)
+// Batch lookup via backend MaxMind, with ip-api.com fallback
 export async function batchLookupGeoIP(ips: string[]): Promise<Map<string, {
   country: string;
   countryCode: string;
@@ -123,18 +145,48 @@ export async function batchLookupGeoIP(ips: string[]): Promise<Map<string, {
 }>> {
   const uniqueIps = [...new Set(ips.filter(ip => !isPrivateIP(ip)))];
   const results = new Map();
+  const token = localStorage.getItem('auth_token');
 
-  // Process in batches of 15 with 1 second delay between batches
+  try {
+    // Try backend batch endpoint
+    const response = await fetch(`${getApiBase()}/api/geoip/batch`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ ips: uniqueIps }),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      data.results?.forEach((r: any) => {
+        if (r.status === 'success' && r.lat != null) {
+          results.set(r.ip, {
+            country: r.country,
+            countryCode: r.countryCode,
+            city: r.city,
+            lat: r.lat,
+            lng: r.lng,
+            isp: r.isp,
+          });
+        }
+      });
+      return results;
+    }
+  } catch {
+    // Fall through to ip-api.com
+  }
+
+  // Fallback: ip-api.com batch (rate limited)
   for (let i = 0; i < uniqueIps.length; i += 15) {
     const batch = uniqueIps.slice(i, i + 15);
-    
     try {
       const response = await fetch("http://ip-api.com/batch?fields=status,query,country,countryCode,city,lat,lon,isp", {
         method: "POST",
-        body: JSON.stringify(batch)
+        body: JSON.stringify(batch),
       });
       const data = await response.json();
-      
       data.forEach((result: any) => {
         if (result.status === "success") {
           results.set(result.query, {
@@ -143,21 +195,22 @@ export async function batchLookupGeoIP(ips: string[]): Promise<Map<string, {
             city: result.city,
             lat: result.lat,
             lng: result.lon,
-            isp: result.isp
+            isp: result.isp,
           });
         }
       });
     } catch (error) {
       console.error("Batch GeoIP lookup failed:", error);
     }
-
-    // Wait 1 second between batches to respect rate limits
     if (i + 15 < uniqueIps.length) {
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
-
   return results;
+}
+
+function getApiBase(): string {
+  return import.meta.env?.VITE_API_URL || '';
 }
 
 function isPrivateIP(ip: string): boolean {
