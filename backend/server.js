@@ -695,9 +695,13 @@ app.get('/api/unifi/ids-alerts', authenticateToken, async (req, res) => {
     let alerts = [];
 
     // Try IPS-specific event paths first (not generic stat/event which has client roaming)
+    // UDM Pro with Network 10.x uses v2 threat management API
     const idsPaths = [
+      { url: `${baseUrl}/proxy/network/v2/api/site/${site}/threat-management/detections`, label: 'v2 threat-management/detections' },
+      { url: `${baseUrl}/proxy/network/v2/api/site/${site}/threat-management/alerts`, label: 'v2 threat-management/alerts' },
       { url: `${baseUrl}/proxy/network/api/s/${site}/stat/ips/event`, label: 'stat/ips/event (proxy)' },
       { url: `${baseUrl}/proxy/network/v2/api/site/${site}/security/events`, label: 'v2 security/events' },
+      { url: `${baseUrl}/proxy/network/v2/api/site/${site}/security/threats`, label: 'v2 security/threats' },
       { url: `${baseUrl}/api/s/${site}/stat/ips/event`, label: 'stat/ips/event (direct)' },
     ];
 
