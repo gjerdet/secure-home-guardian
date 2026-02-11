@@ -1244,6 +1244,71 @@ app.get('/api/docker/containers/:id/logs', authenticateToken, async (req, res) =
 // System Installation Management
 // ============================================
 
+// Get system info (OS, disk, RAM, CPU)
+app.get('/api/system/info', authenticateToken, async (req, res) => {
+  try {
+    const os = require('os');
+    
+    // OS info
+    let osVersion = '';
+    try {
+      const { stdout } = await execAsync('cat /etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d= -f2 | tr -d \'"\'', { timeout: 3000 });
+      osVersion = stdout.trim() || `${os.type()} ${os.release()}`;
+    } catch {
+      osVersion = `${os.type()} ${os.release()}`;
+    }
+
+    // Hostname
+    const hostname = os.hostname();
+
+    // Uptime
+    const uptimeSec = os.uptime();
+    const days = Math.floor(uptimeSec / 86400);
+    const hours = Math.floor((uptimeSec % 86400) / 3600);
+    const uptime = days > 0 ? `${days}d ${hours}t` : `${hours}t ${Math.floor((uptimeSec % 3600) / 60)}m`;
+
+    // CPU
+    const cpus = os.cpus();
+    const cpuModel = cpus[0]?.model || 'Ukjent';
+    const cpuCores = cpus.length;
+    let cpuUsage = 0;
+    try {
+      const { stdout } = await execAsync("top -bn1 | grep 'Cpu(s)' | awk '{print $2}' 2>/dev/null", { timeout: 3000 });
+      cpuUsage = parseFloat(stdout.trim()) || 0;
+    } catch {
+      // Fallback: calculate from os.loadavg
+      cpuUsage = Math.min(100, Math.round((os.loadavg()[0] / cpuCores) * 100));
+    }
+
+    // RAM
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const usedMem = totalMem - freeMem;
+
+    // Disk
+    let diskTotal = 0, diskUsed = 0;
+    try {
+      const { stdout } = await execAsync("df -B1 / | tail -1 | awk '{print $2, $3}'", { timeout: 3000 });
+      const parts = stdout.trim().split(/\s+/);
+      diskTotal = parseInt(parts[0]) || 0;
+      diskUsed = parseInt(parts[1]) || 0;
+    } catch {}
+
+    res.json({
+      os: osVersion,
+      hostname,
+      uptime,
+      kernel: os.release(),
+      arch: os.arch(),
+      cpu: { model: cpuModel, cores: cpuCores, usage: Math.round(cpuUsage) },
+      ram: { total: totalMem, used: usedMem, free: freeMem },
+      disk: { total: diskTotal, used: diskUsed },
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Check status of all installable services
 app.get('/api/system/services', authenticateToken, async (req, res) => {
   if (req.user.role !== 'admin') {
