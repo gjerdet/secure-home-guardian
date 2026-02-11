@@ -960,30 +960,95 @@ app.get('/api/unifi/events', authenticateToken, async (req, res) => {
       }
     }
 
-    const normalized = events.slice(0, 200).map(e => ({
-      id: e._id || e.id || Math.random().toString(),
-      timestamp: e.datetime || (e.time ? new Date(e.time).toISOString() : ''),
-      key: e.key || '',
-      msg: e.msg || e.message || '',
-      subsystem: e.subsystem || '',
-      type: e.key?.startsWith('EVT_IPS') ? 'ids' : e.key?.startsWith('EVT_FW') ? 'firewall' : 'system',
-      srcIp: e.src_ip || '',
-      dstIp: e.dst_ip || '',
-      srcPort: e.src_port || 0,
-      dstPort: e.dst_port || 0,
-      proto: e.proto || '',
-      action: e.inner_alert_action || e.action || '',
-      deviceName: e.sw_name || e.ap_name || e.gw_name || '',
-      deviceMac: e.sw || e.ap || e.gw || '',
-      clientName: e.hostname || e.guest || e.user || '',
-      clientMac: e.client || e.sta || '',
-    }));
+    const normalized = events.slice(0, 200).map(e => {
+      // Extract client MAC from various UniFi event fields
+      // UniFi uses different fields depending on event type
+      const rawClientMac = e.client || e.sta || e.user || e.mac || '';
+      // Only treat as MAC if it looks like one (contains colons and is 17 chars)
+      const isMac = (v) => typeof v === 'string' && /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(v);
+      const clientMac = isMac(rawClientMac) ? rawClientMac : '';
+      
+      // Extract client name - avoid using MAC as name
+      const rawClientName = e.hostname || e.guest || '';
+      // If e.user looks like a name (not a MAC), use it
+      const userName = e.user && !isMac(e.user) ? e.user : '';
+      const clientName = rawClientName || userName;
+
+      return {
+        id: e._id || e.id || Math.random().toString(),
+        timestamp: e.datetime || (e.time ? new Date(e.time).toISOString() : ''),
+        key: e.key || '',
+        msg: e.msg || e.message || '',
+        subsystem: e.subsystem || '',
+        type: e.key?.startsWith('EVT_IPS') ? 'ids' : e.key?.startsWith('EVT_FW') ? 'firewall' : 'system',
+        srcIp: e.src_ip || '',
+        dstIp: e.dst_ip || '',
+        srcPort: e.src_port || 0,
+        dstPort: e.dst_port || 0,
+        proto: e.proto || '',
+        action: e.inner_alert_action || e.action || '',
+        deviceName: e.sw_name || e.ap_name || e.gw_name || '',
+        deviceMac: e.sw || e.ap || e.gw || '',
+        clientName,
+        clientMac,
+      };
+    });
 
     console.log(`[UniFi] Events: returning ${normalized.length} events (IDS: ${normalized.filter(e => e.type === 'ids').length}, FW: ${normalized.filter(e => e.type === 'firewall').length}, SYS: ${normalized.filter(e => e.type === 'system').length})`);
     res.json({ events: normalized, total: events.length });
   } catch (error) {
     console.error('[UniFi] Events error:', error.message);
     res.status(500).json({ error: error.message, events: [] });
+  }
+});
+
+// Debug endpoint: probe all IDS/IPS and event paths and report what works
+app.get('/api/unifi/debug-ids', authenticateToken, async (req, res) => {
+  try {
+    const baseUrl = process.env.UNIFI_CONTROLLER_URL;
+    const apiKey = process.env.UNIFI_API_KEY;
+    const site = await discoverUnifiSiteId();
+    const headers = { 'X-API-Key': apiKey };
+    const axOpts = { httpsAgent, headers, timeout: 10000 };
+
+    const results = [];
+    const paths = [
+      `${baseUrl}/proxy/network/api/s/${site}/stat/ips/event`,
+      `${baseUrl}/proxy/network/api/s/${site}/stat/event`,
+      `${baseUrl}/proxy/network/v2/api/site/${site}/threat-management/detections`,
+      `${baseUrl}/proxy/network/v2/api/site/${site}/threat-management/alerts`,
+      `${baseUrl}/proxy/network/v2/api/site/${site}/security/events`,
+      `${baseUrl}/proxy/network/v2/api/site/${site}/security/threats`,
+      `${baseUrl}/proxy/network/v2/api/site/${site}/flows`,
+      `${baseUrl}/proxy/network/v2/api/site/${site}/flows/active`,
+      `${baseUrl}/proxy/network/v2/api/site/${site}/insight/flows`,
+    ];
+
+    for (const url of paths) {
+      try {
+        const r = await axios.get(url, axOpts);
+        const data = r.data?.data || r.data || [];
+        const items = Array.isArray(data) ? data : (typeof data === 'object' ? [data] : []);
+        results.push({
+          url: url.replace(baseUrl, ''),
+          status: r.status,
+          items: items.length,
+          sampleKeys: items[0] ? Object.keys(items[0]).slice(0, 15) : [],
+          sample: items[0] ? JSON.stringify(items[0]).slice(0, 300) : null,
+        });
+      } catch (e) {
+        results.push({
+          url: url.replace(baseUrl, ''),
+          status: e.response?.status || 'error',
+          error: e.message,
+          items: 0,
+        });
+      }
+    }
+
+    res.json({ site, baseUrl: baseUrl?.replace(/\/\/.*@/, '//***@'), results });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 

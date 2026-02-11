@@ -1296,10 +1296,12 @@ export default function UniFi() {
                          {isLoading ? "Laster hendelser..." : "Ingen systemhendelser funnet"}
                        </div>
                      ) : systemEvents.map((event) => {
-                       const clientName = event.clientName || resolveClient(event.clientMac, event.srcIp) || resolveClient(event.deviceMac);
-                       const macClient = event.clientMac ? liveClients.find(c => c.mac?.toLowerCase() === event.clientMac?.toLowerCase()) : null;
+                       // Normalize MAC for comparison (lowercase, strip colons)
+                       const normMac = (mac: string) => mac?.toLowerCase().replace(/[:-]/g, '') || '';
+                       const macClient = event.clientMac ? liveClients.find(c => normMac(c.mac) === normMac(event.clientMac)) : null;
                        const ipClient = !macClient && event.srcIp ? liveClients.find(c => c.ip === event.srcIp) : null;
                        const linkedClient = macClient || ipClient;
+                       const resolvedName = event.clientName || resolveClient(event.clientMac, event.srcIp) || resolveClient(event.deviceMac) || linkedClient?.name;
                        return (
                        <div key={event.id} className="p-4 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => setSelectedEvent(event)}>
                          <div className="flex items-start justify-between mb-1">
@@ -1312,19 +1314,43 @@ export default function UniFi() {
                                {event.type === 'ids' ? 'IDS/IPS' : event.type === 'firewall' ? 'Brannmur' : 'System'}
                              </Badge>
                              <Badge variant="secondary" className="text-[10px] font-mono">{event.key}</Badge>
-                             {(clientName || linkedClient) && (
+                             {/* Always show client MAC as clickable badge when available */}
+                             {event.clientMac && (
                                <Badge 
-                                 className={`text-[10px] bg-primary/10 text-primary border-primary/20 ${linkedClient ? 'cursor-pointer hover:bg-primary/20' : ''}`}
+                                 className="text-[10px] bg-primary/10 text-primary border-primary/20 cursor-pointer hover:bg-primary/20"
                                  onClick={(e) => {
+                                   e.stopPropagation();
                                    if (linkedClient) {
-                                     e.stopPropagation();
                                      setSelectedDevice(linkedClient);
+                                   } else {
+                                     // Try harder: find by partial MAC match
+                                     const dev = liveClients.find(c => normMac(c.mac) === normMac(event.clientMac));
+                                     if (dev) setSelectedDevice(dev);
+                                     else {
+                                       toast({ title: "Klient ikkje funnen", description: `MAC ${event.clientMac} er ikkje blant aktive klientar`, variant: "destructive" });
+                                     }
                                    }
                                  }}
                                >
                                  <Users className="h-3 w-3 mr-1" />
-                                 {clientName || linkedClient?.name}
+                                 {resolvedName || event.clientMac}
                                  {linkedClient && <ArrowUpRight className="h-3 w-3 ml-1" />}
+                               </Badge>
+                             )}
+                             {/* Show resolved name separately if no MAC but name resolved from IP */}
+                             {!event.clientMac && resolvedName && (
+                               <Badge 
+                                 className={`text-[10px] bg-primary/10 text-primary border-primary/20 ${ipClient ? 'cursor-pointer hover:bg-primary/20' : ''}`}
+                                 onClick={(e) => {
+                                   if (ipClient) {
+                                     e.stopPropagation();
+                                     setSelectedDevice(ipClient);
+                                   }
+                                 }}
+                               >
+                                 <Users className="h-3 w-3 mr-1" />
+                                 {resolvedName}
+                                 {ipClient && <ArrowUpRight className="h-3 w-3 ml-1" />}
                                </Badge>
                              )}
                              {event.deviceName && (
@@ -1338,17 +1364,8 @@ export default function UniFi() {
                          </div>
                          <p className="text-sm text-foreground">{event.msg}</p>
                          <div className="flex gap-4 mt-1 text-xs text-muted-foreground font-mono flex-wrap">
-                           {event.clientMac && !clientName && !linkedClient && (
-                             <span 
-                               className="cursor-pointer hover:text-primary transition-colors"
-                               onClick={(e) => {
-                                 e.stopPropagation();
-                                 const dev = liveClients.find(c => c.mac?.toLowerCase() === event.clientMac?.toLowerCase());
-                                 if (dev) setSelectedDevice(dev);
-                               }}
-                             >
-                               MAC: {event.clientMac}
-                             </span>
+                           {event.clientMac && (
+                             <span className="text-muted-foreground/70">MAC: {event.clientMac}</span>
                            )}
                            {event.srcIp && <span>Kilde: {event.srcIp}{event.srcPort ? `:${event.srcPort}` : ''}</span>}
                            {event.dstIp && <span>Mål: {event.dstIp}{event.dstPort ? `:${event.dstPort}` : ''}</span>}
