@@ -19,7 +19,21 @@ export interface VlanSubnet {
   icon: "network" | "wifi" | "server" | "shield" | "monitor";
 }
 
-const defaultVlans: VlanSubnet[] = [];
+const STORAGE_KEY = 'netguard_vlans';
+
+function loadStoredVlans(): VlanSubnet[] {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) return JSON.parse(stored);
+  } catch {}
+  return [];
+}
+
+function saveVlans(vlans: VlanSubnet[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(vlans));
+}
+
+const defaultVlans: VlanSubnet[] = loadStoredVlans();
 
 const iconMap = {
   network: Network,
@@ -42,6 +56,7 @@ export function VlanSubnetManager({ selectedVlans, onSelectionChange, onScanTarg
   // Notify parent of vlan changes
   const updateVlans = (newVlans: VlanSubnet[]) => {
     setVlans(newVlans);
+    saveVlans(newVlans);
     onVlansChange?.(newVlans);
   };
   const [dialogOpen, setDialogOpen] = useState(false);
