@@ -39,29 +39,10 @@ export function SystemInfoCard() {
         if (res.ok) {
           setInfo(await res.json());
         } else {
-          // Demo fallback
-          setInfo({
-            os: "Ubuntu 22.04.3 LTS",
-            hostname: "netguard-srv",
-            uptime: "14d 6t",
-            kernel: "5.15.0-91-generic",
-            arch: "x64",
-            cpu: { model: "Intel Xeon E-2236 @ 3.40GHz", cores: 12, usage: 23 },
-            ram: { total: 34359738368, used: 18253611008, free: 16106127360 },
-            disk: { total: 512110190592, used: 198437150720 },
-          });
+          setInfo(null);
         }
       } catch {
-        setInfo({
-          os: "Ubuntu 22.04.3 LTS",
-          hostname: "netguard-srv",
-          uptime: "14d 6t",
-          kernel: "5.15.0-91-generic",
-          arch: "x64",
-          cpu: { model: "Intel Xeon E-2236 @ 3.40GHz", cores: 12, usage: 23 },
-          ram: { total: 34359738368, used: 18253611008, free: 16106127360 },
-          disk: { total: 512110190592, used: 198437150720 },
-        });
+        setInfo(null);
       }
     };
 

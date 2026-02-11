@@ -59,24 +59,10 @@ export default function Installer() {
         const data = await res.json();
         setServices(data.services);
       } else {
-        // Demo mode fallback
-        setServices([
-          { id: "nodejs", name: "Node.js", installed: true, version: "v20.11.0", running: null },
-          { id: "nginx", name: "Nginx", installed: true, version: "1.24.0", running: true },
-          { id: "docker", name: "Docker", installed: false, version: "", running: false },
-          { id: "nmap", name: "Nmap", installed: false, version: "", running: null },
-          { id: "openvas", name: "OpenVAS/Greenbone", installed: false, version: "", running: false },
-        ]);
+        setServices([]);
       }
     } catch {
-      // Demo fallback
-      setServices([
-        { id: "nodejs", name: "Node.js", installed: true, version: "v20.11.0", running: null },
-        { id: "nginx", name: "Nginx", installed: true, version: "1.24.0", running: true },
-        { id: "docker", name: "Docker", installed: false, version: "", running: false },
-        { id: "nmap", name: "Nmap", installed: false, version: "", running: null },
-        { id: "openvas", name: "OpenVAS/Greenbone", installed: false, version: "", running: false },
-      ]);
+      setServices([]);
     } finally {
       setLoading(false);
     }

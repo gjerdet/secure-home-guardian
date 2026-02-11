@@ -6,37 +6,37 @@ export function StatusCardsModule() {
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
       <StatusCard
         title="UniFi Controller"
-        status="online"
+        status="offline"
         icon={Wifi}
-        value="12 enheter"
-        subtitle="IDS/IPS Aktiv"
+        value="—"
+        subtitle="Ikke tilkoblet"
         href="/unifi"
         className="animate-fade-in"
       />
       <StatusCard
         title="TrueNAS"
-        status="online"
+        status="offline"
         icon={HardDrive}
-        value="42.3 TB"
-        subtitle="Tilgjengelig lagring"
+        value="—"
+        subtitle="Ikke tilkoblet"
         href="/truenas"
         className="animate-fade-in [animation-delay:100ms]"
       />
       <StatusCard
         title="Proxmox VE"
-        status="warning"
+        status="offline"
         icon={Server}
-        value="8 VMs"
-        subtitle="2 containere aktive"
+        value="—"
+        subtitle="Ikke tilkoblet"
         href="/proxmox"
         className="animate-fade-in [animation-delay:200ms]"
       />
       <StatusCard
         title="Sikkerhets Score"
-        status="online"
+        status="offline"
         icon={Shield}
-        value="87/100"
-        subtitle="Sist oppdatert: 2t siden"
+        value="—"
+        subtitle="Ikke tilkoblet"
         href="/security"
         className="animate-fade-in [animation-delay:300ms]"
       />
