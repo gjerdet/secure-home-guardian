@@ -22,7 +22,7 @@ import {
   Search, Copy, Info
 } from "lucide-react";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
+const API_BASE = import.meta.env.VITE_API_URL || "";
 
 interface IdsAlert {
   id: string;
