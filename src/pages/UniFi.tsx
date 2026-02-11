@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Separator } from "@/components/ui/separator";
 import { AttackMap } from "@/components/AttackMap";
 import { exportToCSV, exportToJSON, batchLookupGeoIP } from "@/lib/ids-utils";
+import { FirewallAuditPanel } from "@/components/security/FirewallAuditPanel";
 import { useToast } from "@/hooks/use-toast";
 import { 
   Wifi, Shield, ShieldAlert, AlertTriangle, Activity, 
@@ -709,6 +710,10 @@ export default function UniFi() {
               <Users className="h-4 w-4 mr-2" />
               Tilkoblede Enheter
             </TabsTrigger>
+            <TabsTrigger value="fw-rules" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <Shield className="h-4 w-4 mr-2" />
+              Brannmurregler
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="ids">
@@ -987,6 +992,10 @@ export default function UniFi() {
                 </ScrollArea>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="fw-rules">
+            <FirewallAuditPanel />
           </TabsContent>
         </Tabs>
       </main>
