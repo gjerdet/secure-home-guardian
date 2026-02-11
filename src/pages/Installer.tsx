@@ -11,6 +11,7 @@ import {
   Download, CheckCircle, XCircle, Loader2, RefreshCw,
   Play, RotateCcw, Package, Server, Shield, Search, Container
 } from "lucide-react";
+import { SystemInfoCard } from "@/components/installer/SystemInfoCard";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
@@ -243,6 +244,9 @@ export default function Installer() {
             </Button>
           </div>
         </div>
+
+        {/* System info */}
+        <SystemInfoCard />
 
         {/* Overview card */}
         <Card className="bg-card border-border">
