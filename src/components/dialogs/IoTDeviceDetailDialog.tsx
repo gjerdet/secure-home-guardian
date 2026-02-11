@@ -1,7 +1,8 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Wifi, WifiOff, Shield, ShieldAlert, Clock, MapPin, Fingerprint, Globe } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { Wifi, WifiOff, Shield, ShieldAlert, Clock, MapPin, Fingerprint, Globe, Radio, Router, Network } from "lucide-react";
 
 interface IoTDevice {
   id: string;
@@ -20,6 +21,11 @@ interface IoTDevice {
   rxBytes?: number;
   txBytes?: number;
   signalStrength?: number;
+  connectedTo?: string;
+  connection?: string;
+  channel?: string;
+  txRate?: number;
+  rxRate?: number;
 }
 
 interface Props {
@@ -39,13 +45,7 @@ function formatBytes(bytes?: number): string {
 export function IoTDeviceDetailDialog({ device, open, onOpenChange }: Props) {
   if (!device) return null;
 
-  const details = [
-    { icon: Globe, label: "IP-adresse", value: device.ip },
-    { icon: Fingerprint, label: "MAC-adresse", value: device.mac },
-    { icon: MapPin, label: "Nettverk", value: device.network || "LAN" },
-    { icon: Clock, label: "Sist sett", value: device.lastSeen },
-    { icon: Clock, label: "Først sett", value: device.firstSeen || "Ukjent" },
-  ];
+  const isWired = device.connection === "Ethernet";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -75,6 +75,40 @@ export function IoTDeviceDetailDialog({ device, open, onOpenChange }: Props) {
         </DialogHeader>
 
         <div className="space-y-4">
+          {/* Connection path */}
+          {device.connectedTo && (
+            <div className="bg-muted/50 rounded-lg p-4">
+              <p className="text-xs text-muted-foreground mb-2">Tilkoblingssti</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge className="gap-1 bg-primary/10 text-primary border-primary/20">
+                  {isWired ? <Network className="h-3 w-3" /> : <Wifi className="h-3 w-3" />}
+                  {device.name}
+                </Badge>
+                <span className="text-muted-foreground text-xs">→</span>
+                <Badge variant="outline" className="gap-1 font-mono text-xs">
+                  {isWired ? <Network className="h-3 w-3" /> : <Radio className="h-3 w-3" />}
+                  {device.connectedTo}
+                </Badge>
+                <span className="text-muted-foreground text-xs">→</span>
+                <Badge variant="outline" className="gap-1 font-mono text-xs">
+                  <Router className="h-3 w-3" />
+                  Gateway
+                </Badge>
+                <span className="text-muted-foreground text-xs">→</span>
+                <Badge variant="outline" className="gap-1 font-mono text-xs">
+                  <Globe className="h-3 w-3" />
+                  WAN
+                </Badge>
+              </div>
+              {device.connection && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Tilkobling: <span className="text-foreground font-medium">{device.connection}</span>
+                  {device.channel && <> • Kanal: <span className="text-foreground font-mono">{device.channel}</span></>}
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Device info */}
           {(device.vendor || device.model) && (
             <div className="bg-muted/50 rounded-lg p-3 space-y-1 text-sm">
@@ -86,52 +120,79 @@ export function IoTDeviceDetailDialog({ device, open, onOpenChange }: Props) {
 
           <Separator />
 
-          {/* Details grid */}
+          {/* Details */}
           <div className="space-y-3">
-            {details.map((d) => {
-              const Icon = d.icon;
-              return (
-                <div key={d.label} className="flex items-center justify-between text-sm">
-                  <span className="flex items-center gap-2 text-muted-foreground">
-                    <Icon className="h-3.5 w-3.5" />
-                    {d.label}
-                  </span>
-                  <span className="font-mono text-foreground text-xs">{d.value}</span>
-                </div>
-              );
-            })}
+            <div className="flex items-center justify-between text-sm">
+              <span className="flex items-center gap-2 text-muted-foreground"><Globe className="h-3.5 w-3.5" />IP-adresse</span>
+              <span className="font-mono text-foreground text-xs">{device.ip}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="flex items-center gap-2 text-muted-foreground"><Fingerprint className="h-3.5 w-3.5" />MAC-adresse</span>
+              <span className="font-mono text-foreground text-xs">{device.mac}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="flex items-center gap-2 text-muted-foreground"><MapPin className="h-3.5 w-3.5" />Nettverk</span>
+              <span className="font-mono text-foreground text-xs">{device.network || "LAN"}{device.vlan !== undefined && ` (VLAN ${device.vlan})`}</span>
+            </div>
+            {device.connectedTo && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="flex items-center gap-2 text-muted-foreground"><Radio className="h-3.5 w-3.5" />Tilkoblet til</span>
+                <span className="font-mono text-foreground text-xs">{device.connectedTo}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between text-sm">
+              <span className="flex items-center gap-2 text-muted-foreground"><Clock className="h-3.5 w-3.5" />Sist sett</span>
+              <span className="font-mono text-foreground text-xs">{device.lastSeen}</span>
+            </div>
           </div>
 
-          {/* Traffic */}
-          {(device.rxBytes || device.txBytes) && (
+          {/* Signal strength */}
+          {device.signalStrength !== undefined && (
             <>
               <Separator />
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div className="bg-muted/50 rounded-lg p-3 text-center">
-                  <p className="text-xs text-muted-foreground mb-1">Nedlastet</p>
-                  <p className="font-mono font-bold text-foreground">{formatBytes(device.rxBytes)}</p>
+              <div>
+                <p className="text-xs text-muted-foreground mb-2">Signalstyrke</p>
+                <div className="flex items-center gap-3">
+                  <Progress
+                    value={Math.min(100, Math.max(0, (device.signalStrength + 90) * 2.5))}
+                    className="h-2 flex-1"
+                  />
+                  <span className={`font-mono text-sm ${device.signalStrength > -50 ? "text-success" : device.signalStrength > -65 ? "text-foreground" : device.signalStrength > -75 ? "text-warning" : "text-destructive"}`}>
+                    {device.signalStrength} dBm
+                  </span>
                 </div>
-                <div className="bg-muted/50 rounded-lg p-3 text-center">
-                  <p className="text-xs text-muted-foreground mb-1">Opplastet</p>
-                  <p className="font-mono font-bold text-foreground">{formatBytes(device.txBytes)}</p>
-                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {device.signalStrength > -50 ? "Utmerket" : device.signalStrength > -65 ? "Bra" : device.signalStrength > -75 ? "Middels" : "Svakt"} signal
+                </p>
               </div>
             </>
           )}
 
-          {/* Signal */}
-          {device.signalStrength !== undefined && (
-            <div className="text-sm flex items-center justify-between">
-              <span className="text-muted-foreground">Signalstyrke</span>
-              <span className="font-mono text-foreground">{device.signalStrength} dBm</span>
+          {/* Speed */}
+          {(device.txRate || device.rxRate) && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-muted/50 rounded-lg p-3 text-center">
+                <p className="text-xs text-muted-foreground mb-1">TX hastighet</p>
+                <p className="font-mono font-bold text-foreground">{device.txRate} Mbps</p>
+              </div>
+              <div className="bg-muted/50 rounded-lg p-3 text-center">
+                <p className="text-xs text-muted-foreground mb-1">RX hastighet</p>
+                <p className="font-mono font-bold text-foreground">{device.rxRate} Mbps</p>
+              </div>
             </div>
           )}
 
-          {/* VLAN */}
-          {device.vlan !== undefined && (
-            <div className="text-sm flex items-center justify-between">
-              <span className="text-muted-foreground">VLAN</span>
-              <Badge variant="outline" className="font-mono">{device.vlan}</Badge>
+          {/* Traffic */}
+          {(device.rxBytes || device.txBytes) && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-muted/50 rounded-lg p-3 text-center">
+                <p className="text-xs text-muted-foreground mb-1">Nedlastet</p>
+                <p className="font-mono font-bold text-foreground">{formatBytes(device.rxBytes)}</p>
+              </div>
+              <div className="bg-muted/50 rounded-lg p-3 text-center">
+                <p className="text-xs text-muted-foreground mb-1">Opplastet</p>
+                <p className="font-mono font-bold text-foreground">{formatBytes(device.txBytes)}</p>
+              </div>
             </div>
           )}
         </div>
