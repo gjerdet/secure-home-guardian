@@ -23,28 +23,52 @@ interface FirewallRule {
   _id: string;
   name: string;
   enabled: boolean;
-  action: string;
+  action: string; // drop | accept | reject
   ruleset: string;
+  rule_index?: number;
+  // Policy type
+  policy_type?: string; // firewall | route | qos | nat | dns | acl | port_forwarding
+  description?: string;
+  // Source
+  src_zone?: string; // internal | external | dmz | vpn
+  src_type?: string; // any | device | network | ip | mac
+  src_address?: string;
+  src_mac_address?: string;
+  src_port?: string;
+  src_port_type?: string; // any | specific | list
+  src_firewallgroup_ids?: string[];
+  src_networkconf_id?: string;
+  src_networkconf_type?: string;
+  // Destination
+  dst_zone?: string; // internal | external | dmz | vpn
+  dst_type?: string; // any | app | ip | domain | region
+  dst_address?: string;
+  dst_port?: string;
+  dst_port_type?: string; // any | specific | list
+  dst_firewallgroup_ids?: string[];
+  dst_networkconf_id?: string;
+  dst_networkconf_type?: string;
+  dst_app_id?: string;
+  dst_domain?: string;
+  dst_region?: string;
+  // Protocol & IP
   protocol: string;
   protocol_match_excepted?: boolean;
-  src_firewallgroup_ids?: string[];
-  dst_firewallgroup_ids?: string[];
-  src_networkconf_id?: string;
-  dst_networkconf_id?: string;
-  src_networkconf_type?: string;
-  dst_networkconf_type?: string;
-  dst_port?: string;
-  src_port?: string;
-  src_address?: string;
-  dst_address?: string;
-  src_mac_address?: string;
-  rule_index?: number;
+  ip_version?: string; // both | ipv4 | ipv6
+  // Connection state
   state_established?: boolean;
   state_related?: boolean;
   state_new?: boolean;
   state_invalid?: boolean;
+  // Options
   ipsec?: string;
   logging?: boolean;
+  // Schedule
+  schedule?: string; // always | daily | weekly | one_time | custom
+  schedule_start?: string;
+  schedule_end?: string;
+  schedule_days?: string[];
+  // Meta
   setting_preference?: string;
 }
 
@@ -81,26 +105,26 @@ const mockFirewallGroups: FirewallGroup[] = [
 ];
 
 const mockFirewallRules: FirewallRule[] = [
-  { _id: "r1", name: "Blokker IoT → Internett", enabled: true, action: "drop", ruleset: "LAN_IN", protocol: "all", rule_index: 2001, src_firewallgroup_ids: ["fg1"], dst_address: "0.0.0.0/0" },
-  { _id: "r2", name: "Tillat IoT → DNS", enabled: true, action: "accept", ruleset: "LAN_IN", protocol: "tcp_udp", rule_index: 2000, src_firewallgroup_ids: ["fg1"], dst_port: "53" },
-  { _id: "r3", name: "Blokker IoT → LAN", enabled: true, action: "drop", ruleset: "LAN_IN", protocol: "all", rule_index: 2002, src_firewallgroup_ids: ["fg1"], dst_address: "192.168.1.0/24" },
-  { _id: "r4", name: "Blokker Kameraer → Internett", enabled: true, action: "drop", ruleset: "LAN_IN", protocol: "all", rule_index: 2003, src_firewallgroup_ids: ["fg3"], dst_address: "0.0.0.0/0" },
-  { _id: "r5", name: "Tillat Kameraer → NVR", enabled: true, action: "accept", ruleset: "LAN_IN", protocol: "tcp", rule_index: 2004, src_firewallgroup_ids: ["fg3"], dst_address: "192.168.10.15", dst_port: "7447,554" },
-  { _id: "r6", name: "Blokker inter-VLAN trafikk", enabled: true, action: "drop", ruleset: "LAN_IN", protocol: "all", rule_index: 3000, src_address: "192.168.0.0/16", dst_address: "192.168.0.0/16" },
-  { _id: "r7", name: "Tillat etablerte forbindelser", enabled: true, action: "accept", ruleset: "LAN_IN", protocol: "all", rule_index: 1000, state_established: true, state_related: true },
-  { _id: "r8", name: "Blokker farlige porter WAN", enabled: true, action: "drop", ruleset: "WAN_IN", protocol: "tcp_udp", rule_index: 3001, dst_firewallgroup_ids: ["fg4"] },
-  { _id: "r9", name: "Rate limit SSH", enabled: true, action: "drop", ruleset: "WAN_LOCAL", protocol: "tcp", rule_index: 3002, dst_port: "22" },
-  { _id: "r10", name: "Tillat VPN (WireGuard)", enabled: true, action: "accept", ruleset: "WAN_IN", protocol: "udp", rule_index: 2010, dst_port: "51820" },
-  { _id: "r11", name: "Blokker Telnet overalt", enabled: true, action: "drop", ruleset: "LAN_IN", protocol: "tcp", rule_index: 2020, dst_port: "23" },
-  { _id: "r12", name: "Tillat Gaming PSN/Xbox", enabled: true, action: "accept", ruleset: "LAN_IN", protocol: "tcp_udp", rule_index: 2030, src_firewallgroup_ids: ["fg5"], dst_port: "3478-3480,3658" },
-  { _id: "r13", name: "Gjest → kun internett", enabled: true, action: "drop", ruleset: "GUEST_IN", protocol: "all", rule_index: 2040, dst_address: "192.168.0.0/16" },
-  { _id: "r14", name: "Blokker DNS over HTTPS", enabled: true, action: "drop", ruleset: "LAN_IN", protocol: "tcp", rule_index: 2050, dst_port: "853" },
-  { _id: "r15", name: "Tillat ICMP LAN", enabled: true, action: "accept", ruleset: "LAN_IN", protocol: "icmp", rule_index: 1500 },
-  { _id: "r16", name: "Logg alt droppet WAN", enabled: true, action: "drop", ruleset: "WAN_IN", protocol: "all", rule_index: 4000, logging: true },
-  { _id: "r17", name: "Tillat mDNS mellom VLAN", enabled: true, action: "accept", ruleset: "LAN_IN", protocol: "udp", rule_index: 1100, dst_port: "5353" },
-  { _id: "r18", name: "Blokker SMB fra Gjest", enabled: true, action: "drop", ruleset: "GUEST_IN", protocol: "tcp", rule_index: 2060, dst_port: "445,139" },
-  { _id: "r19", name: "Gammel test-regel", enabled: false, action: "accept", ruleset: "LAN_IN", protocol: "tcp", rule_index: 9000, dst_port: "8080" },
-  { _id: "r20", name: "Tillat Servere → Internett", enabled: true, action: "accept", ruleset: "LAN_IN", protocol: "all", rule_index: 1200, src_firewallgroup_ids: ["fg2"] },
+  { _id: "r1", name: "Blokker IoT → Internett", enabled: true, action: "drop", ruleset: "LAN_IN", protocol: "all", rule_index: 2001, src_firewallgroup_ids: ["fg1"], dst_address: "0.0.0.0/0", src_zone: "internal", dst_zone: "external", src_type: "network", dst_type: "any", ip_version: "ipv4", description: "Hindrer IoT-enheter fra å nå internett direkte", schedule: "always" },
+  { _id: "r2", name: "Tillat IoT → DNS", enabled: true, action: "accept", ruleset: "LAN_IN", protocol: "tcp_udp", rule_index: 2000, src_firewallgroup_ids: ["fg1"], dst_port: "53", dst_port_type: "specific", src_zone: "internal", dst_zone: "internal", src_type: "network", dst_type: "ip", ip_version: "both", description: "Tillater DNS-oppslag for IoT-enheter" },
+  { _id: "r3", name: "Blokker IoT → LAN", enabled: true, action: "drop", ruleset: "LAN_IN", protocol: "all", rule_index: 2002, src_firewallgroup_ids: ["fg1"], dst_address: "192.168.1.0/24", src_zone: "internal", dst_zone: "internal", src_type: "network", dst_type: "ip" },
+  { _id: "r4", name: "Blokker Kameraer → Internett", enabled: true, action: "drop", ruleset: "LAN_IN", protocol: "all", rule_index: 2003, src_firewallgroup_ids: ["fg3"], dst_address: "0.0.0.0/0", src_zone: "internal", dst_zone: "external", description: "Kameraer skal ikke ha tilgang til internett" },
+  { _id: "r5", name: "Tillat Kameraer → NVR", enabled: true, action: "accept", ruleset: "LAN_IN", protocol: "tcp", rule_index: 2004, src_firewallgroup_ids: ["fg3"], dst_address: "192.168.10.15", dst_port: "7447,554", dst_port_type: "specific", src_zone: "internal", dst_zone: "internal", dst_type: "ip" },
+  { _id: "r6", name: "Blokker inter-VLAN trafikk", enabled: true, action: "drop", ruleset: "LAN_IN", protocol: "all", rule_index: 3000, src_address: "192.168.0.0/16", dst_address: "192.168.0.0/16", src_zone: "internal", dst_zone: "internal", src_type: "ip", dst_type: "ip", ip_version: "ipv4" },
+  { _id: "r7", name: "Tillat etablerte forbindelser", enabled: true, action: "accept", ruleset: "LAN_IN", protocol: "all", rule_index: 1000, state_established: true, state_related: true, description: "Standard regel for å tillate returntrafikk" },
+  { _id: "r8", name: "Blokker farlige porter WAN", enabled: true, action: "drop", ruleset: "WAN_IN", protocol: "tcp_udp", rule_index: 3001, dst_firewallgroup_ids: ["fg4"], src_zone: "external", dst_zone: "internal", logging: true },
+  { _id: "r9", name: "Rate limit SSH", enabled: true, action: "drop", ruleset: "WAN_LOCAL", protocol: "tcp", rule_index: 3002, dst_port: "22", dst_port_type: "specific", src_zone: "external", dst_zone: "internal", logging: true, description: "Blokkerer SSH-forsøk fra WAN" },
+  { _id: "r10", name: "Tillat VPN (WireGuard)", enabled: true, action: "accept", ruleset: "WAN_IN", protocol: "udp", rule_index: 2010, dst_port: "51820", dst_port_type: "specific", src_zone: "external", dst_zone: "internal", ipsec: "match-ipsec", ip_version: "ipv4" },
+  { _id: "r11", name: "Blokker Telnet overalt", enabled: true, action: "drop", ruleset: "LAN_IN", protocol: "tcp", rule_index: 2020, dst_port: "23", dst_port_type: "specific" },
+  { _id: "r12", name: "Tillat Gaming PSN/Xbox", enabled: true, action: "accept", ruleset: "LAN_IN", protocol: "tcp_udp", rule_index: 2030, src_firewallgroup_ids: ["fg5"], dst_port: "3478-3480,3658", dst_port_type: "list", src_zone: "internal", dst_zone: "external", schedule: "daily", schedule_start: "14:00", schedule_end: "23:00", description: "Gaming-trafikk tillatt på kvelden" },
+  { _id: "r13", name: "Gjest → kun internett", enabled: true, action: "drop", ruleset: "GUEST_IN", protocol: "all", rule_index: 2040, dst_address: "192.168.0.0/16", src_zone: "internal", dst_zone: "internal", description: "Gjestenettverk kan ikke nå lokale ressurser" },
+  { _id: "r14", name: "Blokker DNS over HTTPS", enabled: true, action: "drop", ruleset: "LAN_IN", protocol: "tcp", rule_index: 2050, dst_port: "853", dst_port_type: "specific", description: "Tvinger all DNS via lokal resolver" },
+  { _id: "r15", name: "Tillat ICMP LAN", enabled: true, action: "accept", ruleset: "LAN_IN", protocol: "icmp", rule_index: 1500, ip_version: "ipv4" },
+  { _id: "r16", name: "Logg alt droppet WAN", enabled: true, action: "drop", ruleset: "WAN_IN", protocol: "all", rule_index: 4000, logging: true, src_zone: "external", dst_zone: "internal", description: "Siste regel – logger alt som ikke matchet" },
+  { _id: "r17", name: "Tillat mDNS mellom VLAN", enabled: true, action: "accept", ruleset: "LAN_IN", protocol: "udp", rule_index: 1100, dst_port: "5353", dst_port_type: "specific", dst_type: "ip", dst_address: "224.0.0.251" },
+  { _id: "r18", name: "Blokker SMB fra Gjest", enabled: true, action: "drop", ruleset: "GUEST_IN", protocol: "tcp", rule_index: 2060, dst_port: "445,139", dst_port_type: "list", description: "Hindrer fildelings-angrep fra gjestenettverk" },
+  { _id: "r19", name: "Gammel test-regel", enabled: false, action: "accept", ruleset: "LAN_IN", protocol: "tcp", rule_index: 9000, dst_port: "8080", dst_port_type: "specific", description: "Test – bør slettes" },
+  { _id: "r20", name: "Tillat Servere → Internett", enabled: true, action: "accept", ruleset: "LAN_IN", protocol: "all", rule_index: 1200, src_firewallgroup_ids: ["fg2"], src_zone: "internal", dst_zone: "external", ip_version: "both" },
 ];
 
 const mockPortForwards: PortForward[] = [
@@ -746,8 +770,8 @@ export function FirewallAuditPanel() {
                 </div>
               </div>
 
-              {/* Status & Action */}
-              <div className="grid grid-cols-2 gap-3">
+              {/* Status row */}
+              <div className="grid grid-cols-3 gap-3">
                 <div className="bg-muted rounded-lg p-3">
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Status</p>
                   <Badge className={selectedRule.enabled ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground'}>
@@ -760,40 +784,91 @@ export function FirewallAuditPanel() {
                     {actionLabel}
                   </Badge>
                 </div>
+                <div className="bg-muted rounded-lg p-3">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">IP-versjon</p>
+                  <span className="text-sm font-mono text-foreground">{selectedRule.ip_version?.toUpperCase() || 'Both'}</span>
+                </div>
               </div>
 
-              {/* All details */}
-              <div className="space-y-2">
-                {[
-                  { label: 'Regel-indeks', value: selectedRule.rule_index?.toString() ?? '-' },
-                  { label: 'Ruleset', value: rulesetLabel },
-                  { label: 'Protokoll', value: proto },
-                  { label: 'Protokoll-unntak', value: selectedRule.protocol_match_excepted ? 'Ja' : 'Nei' },
-                  { label: 'Kilde', value: srcLabel },
-                  { label: 'Kilde-port', value: selectedRule.src_port || '-' },
-                  { label: 'Kilde MAC', value: selectedRule.src_mac_address || '-' },
-                  { label: 'Kilde nettverkskonfig', value: selectedRule.src_networkconf_id || '-' },
-                  { label: 'Kilde nettverkstype', value: selectedRule.src_networkconf_type || '-' },
-                  { label: 'Destinasjon', value: dstLabel },
-                  { label: 'Destinasjon-port', value: selectedRule.dst_port || '-' },
-                  { label: 'Dest nettverkskonfig', value: selectedRule.dst_networkconf_id || '-' },
-                  { label: 'Dest nettverkstype', value: selectedRule.dst_networkconf_type || '-' },
-                  { label: 'IPsec', value: selectedRule.ipsec && selectedRule.ipsec !== 'not-set' ? selectedRule.ipsec : '-' },
-                  { label: 'Logging', value: selectedRule.logging ? 'Aktiv' : 'Av' },
-                  { label: 'Preferanse', value: selectedRule.setting_preference || '-' },
-                  { label: 'ID', value: selectedRule._id },
-                ].filter(item => item.value !== '-' && item.value !== 'Nei').map(item => (
-                  <div key={item.label} className="flex justify-between items-center py-1.5 border-b border-border last:border-0">
-                    <span className="text-xs text-muted-foreground">{item.label}</span>
-                    <span className="text-sm font-mono text-foreground max-w-[60%] text-right truncate" title={item.value}>{item.value}</span>
-                  </div>
-                ))}
+              {/* Description */}
+              {selectedRule.description && (
+                <div className="bg-muted rounded-lg p-3">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Beskrivelse</p>
+                  <p className="text-sm text-foreground">{selectedRule.description}</p>
+                </div>
+              )}
+
+              {/* Source Zone section */}
+              <div className="bg-muted rounded-lg p-3">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">Kilde (Source Zone)</p>
+                <div className="space-y-1.5">
+                  {[
+                    { label: 'Sone', value: selectedRule.src_zone ? selectedRule.src_zone.charAt(0).toUpperCase() + selectedRule.src_zone.slice(1) : '-' },
+                    { label: 'Type', value: selectedRule.src_type ? selectedRule.src_type.charAt(0).toUpperCase() + selectedRule.src_type.slice(1) : 'Any' },
+                    { label: 'Adresse/Gruppe', value: srcLabel },
+                    { label: 'MAC', value: selectedRule.src_mac_address || '-' },
+                    { label: 'Port', value: selectedRule.src_port || 'Any' },
+                    { label: 'Port-type', value: selectedRule.src_port_type ? selectedRule.src_port_type.charAt(0).toUpperCase() + selectedRule.src_port_type.slice(1) : '-' },
+                    { label: 'Nettverkskonfig', value: selectedRule.src_networkconf_id || '-' },
+                    { label: 'Nettverkstype', value: selectedRule.src_networkconf_type || '-' },
+                  ].filter(item => item.value !== '-').map(item => (
+                    <div key={item.label} className="flex justify-between items-center py-1 border-b border-border/50 last:border-0">
+                      <span className="text-xs text-muted-foreground">{item.label}</span>
+                      <span className="text-xs font-mono text-foreground">{item.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Destination Zone section */}
+              <div className="bg-muted rounded-lg p-3">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">Destinasjon (Destination Zone)</p>
+                <div className="space-y-1.5">
+                  {[
+                    { label: 'Sone', value: selectedRule.dst_zone ? selectedRule.dst_zone.charAt(0).toUpperCase() + selectedRule.dst_zone.slice(1) : '-' },
+                    { label: 'Type', value: selectedRule.dst_type ? selectedRule.dst_type.charAt(0).toUpperCase() + selectedRule.dst_type.slice(1) : 'Any' },
+                    { label: 'Adresse/Gruppe', value: dstLabel },
+                    { label: 'App', value: selectedRule.dst_app_id || '-' },
+                    { label: 'Domene', value: selectedRule.dst_domain || '-' },
+                    { label: 'Region', value: selectedRule.dst_region || '-' },
+                    { label: 'Port', value: selectedRule.dst_port || 'Any' },
+                    { label: 'Port-type', value: selectedRule.dst_port_type ? selectedRule.dst_port_type.charAt(0).toUpperCase() + selectedRule.dst_port_type.slice(1) : '-' },
+                    { label: 'Nettverkskonfig', value: selectedRule.dst_networkconf_id || '-' },
+                    { label: 'Nettverkstype', value: selectedRule.dst_networkconf_type || '-' },
+                  ].filter(item => item.value !== '-').map(item => (
+                    <div key={item.label} className="flex justify-between items-center py-1 border-b border-border/50 last:border-0">
+                      <span className="text-xs text-muted-foreground">{item.label}</span>
+                      <span className="text-xs font-mono text-foreground">{item.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Protocol & Rule details */}
+              <div className="bg-muted rounded-lg p-3">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">Protokoll & Regel</p>
+                <div className="space-y-1.5">
+                  {[
+                    { label: 'Regel-indeks', value: selectedRule.rule_index?.toString() ?? '-' },
+                    { label: 'Ruleset', value: rulesetLabel },
+                    { label: 'Protokoll', value: proto },
+                    { label: 'Protokoll-unntak', value: selectedRule.protocol_match_excepted ? 'Ja' : '-' },
+                    { label: 'Policy-type', value: selectedRule.policy_type ? selectedRule.policy_type.charAt(0).toUpperCase() + selectedRule.policy_type.slice(1) : '-' },
+                    { label: 'Preferanse', value: selectedRule.setting_preference || '-' },
+                    { label: 'ID', value: selectedRule._id },
+                  ].filter(item => item.value !== '-').map(item => (
+                    <div key={item.label} className="flex justify-between items-center py-1 border-b border-border/50 last:border-0">
+                      <span className="text-xs text-muted-foreground">{item.label}</span>
+                      <span className="text-xs font-mono text-foreground max-w-[60%] text-right truncate" title={item.value}>{item.value}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               {/* Connection state */}
               {(selectedRule.state_established || selectedRule.state_related || selectedRule.state_new || selectedRule.state_invalid) && (
                 <div className="bg-muted rounded-lg p-3">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">Connection state</p>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">Connection State</p>
                   <div className="flex flex-wrap gap-1.5">
                     {selectedRule.state_established && <Badge variant="outline" className="text-[10px]">Established</Badge>}
                     {selectedRule.state_related && <Badge variant="outline" className="text-[10px]">Related</Badge>}
@@ -802,6 +877,39 @@ export function FirewallAuditPanel() {
                   </div>
                 </div>
               )}
+
+              {/* Options: IPsec, Logging, Schedule */}
+              <div className="bg-muted rounded-lg p-3">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">Alternativer</p>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  <Badge variant="outline" className={`text-[10px] ${selectedRule.ipsec && selectedRule.ipsec !== 'not-set' ? 'bg-primary/10 text-primary' : ''}`}>
+                    IPsec: {selectedRule.ipsec && selectedRule.ipsec !== 'not-set' ? selectedRule.ipsec : 'Av'}
+                  </Badge>
+                  <Badge variant="outline" className={`text-[10px] ${selectedRule.logging ? 'bg-primary/10 text-primary' : ''}`}>
+                    Syslog: {selectedRule.logging ? 'Aktiv' : 'Av'}
+                  </Badge>
+                </div>
+                {selectedRule.schedule && (
+                  <div className="space-y-1 mt-2 pt-2 border-t border-border/50">
+                    <div className="flex justify-between">
+                      <span className="text-xs text-muted-foreground">Tidsplan</span>
+                      <span className="text-xs font-mono text-foreground">{selectedRule.schedule.charAt(0).toUpperCase() + selectedRule.schedule.slice(1)}</span>
+                    </div>
+                    {selectedRule.schedule_start && (
+                      <div className="flex justify-between">
+                        <span className="text-xs text-muted-foreground">Tidsrom</span>
+                        <span className="text-xs font-mono text-foreground">{selectedRule.schedule_start} – {selectedRule.schedule_end || '∞'}</span>
+                      </div>
+                    )}
+                    {selectedRule.schedule_days?.length && (
+                      <div className="flex justify-between">
+                        <span className="text-xs text-muted-foreground">Dager</span>
+                        <span className="text-xs font-mono text-foreground">{selectedRule.schedule_days.join(', ')}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
 
               {/* Firewall groups with members */}
               {(selectedRule.src_firewallgroup_ids?.length || selectedRule.dst_firewallgroup_ids?.length) ? (
