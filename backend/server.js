@@ -1994,8 +1994,9 @@ app.post('/api/system/update/apply', authenticateToken, async (req, res) => {
     const installDir = process.env.INSTALL_DIR || '/opt/netguard';
     const branch = (req.body?.branch) || 'main';
 
-    // Step 1: Git pull
+    // Step 1: Git pull (reset lokale endringer først)
     sendProgress(1, 'Henter siste versjon fra GitHub...');
+    await execAsync(`git -C ${installDir} reset --hard HEAD`, { timeout: 30000 });
     const { stdout: pullOutput } = await execAsync(`git -C ${installDir} pull origin ${branch}`, { timeout: 60000 });
     sendProgress(1, `Git pull: ${pullOutput.trim()}`, 'done');
 
