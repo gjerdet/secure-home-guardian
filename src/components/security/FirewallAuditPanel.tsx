@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -92,7 +92,7 @@ interface FirewallGroup {
   group_members: string[];
 }
 
-type SortField = 'name' | 'action' | 'ruleset' | 'protocol' | 'rule_index';
+type SortField = 'name' | 'action' | 'ruleset' | 'protocol' | 'rule_index' | 'enabled' | 'dst_port' | 'src_zone' | 'dst_zone';
 type SortDir = 'asc' | 'desc';
 
 const emptyFirewallGroups: FirewallGroup[] = [];
@@ -160,7 +160,7 @@ export function FirewallAuditPanel() {
   };
 
   // Auto-load cached rules on mount
-  useState(() => {
+  useEffect(() => {
     const loadCached = async () => {
       try {
         const res = await fetch(`${API_BASE}/api/security/firewall-rules/cached`, {
@@ -178,7 +178,7 @@ export function FirewallAuditPanel() {
       } catch { /* silent */ }
     };
     loadCached();
-  });
+  }, [token]);
 
   const fetchRules = async () => {
     setIsLoading(true);
@@ -306,6 +306,10 @@ export function FirewallAuditPanel() {
         case 'ruleset': cmp = (a.ruleset || '').localeCompare(b.ruleset || ''); break;
         case 'protocol': cmp = (a.protocol || '').localeCompare(b.protocol || ''); break;
         case 'rule_index': cmp = (a.rule_index || 0) - (b.rule_index || 0); break;
+        case 'enabled': cmp = (a.enabled === b.enabled ? 0 : a.enabled ? -1 : 1); break;
+        case 'dst_port': cmp = (a.dst_port || '').localeCompare(b.dst_port || '', undefined, { numeric: true }); break;
+        case 'src_zone': cmp = (a.src_zone || '').localeCompare(b.src_zone || ''); break;
+        case 'dst_zone': cmp = (a.dst_zone || '').localeCompare(b.dst_zone || ''); break;
       }
       return sortDir === 'asc' ? cmp : -cmp;
     });
