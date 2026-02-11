@@ -122,9 +122,9 @@ fi
 
 # Beregn antall steg
 if [ "$INSTALL_SECURITY" = true ]; then
-    TOTAL_STEPS=11
-else
     TOTAL_STEPS=8
+else
+    TOTAL_STEPS=5
 fi
 
 # 1. Oppdater system
@@ -183,69 +183,16 @@ if ! grep -q "^JWT_SECRET=" $API_DIR/.env 2>/dev/null || grep -q "^JWT_SECRET=$"
 fi
 status "Backend satt opp"
 
-# 6. Opprett admin-bruker
-echo -e "\n${YELLOW}Steg 6/$TOTAL_STEPS: Oppretter admin-bruker...${NC}"
-echo -e "${CYAN}Du trenger en admin-konto for å logge inn i NetGuard.${NC}"
-echo ""
-
-# Les brukernavn
-read -p "Velg brukernavn [admin]: " ADMIN_USER
-ADMIN_USER=${ADMIN_USER:-admin}
-
-# Les passord (skjult input)
-while true; do
-    read -s -p "Velg passord (minst 8 tegn): " ADMIN_PASS
-    echo
-    if [ ${#ADMIN_PASS} -lt 8 ]; then
-        warn "Passord må være minst 8 tegn. Prøv igjen."
-        continue
-    fi
-    read -s -p "Bekreft passord: " ADMIN_PASS_CONFIRM
-    echo
-    if [ "$ADMIN_PASS" != "$ADMIN_PASS_CONFIRM" ]; then
-        warn "Passordene stemmer ikke overens. Prøv igjen."
-        continue
-    fi
-    break
-done
-
-# Opprett bruker via Node.js (passord sendes via env-variabel for å unngå shell-injection)
+# Opprett data-mappe for backend
 mkdir -p $API_DIR/data
-cd $API_DIR
-ADMIN_USERNAME="$ADMIN_USER" ADMIN_PASSWORD="$ADMIN_PASS" node -e '
-const bcrypt = require("bcryptjs");
-const fs = require("fs");
-const path = require("path");
-const crypto = require("crypto");
+status "Backend satt opp"
 
-const usersFile = path.join(__dirname, "data", "users.json");
-const hash = bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10);
-const users = [{
-  id: crypto.randomUUID(),
-  username: process.env.ADMIN_USERNAME,
-  password: hash,
-  role: "admin",
-  createdAt: new Date().toISOString()
-}];
-fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
-' 2>&1
-
-if [ $? -eq 0 ] && [ -f "$API_DIR/data/users.json" ]; then
-    status "Admin-bruker '$ADMIN_USER' opprettet"
-else
-    error "Kunne ikke opprette admin-bruker!"
-    error "Sjekk at bcryptjs er installert: cd $API_DIR && npm ls bcryptjs"
-    exit 1
-fi
-
-# 7. Konfigurer Nginx
-echo -e "\n${YELLOW}Steg 7/$TOTAL_STEPS: Konfigurerer Nginx...${NC}"
-# Fjern default FØRST
+# 4. Konfigurer Nginx
+echo -e "\n${YELLOW}Steg 4/$TOTAL_STEPS: Konfigurerer Nginx...${NC}"
 rm -f /etc/nginx/sites-enabled/default
 cp $INSTALL_DIR/scripts/nginx.conf /etc/nginx/sites-available/netguard
 ln -sf /etc/nginx/sites-available/netguard /etc/nginx/sites-enabled/netguard
 
-# Verifiser at default er borte
 if [ -f /etc/nginx/sites-enabled/default ]; then
     error "Kunne ikke fjerne default Nginx-konfig!"
     exit 1
@@ -260,8 +207,8 @@ systemctl restart nginx
 systemctl enable nginx
 status "Nginx konfigurert (default fjernet, netguard aktiv)"
 
-# 8. Sett opp systemd service
-echo -e "\n${YELLOW}Steg 8/$TOTAL_STEPS: Setter opp systemd service...${NC}"
+# 5. Sett opp systemd service
+echo -e "\n${YELLOW}Steg 5/$TOTAL_STEPS: Setter opp systemd service...${NC}"
 cp $INSTALL_DIR/scripts/netguard-api.service /etc/systemd/system/netguard-api.service
 
 if [ ! -f /etc/systemd/system/netguard-api.service ]; then
@@ -284,13 +231,13 @@ fi
 # Sikkerhetsverktøy (valgfritt)
 if [ "$INSTALL_SECURITY" = true ]; then
     
-    # 9. Installer Nmap
-    echo -e "\n${YELLOW}Steg 9/$TOTAL_STEPS: Installerer Nmap...${NC}"
+    # 6. Installer Nmap
+    echo -e "\n${YELLOW}Steg 6/$TOTAL_STEPS: Installerer Nmap...${NC}"
     apt install -y nmap
     status "Nmap installert: $(nmap --version | head -n1)"
     
-    # 10. Installer Docker
-    echo -e "\n${YELLOW}Steg 10/$TOTAL_STEPS: Installerer Docker...${NC}"
+    # 7. Installer Docker
+    echo -e "\n${YELLOW}Steg 7/$TOTAL_STEPS: Installerer Docker...${NC}"
     if ! command -v docker &> /dev/null; then
         # Installer Docker avhengigheter
         apt install -y apt-transport-https ca-certificates curl gnupg lsb-release
@@ -314,8 +261,8 @@ if [ "$INSTALL_SECURITY" = true ]; then
         status "Docker allerede installert: $(docker --version)"
     fi
     
-    # 11. Start OpenVAS container
-    echo -e "\n${YELLOW}Steg 11/$TOTAL_STEPS: Starter OpenVAS/Greenbone...${NC}"
+    # 8. Start OpenVAS container
+    echo -e "\n${YELLOW}Steg 8/$TOTAL_STEPS: Starter OpenVAS/Greenbone...${NC}"
     
     # Stopp eksisterende container hvis den finnes
     docker stop openvas 2>/dev/null || true
@@ -353,16 +300,21 @@ if [ "$INSTALL_SECURITY" = true ]; then
 fi
 
 # Fullført
+SERVER_IP=$(hostname -I | awk '{print $1}')
 echo ""
 echo -e "${GREEN}╔════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║   Installasjon fullført!                   ║${NC}"
 echo -e "${GREEN}╚════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "Frontend:    ${GREEN}http://$(hostname -I | awk '{print $1}')${NC}"
-echo -e "Backend API: ${GREEN}http://localhost:3001${NC}"
+echo -e "${CYAN}Åpne nettleseren og gå til:${NC}"
+echo -e "  ${GREEN}http://${SERVER_IP}${NC}"
+echo ""
+echo -e "${CYAN}Første gang vil du bli guidet gjennom oppsett:${NC}"
+echo -e "  1. Opprett admin-konto"
+echo -e "  2. Koble til tjenester (UniFi, TrueNAS, Proxmox, OpenVAS)"
+echo -e "  3. Logg inn og bruk dashboardet"
 
 if [ "$INSTALL_SECURITY" = true ]; then
-    echo -e "OpenVAS:     ${GREEN}http://localhost:9392${NC}"
     echo ""
     echo -e "${CYAN}Sikkerhetsverktøy installert:${NC}"
     echo -e "  • Nmap - Nettverksskanning"
@@ -370,18 +322,11 @@ if [ "$INSTALL_SECURITY" = true ]; then
     echo -e "  • OpenVAS/Greenbone - Sårbarhetsskanning"
     echo ""
     echo -e "${YELLOW}OpenVAS admin-passord:${NC}"
-    echo -e "Kjør følgende kommando for å se passordet:"
-    echo -e "${GREEN}docker logs openvas 2>&1 | grep -i password${NC}"
+    echo -e "Kjør: ${GREEN}docker logs openvas 2>&1 | grep -i password${NC}"
 fi
 
 echo ""
-echo -e "${YELLOW}Neste steg:${NC}"
-echo -e "1. Rediger backend konfigurasjon: ${GREEN}sudo nano $API_DIR/.env${NC}"
-echo -e "2. Restart backend: ${GREEN}sudo systemctl restart netguard-api${NC}"
-echo -e "3. Konfigurer API-endepunkter i dashboardet under Innstillinger"
-echo ""
-echo -e "For å se logger: ${GREEN}sudo journalctl -u netguard-api -f${NC}"
-
-if [ "$INSTALL_SECURITY" = true ]; then
-    echo -e "OpenVAS logger: ${GREEN}docker logs -f openvas${NC}"
-fi
+echo -e "${YELLOW}Nyttige kommandoer:${NC}"
+echo -e "  Se logger:        ${GREEN}sudo journalctl -u netguard-api -f${NC}"
+echo -e "  Restart backend:  ${GREEN}sudo systemctl restart netguard-api${NC}"
+echo -e "  Rediger config:   ${GREEN}sudo nano $API_DIR/.env${NC}"
