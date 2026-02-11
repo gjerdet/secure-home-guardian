@@ -19,6 +19,8 @@ import { SslCheckPanel } from "@/components/security/SslCheckPanel";
 import { FirewallAuditPanel } from "@/components/security/FirewallAuditPanel";
 import { DnsLeakPanel } from "@/components/security/DnsLeakPanel";
 import { SecurityScorePanel } from "@/components/security/SecurityScorePanel";
+import { NmapHostDetailDialog, type NmapHostDetail } from "@/components/security/NmapHostDetailDialog";
+import { VulnerabilityDetailDialog, type VulnerabilityDetail } from "@/components/security/VulnerabilityDetailDialog";
 import { 
   Radar, Shield, Search, Clock, AlertTriangle, CheckCircle,
   Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin, Network, Wifi, ExternalLink, Lock, Activity
@@ -38,23 +40,10 @@ interface OpenVASScan {
   info: number;
 }
 
-interface Vulnerability {
-  id: string;
-  name: string;
-  severity: string;
-  host: string;
-  port: number;
-  cvss: number;
-  solution: string;
-}
+type Vulnerability = VulnerabilityDetail;
 
-interface NmapHost {
-  host: string;
-  hostname: string;
-  status: string;
-  ports: number[];
-  os: string;
-}
+// NmapHost kept for compatibility, but we use NmapHostDetail for rich data
+type NmapHost = NmapHostDetail;
 
 interface NmapProgress {
   percent: number;
@@ -117,14 +106,14 @@ export default function Security() {
   const [nmapTarget, setNmapTarget] = useState("192.168.1.0/24");
   const [nmapScanType, setNmapScanType] = useState("quick");
   const [nmapResults, setNmapResults] = useState<NmapHost[]>([
-    { host: "192.168.1.1", hostname: "udm-pro.localdomain", status: "up", ports: [22, 443, 8443], os: "Linux 4.15" },
-    { host: "192.168.1.10", hostname: "proxmox-01.localdomain", status: "up", ports: [22, 8006, 3128], os: "Debian 11" },
-    { host: "192.168.1.20", hostname: "truenas.localdomain", status: "up", ports: [22, 80, 443, 9000], os: "FreeBSD 13" },
-    { host: "192.168.1.30", hostname: "homeassistant.local", status: "up", ports: [8123], os: "Linux 5.15" },
-    { host: "192.168.1.40", hostname: "pihole.local", status: "up", ports: [53, 80, 443], os: "Raspbian" },
-    { host: "192.168.1.50", hostname: "plex.localdomain", status: "up", ports: [32400], os: "Ubuntu 22.04" },
-    { host: "192.168.1.100", hostname: "desktop-pc.local", status: "up", ports: [3389, 5900], os: "Windows 11" },
-    { host: "192.168.1.101", hostname: "macbook.local", status: "up", ports: [], os: "macOS 14" },
+    { host: "192.168.1.1", hostname: "udm-pro.localdomain", status: "up", ports: [22, 443, 8443], os: "Linux 4.15", mac: "24:5A:4C:XX:XX:01", vendor: "Ubiquiti Inc.", connectionType: "Ethernet (1Gbps)", gateway: "—", vlan: "VLAN 1 (Management)", uptime: "47 dager", lastBoot: "2024-12-26 08:14", services: [{ port: 22, protocol: "tcp", service: "ssh", version: "OpenSSH 8.4", state: "open" }, { port: 443, protocol: "tcp", service: "https", version: "nginx 1.25", state: "open" }, { port: 8443, protocol: "tcp", service: "https-alt", version: "UniFi Controller 8.0", state: "open" }], osDetails: { name: "Linux 4.15 (Ubiquiti UDM Pro)", accuracy: 96, family: "Linux", generation: "4.X", cpe: "cpe:/o:linux:linux_kernel:4.15" }, traceroute: [{ hop: 1, ip: "192.168.1.1", rtt: "0.5ms", hostname: "udm-pro.localdomain" }] },
+    { host: "192.168.1.10", hostname: "proxmox-01.localdomain", status: "up", ports: [22, 8006, 3128], os: "Debian 11", mac: "BC:24:11:XX:XX:10", vendor: "Dell Inc.", connectionType: "Ethernet (10Gbps)", gateway: "192.168.1.1", vlan: "VLAN 1 (Management)", uptime: "120 dager", lastBoot: "2024-10-14 02:30", services: [{ port: 22, protocol: "tcp", service: "ssh", version: "OpenSSH 9.2p1", state: "open" }, { port: 8006, protocol: "tcp", service: "https", version: "Proxmox VE 8.1", state: "open" }, { port: 3128, protocol: "tcp", service: "http-proxy", version: "Squid 5.7", state: "open" }], osDetails: { name: "Debian 11 (Bullseye)", accuracy: 98, family: "Linux", generation: "5.X", cpe: "cpe:/o:debian:debian_linux:11" }, traceroute: [{ hop: 1, ip: "192.168.1.1", rtt: "0.3ms", hostname: "udm-pro" }, { hop: 2, ip: "192.168.1.10", rtt: "0.4ms", hostname: "proxmox-01" }], scripts: [{ name: "ssl-cert", output: "Subject: CN=proxmox-01.localdomain\nIssuer: CN=Proxmox Virtual Environment\nValidity: 2024-01-01 - 2026-01-01" }] },
+    { host: "192.168.1.20", hostname: "truenas.localdomain", status: "up", ports: [22, 80, 443, 9000], os: "FreeBSD 13", mac: "AC:1F:6B:XX:XX:20", vendor: "Supermicro", connectionType: "Ethernet (10Gbps)", gateway: "192.168.1.1", vlan: "VLAN 1 (Management)", uptime: "95 dager", lastBoot: "2024-11-08 14:00", services: [{ port: 22, protocol: "tcp", service: "ssh", version: "OpenSSH 9.5", state: "open" }, { port: 80, protocol: "tcp", service: "http", version: "nginx 1.24", state: "open" }, { port: 443, protocol: "tcp", service: "https", version: "TrueNAS SCALE", state: "open" }, { port: 9000, protocol: "tcp", service: "cslistener", version: "MinIO S3", state: "open" }], osDetails: { name: "FreeBSD 13.2-RELEASE", accuracy: 95, family: "FreeBSD", generation: "13.X", cpe: "cpe:/o:freebsd:freebsd:13.2" } },
+    { host: "192.168.1.30", hostname: "homeassistant.local", status: "up", ports: [8123], os: "Linux 5.15", mac: "DC:A6:32:XX:XX:30", vendor: "Raspberry Pi Foundation", connectionType: "WiFi (802.11ac)", gateway: "192.168.1.1", vlan: "VLAN 40 (IoT)", uptime: "14 dager", lastBoot: "2025-01-28 10:00", services: [{ port: 8123, protocol: "tcp", service: "http", version: "Home Assistant 2025.1", state: "open" }], osDetails: { name: "Linux 5.15 (Home Assistant OS)", accuracy: 90, family: "Linux", generation: "5.X", cpe: "cpe:/o:linux:linux_kernel:5.15" } },
+    { host: "192.168.1.40", hostname: "pihole.local", status: "up", ports: [53, 80, 443], os: "Raspbian", mac: "B8:27:EB:XX:XX:40", vendor: "Raspberry Pi Foundation", connectionType: "Ethernet (100Mbps)", gateway: "192.168.1.1", vlan: "VLAN 1 (Management)", uptime: "210 dager", lastBoot: "2024-07-16 06:00", services: [{ port: 53, protocol: "tcp/udp", service: "domain", version: "Pi-hole FTL 5.25", state: "open" }, { port: 80, protocol: "tcp", service: "http", version: "lighttpd 1.4", state: "open" }, { port: 443, protocol: "tcp", service: "https", version: "lighttpd 1.4", state: "open" }], osDetails: { name: "Raspbian GNU/Linux 11", accuracy: 92, family: "Linux", generation: "5.X", cpe: "cpe:/o:raspbian:raspbian:11" } },
+    { host: "192.168.1.50", hostname: "plex.localdomain", status: "up", ports: [32400], os: "Ubuntu 22.04", mac: "00:25:90:XX:XX:50", vendor: "Intel Corporate", connectionType: "Ethernet (1Gbps)", gateway: "192.168.1.1", vlan: "VLAN 20 (Media)", uptime: "30 dager", lastBoot: "2025-01-12 22:00", services: [{ port: 32400, protocol: "tcp", service: "http", version: "Plex Media Server 1.40", state: "open" }], osDetails: { name: "Ubuntu 22.04.3 LTS", accuracy: 97, family: "Linux", generation: "5.X", cpe: "cpe:/o:canonical:ubuntu_linux:22.04" } },
+    { host: "192.168.1.100", hostname: "desktop-pc.local", status: "up", ports: [3389, 5900], os: "Windows 11", mac: "70:85:C2:XX:XX:64", vendor: "ASUS", connectionType: "Ethernet (2.5Gbps)", gateway: "192.168.1.1", vlan: "VLAN 1 (Management)", uptime: "3 dager", lastBoot: "2025-02-08 09:15", services: [{ port: 3389, protocol: "tcp", service: "ms-wbt-server", version: "Microsoft Terminal Services", state: "open" }, { port: 5900, protocol: "tcp", service: "vnc", version: "TightVNC 2.8", state: "open" }], osDetails: { name: "Windows 11 Pro 23H2", accuracy: 94, family: "Windows", generation: "11", cpe: "cpe:/o:microsoft:windows_11" } },
+    { host: "192.168.1.101", hostname: "macbook.local", status: "up", ports: [], os: "macOS 14", mac: "A4:83:E7:XX:XX:65", vendor: "Apple Inc.", connectionType: "WiFi (802.11ax)", gateway: "192.168.1.1", vlan: "VLAN 1 (Management)", uptime: "1 dag", lastBoot: "2025-02-10 07:30", services: [], osDetails: { name: "macOS 14.3 Sonoma", accuracy: 88, family: "macOS", generation: "14", cpe: "cpe:/o:apple:macos:14" } },
   ]);
   const [nmapProgress, setNmapProgress] = useState<NmapProgress>({
     percent: 100,
@@ -145,18 +134,18 @@ export default function Security() {
     { id: "ov4", name: "Proxmox cluster", target: "192.168.1.10-15", lastRun: "2025-02-01 22:00", status: "Running", high: 0, medium: 2, low: 1, info: 6 },
   ]);
   const [vulnerabilities, setVulnerabilities] = useState<Vulnerability[]>([
-    { id: "v1", name: "SSL/TLS: Utdatert TLSv1.0 aktivert", severity: "high", host: "192.168.1.10", port: 8006, cvss: 7.5, solution: "Deaktiver TLSv1.0 og TLSv1.1 i Proxmox-konfigurasjon" },
-    { id: "v2", name: "SNMP Agent: Default community string 'public'", severity: "high", host: "192.168.1.1", port: 161, cvss: 7.2, solution: "Endre SNMP community string til noe unikt" },
-    { id: "v3", name: "SSH: Svak nøkkelutveksling (diffie-hellman-group1-sha1)", severity: "high", host: "192.168.1.40", port: 22, cvss: 6.8, solution: "Deaktiver svake KEX-algoritmer i sshd_config" },
-    { id: "v4", name: "HTTP: Missing X-Content-Type-Options header", severity: "medium", host: "192.168.1.30", port: 8123, cvss: 4.3, solution: "Legg til 'X-Content-Type-Options: nosniff' header" },
-    { id: "v5", name: "HTTP: Missing Content-Security-Policy header", severity: "medium", host: "192.168.1.50", port: 32400, cvss: 4.3, solution: "Konfigurer Content-Security-Policy header" },
-    { id: "v6", name: "SSL: Selvsignert sertifikat i bruk", severity: "medium", host: "192.168.1.10", port: 8006, cvss: 4.0, solution: "Installer et gyldig SSL-sertifikat fra Let's Encrypt" },
-    { id: "v7", name: "DNS: Rekursiv DNS åpen for lokalt nettverk", severity: "medium", host: "192.168.1.40", port: 53, cvss: 3.7, solution: "Begrens rekursiv DNS til kun tillatte subnett" },
-    { id: "v8", name: "HTTP: Server header avslører versjon", severity: "low", host: "192.168.1.20", port: 80, cvss: 2.6, solution: "Skjul serverversjon i nginx/apache konfig" },
-    { id: "v9", name: "SSH: Root login tillatt", severity: "medium", host: "192.168.1.20", port: 22, cvss: 5.3, solution: "Sett 'PermitRootLogin no' i sshd_config" },
-    { id: "v10", name: "ICMP Timestamp respons aktivert", severity: "low", host: "192.168.1.1", port: 0, cvss: 1.5, solution: "Blokker ICMP timestamp i brannmur" },
-    { id: "v11", name: "NTP: Monlist kommando tilgjengelig", severity: "medium", host: "192.168.1.1", port: 123, cvss: 5.0, solution: "Deaktiver monlist i NTP-konfigurasjon" },
-    { id: "v12", name: "HTTP: Manglende HSTS header", severity: "low", host: "192.168.1.30", port: 8123, cvss: 2.1, solution: "Aktiver Strict-Transport-Security header" },
+    { id: "v1", name: "SSL/TLS: Utdatert TLSv1.0 aktivert", severity: "high", host: "192.168.1.10", port: 8006, cvss: 7.5, solution: "Deaktiver TLSv1.0 og TLSv1.1 i Proxmox-konfigurasjon. Rediger /etc/default/pveproxy og sett DENY_OLD_SSL=1.", description: "Serveren aksepterer TLSv1.0-tilkoblinger som er kjent sårbar for POODLE og BEAST-angrep. Dette lar en angriper potensielt dekryptere kryptert trafikk.", family: "SSL/TLS", cve: ["CVE-2014-3566", "CVE-2011-3389"], impact: "En angriper på samme nettverk kan dekryptere sensitiv trafikk inkludert påloggingsdata og API-nøkler.", affectedService: "Proxmox VE Web UI", affectedVersion: "pveproxy 8.1.4", detectedBy: "OpenVAS ssl-test", firstSeen: "2024-12-15", lastSeen: "2025-02-10", tags: ["kryptering", "web"], references: ["https://www.openssl.org/~bodo/ssl-poodle.pdf"] },
+    { id: "v2", name: "SNMP Agent: Default community string 'public'", severity: "high", host: "192.168.1.1", port: 161, cvss: 7.2, solution: "Endre SNMP community string til noe unikt, eller deaktiver SNMPv1/v2c og bruk SNMPv3.", description: "SNMP-agenten bruker standard community string 'public', som gir uautentisert lesetilgang til enhetskonfigurasjon og nettverksstatistikk.", family: "SNMP", cve: ["CVE-2002-0012"], impact: "En angriper kan hente ut full enhetskonfigurasjon, ARP-tabeller, rutingtabeller og trafikk-statistikk.", affectedService: "SNMP Agent", affectedVersion: "SNMPv2c", detectedBy: "OpenVAS snmp-check", firstSeen: "2024-11-20", lastSeen: "2025-02-10", tags: ["nettverksovervåking", "autentisering"] },
+    { id: "v3", name: "SSH: Svak nøkkelutveksling (diffie-hellman-group1-sha1)", severity: "high", host: "192.168.1.40", port: 22, cvss: 6.8, solution: "Deaktiver svake KEX-algoritmer i sshd_config: KexAlgorithms -diffie-hellman-group1-sha1", description: "SSH-serveren støtter diffie-hellman-group1-sha1 som bruker en 1024-bit DH-gruppe som anses som utilstrekkelig sikker.", family: "SSH", cve: ["CVE-2015-4000"], impact: "Kan muliggjøre Logjam-angrep der en angriper nedgraderer tilkoblingen til svakere kryptering.", affectedService: "OpenSSH", affectedVersion: "OpenSSH 8.2", detectedBy: "Nmap ssh2-enum-algos", firstSeen: "2024-10-05", lastSeen: "2025-02-10", tags: ["kryptering", "ssh"] },
+    { id: "v4", name: "HTTP: Missing X-Content-Type-Options header", severity: "medium", host: "192.168.1.30", port: 8123, cvss: 4.3, solution: "Legg til 'X-Content-Type-Options: nosniff' header i webserver-konfigurasjon.", description: "Webserveren sender ikke X-Content-Type-Options header, som kan tillate MIME-type-sniffing i eldre nettlesere.", family: "HTTP", impact: "Nettlesere kan feiltolke filtyper, noe som kan utnyttes til XSS-angrep.", affectedService: "Home Assistant", affectedVersion: "2025.1", detectedBy: "OpenVAS http-headers", firstSeen: "2025-01-10", lastSeen: "2025-02-10", tags: ["web", "headers"] },
+    { id: "v5", name: "HTTP: Missing Content-Security-Policy header", severity: "medium", host: "192.168.1.50", port: 32400, cvss: 4.3, solution: "Konfigurer Content-Security-Policy header i Plex-konfigurasjonen.", description: "Manglende CSP-header gjør applikasjonen mer utsatt for cross-site scripting (XSS) angrep.", family: "HTTP", impact: "Uten CSP kan injisert skadelig kode kjøre fritt i brukerens nettleser.", affectedService: "Plex Media Server", affectedVersion: "1.40.0", detectedBy: "OpenVAS http-headers", firstSeen: "2025-01-10", lastSeen: "2025-02-10", tags: ["web", "headers"] },
+    { id: "v6", name: "SSL: Selvsignert sertifikat i bruk", severity: "medium", host: "192.168.1.10", port: 8006, cvss: 4.0, solution: "Installer et gyldig SSL-sertifikat fra Let's Encrypt. Bruk Proxmox ACME-integrasjon.", description: "Serveren bruker et selvsignert SSL-sertifikat som ikke kan verifiseres av klienter. Dette gjør brukere vant til å ignorere sertifikatadvarsler.", family: "SSL/TLS", impact: "Brukere som ignorerer advarsler er sårbare for man-in-the-middle angrep.", affectedService: "Proxmox VE", affectedVersion: "pveproxy 8.1", detectedBy: "OpenVAS ssl-cert", firstSeen: "2024-09-01", lastSeen: "2025-02-10", tags: ["kryptering", "sertifikat"] },
+    { id: "v7", name: "DNS: Rekursiv DNS åpen for lokalt nettverk", severity: "medium", host: "192.168.1.40", port: 53, cvss: 3.7, solution: "Begrens rekursiv DNS til kun tillatte subnett via Pi-hole konfigurasjon.", description: "DNS-serveren tillater rekursive oppslag fra hele det lokale nettverket, inkludert IoT-enheter som kanskje ikke bør ha denne tilgangen.", family: "DNS", impact: "IoT-enheter kan gjøre vilkårlige DNS-oppslag, potensielt for data-exfiltration.", affectedService: "Pi-hole FTL", affectedVersion: "5.25", detectedBy: "Nmap dns-recursion", firstSeen: "2024-11-01", lastSeen: "2025-02-10", tags: ["dns", "nettverk"] },
+    { id: "v8", name: "HTTP: Server header avslører versjon", severity: "low", host: "192.168.1.20", port: 80, cvss: 2.6, solution: "Skjul serverversjon i nginx-konfig: server_tokens off;", description: "HTTP Server-headeren avslører programvareversjon som kan hjelpe angripere å finne kjente sårbarheter.", family: "HTTP", affectedService: "nginx", affectedVersion: "1.24.0", detectedBy: "OpenVAS http-headers", firstSeen: "2024-12-01", lastSeen: "2025-02-10", tags: ["web", "informasjonslekkasje"] },
+    { id: "v9", name: "SSH: Root login tillatt", severity: "medium", host: "192.168.1.20", port: 22, cvss: 5.3, solution: "Sett 'PermitRootLogin no' i /etc/ssh/sshd_config og restart sshd.", description: "SSH-serveren tillater direkte root-innlogging, som øker risikoen ved brute-force angrep.", family: "SSH", cve: [], impact: "En angriper som får root-passordet har full tilgang til systemet uten sporbarhet.", affectedService: "OpenSSH", affectedVersion: "9.5", detectedBy: "OpenVAS ssh-check", firstSeen: "2024-10-01", lastSeen: "2025-02-10", tags: ["ssh", "autentisering"] },
+    { id: "v10", name: "ICMP Timestamp respons aktivert", severity: "low", host: "192.168.1.1", port: 0, cvss: 1.5, solution: "Blokker ICMP timestamp i brannmur med UniFi-regel.", description: "Enheten svarer på ICMP timestamp-forespørsler, som kan avsløre systemklokke og brukes til fingerprinting.", family: "ICMP", affectedService: "OS Kernel", detectedBy: "Nmap", firstSeen: "2024-11-15", lastSeen: "2025-02-10", tags: ["nettverk", "informasjonslekkasje"] },
+    { id: "v11", name: "NTP: Monlist kommando tilgjengelig", severity: "medium", host: "192.168.1.1", port: 123, cvss: 5.0, solution: "Deaktiver monlist i NTP-konfigurasjon: restrict default noquery", description: "NTP-serveren støtter monlist-kommandoen som kan misbrukes til DDoS-forsterkning.", family: "NTP", cve: ["CVE-2013-5211"], impact: "Kan misbrukes til å generere opptil 556x forsterket DDoS-trafikk mot et mål.", affectedService: "ntpd", affectedVersion: "4.2.8", detectedBy: "Nmap ntp-monlist", firstSeen: "2024-10-20", lastSeen: "2025-02-10", tags: ["ddos", "nettverk"], references: ["https://www.us-cert.gov/ncas/alerts/TA14-013A"] },
+    { id: "v12", name: "HTTP: Manglende HSTS header", severity: "low", host: "192.168.1.30", port: 8123, cvss: 2.1, solution: "Aktiver Strict-Transport-Security header: add_header Strict-Transport-Security 'max-age=31536000; includeSubDomains' always;", description: "Webserveren sender ikke HSTS-header, som betyr at nettlesere ikke tvinges til å bruke HTTPS.", family: "HTTP", impact: "Brukere kan bli omdirigert til HTTP-versjon via SSL-stripping angrep.", affectedService: "Home Assistant", affectedVersion: "2025.1", detectedBy: "OpenVAS http-headers", firstSeen: "2025-01-10", lastSeen: "2025-02-10", tags: ["web", "kryptering"] },
   ]);
   const [isLoadingOpenvas, setIsLoadingOpenvas] = useState(false);
   const [selectedVlans, setSelectedVlans] = useState<string[]>([]);
@@ -172,6 +161,14 @@ export default function Security() {
   // Scan report dialog
   const [reportDialogOpen, setReportDialogOpen] = useState(false);
   const [selectedScan, setSelectedScan] = useState<OpenVASScan | null>(null);
+  
+  // Nmap host detail dialog
+  const [nmapDetailOpen, setNmapDetailOpen] = useState(false);
+  const [selectedNmapHost, setSelectedNmapHost] = useState<NmapHostDetail | null>(null);
+  
+  // Vulnerability detail dialog
+  const [vulnDetailOpen, setVulnDetailOpen] = useState(false);
+  const [selectedVuln, setSelectedVuln] = useState<VulnerabilityDetail | null>(null);
 
   // Geo map state for scan results
   const [scanGeoLocations, setScanGeoLocations] = useState<Array<{ lat: number; lng: number; severity: string; country: string }>>([
@@ -869,7 +866,7 @@ export default function Security() {
                     <ScrollArea className="h-[400px]">
                       <div className="divide-y divide-border">
                         {nmapResults.map((host) => (
-                          <div key={host.host} className="p-4 hover:bg-muted/50 transition-colors">
+                          <div key={host.host} className="p-4 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => { setSelectedNmapHost(host); setNmapDetailOpen(true); }}>
                             <div className="flex items-center justify-between mb-2">
                               <div className="flex items-center gap-3">
                                 <div className="rounded-lg p-2 bg-success/10">
@@ -880,7 +877,10 @@ export default function Security() {
                                   <p className="text-xs text-muted-foreground">{host.hostname}</p>
                                 </div>
                               </div>
-                              <Badge variant="outline">{host.os}</Badge>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline">{host.os}</Badge>
+                                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                              </div>
                             </div>
                             {host.ports.length > 0 && (
                               <div className="flex flex-wrap gap-1 mt-2">
@@ -1266,7 +1266,7 @@ export default function Security() {
                   <ScrollArea className="h-[500px]">
                     <div className="divide-y divide-border">
                       {vulnerabilities.map((vuln) => (
-                        <div key={vuln.id} className="p-4 hover:bg-muted/50 transition-colors">
+                        <div key={vuln.id} className="p-4 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => { setSelectedVuln(vuln); setVulnDetailOpen(true); }}>
                           <div className="flex items-start justify-between mb-2">
                             <div className="flex items-center gap-2">
                               <Badge className={severityColors[vuln.severity as keyof typeof severityColors]}>
@@ -1276,17 +1276,13 @@ export default function Security() {
                                 CVSS: {vuln.cvss}
                               </Badge>
                             </div>
+                            <ChevronRight className="h-4 w-4 text-muted-foreground mt-1" />
                           </div>
                           <p className="font-medium text-foreground mb-1">{vuln.name}</p>
-                          <div className="grid grid-cols-2 gap-4 text-xs mb-2">
-                            <div>
-                              <span className="text-muted-foreground">Host:</span>
-                              <p className="font-mono text-foreground">{vuln.host}:{vuln.port}</p>
-                            </div>
-                            <div>
-                              <span className="text-muted-foreground">Løsning:</span>
-                              <p className="text-foreground">{vuln.solution}</p>
-                            </div>
+                          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                            <span className="font-mono">{vuln.host}:{vuln.port}</span>
+                            {vuln.affectedService && <span>{vuln.affectedService}</span>}
+                            {vuln.family && <Badge variant="secondary" className="text-[10px]">{vuln.family}</Badge>}
                           </div>
                         </div>
                       ))}
@@ -1332,6 +1328,20 @@ export default function Security() {
           onOpenChange={setReportDialogOpen}
           scan={selectedScan}
           vulnerabilities={vulnerabilities}
+        />
+        
+        {/* Nmap Host Detail Dialog */}
+        <NmapHostDetailDialog
+          open={nmapDetailOpen}
+          onOpenChange={setNmapDetailOpen}
+          host={selectedNmapHost}
+        />
+        
+        {/* Vulnerability Detail Dialog */}
+        <VulnerabilityDetailDialog
+          open={vulnDetailOpen}
+          onOpenChange={setVulnDetailOpen}
+          vulnerability={selectedVuln}
         />
       </main>
     </div>
