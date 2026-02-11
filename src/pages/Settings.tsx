@@ -359,23 +359,55 @@ export default function Settings() {
 
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
+      let completed = false;
 
       if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const text = decoder.decode(value);
-          const lines = text.split('\n').filter(l => l.startsWith('data: '));
-          for (const line of lines) {
-            try {
-              const data = JSON.parse(line.substring(6));
-              setUpdateProgress(prev => [...prev, data]);
-              if (data.status === 'error') {
-                setUpdateError(data.message);
-              }
-            } catch {}
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const text = decoder.decode(value);
+            const lines = text.split('\n').filter(l => l.startsWith('data: '));
+            for (const line of lines) {
+              try {
+                const data = JSON.parse(line.substring(6));
+                setUpdateProgress(prev => [...prev, data]);
+                if (data.status === 'complete') {
+                  completed = true;
+                }
+                if (data.status === 'error') {
+                  setUpdateError(data.message);
+                }
+              } catch {}
+            }
+          }
+        } catch {
+          // Connection lost during update — expected when backend restarts
+          if (!completed) {
+            setUpdateProgress(prev => [...prev, { step: 6, message: 'Backend restarter... venter på at den kommer tilbake', status: 'running' }]);
           }
         }
+      }
+
+      // Wait for backend to come back online after restart
+      if (!updateError) {
+        setUpdateProgress(prev => [...prev, { step: 7, message: 'Venter på at backend starter opp igjen...', status: 'running' }]);
+        let retries = 0;
+        const maxRetries = 20;
+        while (retries < maxRetries) {
+          await new Promise(r => setTimeout(r, 3000));
+          try {
+            const healthRes = await fetch(`${API_BASE}/api/health`, { signal: AbortSignal.timeout(5000) });
+            if (healthRes.ok) {
+              setUpdateProgress(prev => [...prev, { step: 7, message: 'Backend er tilbake online!', status: 'done' }]);
+              toast.success('Oppdatering fullført! Laster siden på nytt...');
+              setTimeout(() => window.location.reload(), 2000);
+              return;
+            }
+          } catch { /* still restarting */ }
+          retries++;
+        }
+        setUpdateError('Backend startet ikke opp igjen innen 60 sekunder');
       }
     } catch (err) {
       setUpdateError('Oppdatering feilet - sjekk serveren');
