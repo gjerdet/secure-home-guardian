@@ -78,15 +78,18 @@ export function Header() {
           </div>
 
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
-              <Terminal className="h-5 w-5" />
-            </Button>
-            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground relative">
-              <Bell className="h-5 w-5" />
-              <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-destructive" />
-            </Button>
+            <Link to="/status">
+              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground" title="Terminal / Status">
+                <Terminal className="h-5 w-5" />
+              </Button>
+            </Link>
+            <Link to="/security">
+              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground relative" title="Sikkerhetsvarsler">
+                <Bell className="h-5 w-5" />
+              </Button>
+            </Link>
             <Link to="/settings">
-              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
+              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground" title="Innstillinger">
                 <Settings className="h-5 w-5" />
               </Button>
             </Link>

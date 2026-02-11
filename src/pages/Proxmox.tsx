@@ -12,42 +12,21 @@ import {
 } from "lucide-react";
 import { VMDetailDialog } from "@/components/dialogs/VMDetailDialog";
 
-const vms = [
-  { id: "100", name: "docker-host", status: "running", cpu: 82, memory: { used: 12, total: 16 }, disk: 120, uptime: "12d 4h 23m", os: "Ubuntu 22.04", cores: 4, network: { ip: "10.0.1.10", bridge: "vmbr0" }, snapshots: 3, backup: "2024-12-16 03:00" },
-  { id: "101", name: "windows-server", status: "running", cpu: 15, memory: { used: 8, total: 16 }, disk: 256, uptime: "5d 2h 10m", os: "Windows Server 2022", cores: 4, network: { ip: "10.0.1.20", bridge: "vmbr0" }, snapshots: 1, backup: "2024-12-17 03:00" },
-  { id: "102", name: "dev-machine", status: "stopped", cpu: 0, memory: { used: 0, total: 8 }, disk: 64, uptime: "-", os: "Debian 12", cores: 2, network: { ip: "10.0.1.30", bridge: "vmbr0" }, snapshots: 5, backup: "2024-12-15 03:00" },
-  { id: "103", name: "backup-server", status: "running", cpu: 5, memory: { used: 2, total: 4 }, disk: 32, uptime: "45d 12h 5m", os: "Ubuntu 22.04", cores: 2, network: { ip: "10.0.1.40", bridge: "vmbr0" }, snapshots: 0, backup: "2024-12-17 03:00" },
-];
-
-const containers = [
-  { id: "200", name: "pihole", status: "running", cpu: 2, memory: { used: 256, total: 512 }, uptime: "30d 8h", image: "pihole/pihole:latest", disk: 4, network: { ip: "10.0.1.100", bridge: "vmbr0" }, snapshots: 1 },
-  { id: "201", name: "nginx-proxy", status: "running", cpu: 1, memory: { used: 128, total: 256 }, uptime: "30d 8h", image: "nginx:alpine", disk: 2, network: { ip: "10.0.1.101", bridge: "vmbr0" }, snapshots: 0 },
-  { id: "202", name: "prometheus", status: "running", cpu: 8, memory: { used: 512, total: 1024 }, uptime: "15d 3h", image: "prom/prometheus", disk: 16, network: { ip: "10.0.1.102", bridge: "vmbr0" }, snapshots: 2 },
-  { id: "203", name: "grafana", status: "running", cpu: 3, memory: { used: 384, total: 512 }, uptime: "15d 3h", image: "grafana/grafana", disk: 8, network: { ip: "10.0.1.103", bridge: "vmbr0" }, snapshots: 1 },
-];
-
-const storageNodes = [
-  { name: "local", type: "Directory", total: 100, used: 45, content: "ISO, VZDump, Snippets" },
-  { name: "local-lvm", type: "LVM-Thin", total: 500, used: 320, content: "VM Disks, CT Volumes" },
-  { name: "ceph-pool", type: "RBD", total: 2000, used: 890, content: "VM Disks" },
-  { name: "nfs-backup", type: "NFS", total: 4000, used: 1200, content: "VZDump Backups" },
-];
+const vms: any[] = [];
+const containers: any[] = [];
+const storageNodes: any[] = [];
 
 const nodeStats = {
-  hostname: "proxmox-01",
-  version: "Proxmox VE 8.1.3",
-  kernel: "6.5.11-7-pve",
-  cpu: { model: "AMD Ryzen 9 5900X", cores: 12, threads: 24, usage: 45 },
-  memory: { used: 28, total: 64 },
-  storage: { used: 456, total: 1000 },
-  uptime: "45 days",
+  hostname: "—",
+  version: "Ikke tilkoblet",
+  kernel: "—",
+  cpu: { model: "—", cores: 0, threads: 0, usage: 0 },
+  memory: { used: 0, total: 0 },
+  storage: { used: 0, total: 0 },
+  uptime: "—",
 };
 
-const clusterNodes = [
-  { name: "proxmox-01", status: "online", cpu: 45, ram: { used: 28, total: 64 }, vms: 4, cts: 4, role: "master" },
-  { name: "proxmox-02", status: "online", cpu: 32, ram: { used: 18, total: 32 }, vms: 3, cts: 2, role: "node" },
-  { name: "proxmox-03", status: "offline", cpu: 0, ram: { used: 0, total: 32 }, vms: 0, cts: 0, role: "node" },
-];
+const clusterNodes: any[] = [];
 
 interface SelectedVM {
   id: string;
@@ -82,7 +61,7 @@ export default function Proxmox() {
             <h1 className="text-2xl font-bold text-foreground">Proxmox VE</h1>
             <p className="text-sm text-muted-foreground">{nodeStats.hostname} • {nodeStats.version}</p>
           </div>
-          <Badge className="ml-auto bg-warning/10 text-warning border-warning/20">Høy CPU</Badge>
+          <Badge className="ml-auto bg-muted text-muted-foreground border-border">Ikke tilkoblet</Badge>
         </div>
 
         {/* Node Stats */}
