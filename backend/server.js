@@ -2777,6 +2777,118 @@ app.post('/api/system/update/apply', authenticateToken, async (req, res) => {
   }
 });
 
+// ============================================
+// GeoIP Lookup (MaxMind GeoLite2)
+// ============================================
+
+let maxmindReader = null;
+
+async function initMaxMind() {
+  try {
+    const maxmind = require('maxmind');
+    const dbPath = path.join(DATA_DIR, 'GeoLite2-City.mmdb');
+    
+    // Check if DB exists
+    if (!fs.existsSync(dbPath)) {
+      const licenseKey = process.env.MAXMIND_LICENSE_KEY;
+      if (!licenseKey) {
+        console.log('[GeoIP] Ingen MAXMIND_LICENSE_KEY satt, GeoIP deaktivert');
+        return;
+      }
+      
+      console.log('[GeoIP] Laster ned GeoLite2-City database...');
+      const url = `https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-City&license_key=${licenseKey}&suffix=tar.gz`;
+      
+      const response = await axios.get(url, { responseType: 'stream' });
+      const tarPath = path.join(DATA_DIR, 'GeoLite2-City.tar.gz');
+      const writer = fs.createWriteStream(tarPath);
+      response.data.pipe(writer);
+      
+      await new Promise((resolve, reject) => {
+        writer.on('finish', resolve);
+        writer.on('error', reject);
+      });
+      
+      // Extract .mmdb from tar.gz
+      const { execSync } = require('child_process');
+      execSync(`tar -xzf "${tarPath}" -C "${DATA_DIR}" --wildcards "*.mmdb" --strip-components=1`, { stdio: 'pipe' });
+      fs.unlinkSync(tarPath);
+      console.log('[GeoIP] Database lastet ned og pakket ut');
+    }
+    
+    maxmindReader = await maxmind.open(dbPath);
+    console.log('[GeoIP] MaxMind GeoLite2-City klar');
+  } catch (error) {
+    console.error('[GeoIP] Initialisering feilet:', error.message);
+  }
+}
+
+// Single IP lookup
+app.get('/api/geoip/:ip', authenticateToken, (req, res) => {
+  const { ip } = req.params;
+  
+  if (!maxmindReader) {
+    return res.status(503).json({ error: 'GeoIP ikkje tilgjengeleg. Sjekk MAXMIND_LICENSE_KEY.' });
+  }
+  
+  try {
+    const result = maxmindReader.get(ip);
+    if (!result) {
+      return res.json({ status: 'not_found', ip });
+    }
+    
+    res.json({
+      status: 'success',
+      ip,
+      country: result.country?.names?.en || '',
+      countryCode: result.country?.iso_code || '',
+      city: result.city?.names?.en || '',
+      lat: result.location?.latitude || null,
+      lng: result.location?.longitude || null,
+      isp: result.traits?.autonomous_system_organization || '',
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Batch IP lookup
+app.post('/api/geoip/batch', authenticateToken, (req, res) => {
+  const { ips } = req.body;
+  
+  if (!maxmindReader) {
+    return res.status(503).json({ error: 'GeoIP ikkje tilgjengeleg. Sjekk MAXMIND_LICENSE_KEY.' });
+  }
+  
+  if (!Array.isArray(ips)) {
+    return res.status(400).json({ error: 'ips må vere ein array' });
+  }
+  
+  const results = ips.map(ip => {
+    try {
+      const result = maxmindReader.get(ip);
+      if (!result) return { ip, status: 'not_found' };
+      return {
+        ip,
+        status: 'success',
+        country: result.country?.names?.en || '',
+        countryCode: result.country?.iso_code || '',
+        city: result.city?.names?.en || '',
+        lat: result.location?.latitude || null,
+        lng: result.location?.longitude || null,
+        isp: result.traits?.autonomous_system_organization || '',
+      };
+    } catch {
+      return { ip, status: 'error' };
+    }
+  });
+  
+  res.json({ results });
+});
+
+// Initialize MaxMind on startup
+initMaxMind();
+
 // Start server
 app.listen(PORT, () => {
   console.log(`NetGuard API kjører på port ${PORT}`);
