@@ -339,12 +339,12 @@ export default function Setup() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="proxmoxTokenId">Token ID</Label>
+                  <Label htmlFor="proxmoxTokenId">Token ID (bare token-navnet)</Label>
                   <Input
                     id="proxmoxTokenId"
                     value={config.proxmoxTokenId}
                     onChange={(e) => updateConfig('proxmoxTokenId', e.target.value)}
-                    placeholder="netguard"
+                    placeholder="f.eks. test (IKKE root@pam!test)"
                   />
                 </div>
                 <div className="space-y-2">

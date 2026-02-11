@@ -573,8 +573,8 @@ export default function Settings() {
                       <Input value={configs.proxmox.user} onChange={e => updateConfig('proxmox', 'user', e.target.value)} placeholder="root@pam" className="bg-muted border-border mt-1" />
                     </div>
                     <div>
-                      <Label>Token ID</Label>
-                      <Input value={configs.proxmox.tokenId} onChange={e => updateConfig('proxmox', 'tokenId', e.target.value)} placeholder="netguard" className="bg-muted border-border font-mono mt-1" />
+                      <Label>Token ID (bare token-navnet, uten bruker)</Label>
+                      <Input value={configs.proxmox.tokenId} onChange={e => updateConfig('proxmox', 'tokenId', e.target.value)} placeholder="f.eks. test (IKKE root@pam!test)" className="bg-muted border-border font-mono mt-1" />
                     </div>
                     <div>
                       <Label>Token Secret</Label>
