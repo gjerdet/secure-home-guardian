@@ -546,6 +546,8 @@ async function unifiRequest(endpoint) {
   const baseUrl = process.env.UNIFI_CONTROLLER_URL;
   const site = process.env.UNIFI_SITE || 'default';
 
+  console.log(`[UniFi] Request: ${endpoint} (method: ${authMethod}, base: ${baseUrl})`);
+
   if (authMethod === 'apikey') {
     // API key auth - works with UniFi OS (UDM Pro, Cloud Gateway, etc.)
     // Try multiple endpoint paths since firmware versions differ
@@ -558,21 +560,24 @@ async function unifiRequest(endpoint) {
     let lastError = null;
     for (const url of paths) {
       try {
+        console.log(`[UniFi] Trying: ${url}`);
         const response = await axios.get(url, {
           httpsAgent,
           headers: { 'X-API-Key': process.env.UNIFI_API_KEY },
           timeout: 10000,
         });
+        console.log(`[UniFi] OK: ${url} -> ${response.status}`);
         return response.data;
       } catch (error) {
         lastError = error;
+        console.log(`[UniFi] Feil: ${url} -> ${error.response?.status || error.code || error.message}`);
         // Only try next path on 401 or 404
         if (error.response?.status !== 401 && error.response?.status !== 404) {
           throw new Error(`UniFi API feil (${error.response?.status || 'network'}): ${error.message}`);
         }
       }
     }
-    throw new Error(`UniFi API-nøkkel avvist (401). Sjekk at nøkkelen er gyldig og har riktige rettigheter. Opprett ny under Network > Settings > System > Integrations.`);
+    throw new Error(`UniFi: Alle API-stier feilet for ${endpoint}. Siste feil: ${lastError?.response?.status || lastError?.message}. Sjekk at API-nøkkelen er gyldig.`);
   }
 
   // Legacy cookie-based auth
@@ -771,10 +776,13 @@ async function proxmoxRequest(endpoint) {
     return response.data;
   } catch (error) {
     const status = error.response?.status;
-    const msg = error.response?.data?.errors || error.message;
-    console.error(`[Proxmox] Feil ${status}: ${JSON.stringify(msg)}`);
+    const msg = error.response?.data?.errors || error.response?.data || error.message;
+    console.error(`[Proxmox] Feil ${status} på ${endpoint}: ${JSON.stringify(msg)}`);
     if (status === 401) {
-      throw new Error(`Proxmox 401: Token avvist. Sjekk at Token ID (${tokenId}) og Secret er riktige for bruker ${user}. Token ID skal IKKE inkludere "user@pam!" prefiks.`);
+      throw new Error(`Proxmox 401: Token avvist. Sjekk at Token ID (${tokenId}) og Secret er riktige for bruker ${user}.`);
+    }
+    if (status === 403) {
+      throw new Error(`Proxmox 403: Tokenet "${tokenId}" har ikke tilgang til ${endpoint}. Gå til Proxmox > Datacenter > Permissions > API Tokens og gi tokenet rollen "PVEAuditor" eller "Administrator" på "/" (root).`);
     }
     throw new Error(`Proxmox feil (${status || 'network'}): ${error.message}`);
   }
@@ -2375,4 +2383,9 @@ app.post('/api/system/update/apply', authenticateToken, async (req, res) => {
 app.listen(PORT, () => {
   console.log(`NetGuard API kjører på port ${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/api/health`);
+  console.log('--- Konfigurerte tjenester ---');
+  console.log(`  UniFi: URL=${process.env.UNIFI_CONTROLLER_URL || '(ikke satt)'}, API-key=${process.env.UNIFI_API_KEY ? 'JA (' + process.env.UNIFI_API_KEY.substring(0, 8) + '...)' : 'NEI'}, Auth=${getUnifiAuthMethod() || 'ingen'}`);
+  console.log(`  Proxmox: URL=${process.env.PROXMOX_URL || '(ikke satt)'}, User=${process.env.PROXMOX_USER || '(ikke satt)'}, Token=${process.env.PROXMOX_TOKEN_ID || '(ikke satt)'}`);
+  console.log(`  TrueNAS: URL=${process.env.TRUENAS_URL || '(ikke satt)'}, API-key=${process.env.TRUENAS_API_KEY ? 'JA' : 'NEI'}`);
+  console.log('-----------------------------');
 });
