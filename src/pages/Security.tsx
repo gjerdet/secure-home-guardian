@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { Header } from "@/components/Header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -104,6 +105,8 @@ function parseNmapXML(xmlString: string): NmapHost[] {
 }
 
 export default function Security() {
+  const { token } = useAuth();
+  const authHeaders = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const [nmapTarget, setNmapTarget] = useState("192.168.1.0/24");
   const [nmapScanType, setNmapScanType] = useState("quick");
   const [nmapResults, setNmapResults] = useState<NmapHost[]>([]);
@@ -184,8 +187,8 @@ export default function Security() {
     setIsLoadingOpenvas(true);
     try {
       const [scansRes, vulnsRes] = await Promise.all([
-        fetch(`${API_BASE}/api/openvas/scans`),
-        fetch(`${API_BASE}/api/openvas/vulnerabilities`),
+        fetch(`${API_BASE}/api/openvas/scans`, { headers: authHeaders }),
+        fetch(`${API_BASE}/api/openvas/vulnerabilities`, { headers: authHeaders }),
       ]);
 
       if (scansRes.ok) {
@@ -211,7 +214,7 @@ export default function Security() {
     
     nmapPollRef.current = setInterval(async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/nmap/scan-status/${jobId}`);
+        const res = await fetch(`${API_BASE}/api/nmap/scan-status/${jobId}`, { headers: authHeaders });
         if (!res.ok) {
           clearInterval(nmapPollRef.current!);
           nmapPollRef.current = null;
@@ -256,7 +259,7 @@ export default function Security() {
     try {
       const res = await fetch(`${API_BASE}/api/nmap/scan-start`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ target: nmapTarget, scanType: nmapScanType })
       });
       const data = await res.json();
@@ -278,7 +281,7 @@ export default function Security() {
   const handleStopNmapScan = async () => {
     if (nmapJobId) {
       try {
-        await fetch(`${API_BASE}/api/nmap/scan-cancel/${nmapJobId}`, { method: 'POST' });
+        await fetch(`${API_BASE}/api/nmap/scan-cancel/${nmapJobId}`, { method: 'POST', headers: authHeaders });
       } catch { /* ignore */ }
       setNmapJobId(null);
     }
@@ -440,7 +443,7 @@ export default function Security() {
     try {
       const response = await fetch(`${API_BASE}/api/openvas/scan`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({
           target: newScanTarget,
           name: newScanName,
@@ -469,7 +472,7 @@ export default function Security() {
   const fetchWanIp = async () => {
     setIsLoadingWanIp(true);
     try {
-      const res = await fetch(`${API_BASE}/api/network/wan-ip`);
+      const res = await fetch(`${API_BASE}/api/network/wan-ip`, { headers: authHeaders });
       if (res.ok) {
         const data = await res.json();
         setWanIp(data.ip);
@@ -498,7 +501,7 @@ export default function Security() {
     setWanProgress({ percent: 0, hostsFound: 0, status: 'scanning' });
     setWanResults([]);
 
-    const url = `${API_BASE}/api/nmap/scan-stream?target=${encodeURIComponent(wanIp)}&scanType=${wanScanType}`;
+    const url = `${API_BASE}/api/nmap/scan-stream?target=${encodeURIComponent(wanIp)}&scanType=${wanScanType}&token=${encodeURIComponent(token || '')}`;
     const eventSource = new EventSource(url);
     wanEventSourceRef.current = eventSource;
 
@@ -556,7 +559,7 @@ export default function Security() {
   useEffect(() => {
     const checkRunningJobs = async () => {
       try {
-        const res = await fetchJsonSafely(`${API_BASE}/api/nmap/jobs`);
+        const res = await fetchJsonSafely(`${API_BASE}/api/nmap/jobs`, { headers: authHeaders });
         if (res.ok && res.data) {
           const runningJob = (res.data as any[]).find((j: any) => j.status === 'scanning');
           if (runningJob) {
@@ -572,7 +575,7 @@ export default function Security() {
 
     const loadSavedResults = async () => {
       try {
-        const res = await fetchJsonSafely(`${API_BASE}/api/nmap/results`);
+        const res = await fetchJsonSafely(`${API_BASE}/api/nmap/results`, { headers: authHeaders });
         if (res.ok && res.data && Array.isArray(res.data) && res.data.length > 0) {
           // Load the most recent saved result
           const latest = res.data[0];
@@ -589,7 +592,7 @@ export default function Security() {
     const loadScanHistory = async () => {
       setIsLoadingHistory(true);
       try {
-        const res = await fetchJsonSafely(`${API_BASE}/api/nmap/results`);
+        const res = await fetchJsonSafely(`${API_BASE}/api/nmap/results`, { headers: authHeaders });
         if (res.ok && res.data && Array.isArray(res.data)) {
           setScanHistory(res.data.map((r: any, i: number) => ({
             id: r.id || `scan-${i}`,

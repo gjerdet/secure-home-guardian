@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { Header } from "@/components/Header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -70,6 +71,8 @@ const serviceIcons: Record<string, typeof Server> = {
 };
 
 export default function Status() {
+  const { token } = useAuth();
+  const authHeaders = { Authorization: `Bearer ${token}` };
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [services, setServices] = useState<ServiceStatus[]>([]);
@@ -86,8 +89,8 @@ export default function Status() {
     
     try {
       const [healthResult, dockerResult] = await Promise.all([
-        fetchJsonSafely(`${API_BASE}/api/health/all`),
-        fetchJsonSafely(`${API_BASE}/api/docker/containers`),
+        fetchJsonSafely(`${API_BASE}/api/health/all`, { headers: authHeaders }),
+        fetchJsonSafely(`${API_BASE}/api/docker/containers`, { headers: authHeaders }),
       ]);
 
       if (healthResult.ok && healthResult.data) {
@@ -120,6 +123,7 @@ export default function Status() {
     try {
       const response = await fetch(`${API_BASE}/api/docker/containers/${containerId}/${action}`, {
         method: 'POST',
+        headers: authHeaders,
       });
 
       if (!response.ok) {
