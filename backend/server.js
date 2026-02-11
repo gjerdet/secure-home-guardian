@@ -886,6 +886,30 @@ const execAsync = promisify(exec);
 const nmapJobs = new Map();
 let jobIdCounter = 1;
 
+// Persistent nmap results file
+const NMAP_RESULTS_FILE = path.join(DATA_DIR, 'nmap-results.json');
+
+function loadNmapResults() {
+  try {
+    if (fs.existsSync(NMAP_RESULTS_FILE)) {
+      return JSON.parse(fs.readFileSync(NMAP_RESULTS_FILE, 'utf8'));
+    }
+  } catch {}
+  return [];
+}
+
+function saveNmapResult(result) {
+  try {
+    const results = loadNmapResults();
+    results.unshift(result); // newest first
+    // Keep max 50 results
+    if (results.length > 50) results.length = 50;
+    fs.writeFileSync(NMAP_RESULTS_FILE, JSON.stringify(results, null, 2));
+  } catch (err) {
+    console.error('Could not save nmap result:', err.message);
+  }
+}
+
 // Clean up old completed/failed jobs after 30 minutes
 setInterval(() => {
   const cutoff = Date.now() - 30 * 60 * 1000;
@@ -960,6 +984,15 @@ app.post('/api/nmap/scan-start', (req, res) => {
       job.status = 'complete';
       job.percent = 100;
       job.result = xmlOutput;
+      // Save result to disk for persistence
+      saveNmapResult({
+        id: job.id,
+        target: job.target,
+        scanType: job.scanType,
+        result: xmlOutput,
+        hostsFound: job.hostsFound,
+        completedAt: Date.now(),
+      });
     } else {
       job.status = 'error';
       job.error = 'Scan feilet med kode ' + code;
@@ -1013,6 +1046,12 @@ app.get('/api/nmap/jobs', (req, res) => {
     });
   }
   res.json(jobs);
+});
+
+// Get saved/historical nmap results
+app.get('/api/nmap/results', (req, res) => {
+  const results = loadNmapResults();
+  res.json(results);
 });
 
 // Cancel a running job

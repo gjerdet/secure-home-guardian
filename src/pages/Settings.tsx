@@ -319,21 +319,20 @@ export default function Settings() {
     setIsCheckingUpdate(true);
     setUpdateError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/system/update/check`, {
+      const result = await fetchJsonSafely(`${API_BASE}/api/system/update/check`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.ok) {
-        const data = await res.json();
-        setUpdateInfo(data);
-        if (data.updateAvailable) {
-          toast.info(`${data.behind} nye oppdatering${data.behind > 1 ? 'er' : ''} tilgjengelig`);
+      if (result.ok && result.data) {
+        setUpdateInfo(result.data);
+        if (result.data.updateAvailable) {
+          toast.info(`${result.data.behind} nye oppdatering${result.data.behind > 1 ? 'er' : ''} tilgjengelig`);
         } else {
           toast.success('Systemet er oppdatert!');
         }
       } else {
-        const err = await res.json();
-        setUpdateError(err.error || 'Kunne ikke sjekke oppdateringer');
-        toast.error(err.error || 'Kunne ikke sjekke oppdateringer');
+        const errMsg = result.error || 'Kunne ikke sjekke oppdateringer';
+        setUpdateError(errMsg);
+        toast.error(errMsg);
       }
     } catch {
       setUpdateError('Kunne ikke koble til server');
@@ -356,6 +355,17 @@ export default function Settings() {
         },
         body: JSON.stringify({ branch: updateInfo?.branch || 'main' }),
       });
+
+      // Check if we got HTML instead of SSE stream
+      const contentType = res.headers.get('content-type');
+      if (!contentType?.includes('text/event-stream') && !contentType?.includes('application/json')) {
+        const text = await res.text();
+        if (text.trim().startsWith('<!') || text.includes('<html')) {
+          setUpdateError('Backend er ikke tilgjengelig (fikk HTML i stedet for SSE-strøm)');
+          setIsUpdating(false);
+          return;
+        }
+      }
 
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
@@ -397,8 +407,8 @@ export default function Settings() {
         while (retries < maxRetries) {
           await new Promise(r => setTimeout(r, 3000));
           try {
-            const healthRes = await fetch(`${API_BASE}/api/health`, { signal: AbortSignal.timeout(5000) });
-            if (healthRes.ok) {
+            const healthResult = await fetchJsonSafely(`${API_BASE}/api/health`, { signal: AbortSignal.timeout(5000) });
+            if (healthResult.ok) {
               setUpdateProgress(prev => [...prev, { step: 7, message: 'Backend er tilbake online!', status: 'done' }]);
               toast.success('Oppdatering fullført! Laster siden på nytt...');
               setTimeout(() => window.location.reload(), 2000);
