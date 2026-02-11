@@ -947,29 +947,52 @@ app.get('/api/unifi/events', authenticateToken, async (req, res) => {
     const axOpts = { httpsAgent, headers, timeout: 15000 };
 
     let events = [];
+    // Use POST with time range to get older events (last 30 days)
+    const now = Date.now();
+    const thirtyDaysAgo = now - 30 * 86400000;
+    const postBody = { _sort: '-time', within: 720, start: thirtyDaysAgo, end: now };
     const eventPaths = [
       `${baseUrl}/proxy/network/api/s/${site}/stat/event`,
       `${baseUrl}/api/s/${site}/stat/event`,
-      `${baseUrl}/proxy/network/v2/api/site/${site}/events`,
     ];
 
     for (const url of eventPaths) {
       try {
-        console.log(`[UniFi] Events trying: ${url}`);
-        const r = await axios.get(url, axOpts);
+        console.log(`[UniFi] Events trying POST: ${url}`);
+        const r = await axios.post(url, postBody, axOpts);
         const data = r.data?.data || r.data || [];
         const items = Array.isArray(data) ? data : [];
-        console.log(`[UniFi] Events OK: ${url} -> ${items.length} events`);
+        console.log(`[UniFi] Events POST OK: ${url} -> ${items.length} events`);
         if (items.length > 0) {
           events = items;
           break;
         }
       } catch (e) {
-        console.log(`[UniFi] Events fail: ${url} -> ${e.response?.status || e.message}`);
+        console.log(`[UniFi] Events POST fail: ${url} -> ${e.response?.status || e.message}, trying GET...`);
+      }
+      // Fallback to GET
+      try {
+        const r = await axios.get(url, axOpts);
+        const data = r.data?.data || r.data || [];
+        const items = Array.isArray(data) ? data : [];
+        if (items.length > 0) {
+          events = items;
+          break;
+        }
+      } catch (e) {
+        console.log(`[UniFi] Events GET fail: ${url} -> ${e.response?.status || e.message}`);
       }
     }
 
-    const normalized = events.slice(0, 500).map(e => {
+    // Filter out excessive roaming events, keep infrastructure events
+    const roamingKeys = ['EVT_WU_RoamRadio', 'EVT_WU_Roam'];
+    const importantEvents = events.filter(e => !roamingKeys.includes(e.key));
+    // If we have enough non-roaming events, use those; otherwise include some roaming
+    const finalEvents = importantEvents.length >= 10
+      ? importantEvents
+      : [...importantEvents, ...events.filter(e => roamingKeys.includes(e.key)).slice(0, 20)];
+
+    const normalized = finalEvents.slice(0, 500).map(e => {
       // Extract client MAC from various UniFi event fields
       // UniFi uses different fields depending on event type
       const rawClientMac = e.client || e.sta || e.user || e.mac || '';
