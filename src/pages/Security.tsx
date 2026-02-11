@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { ScanReportDialog } from "@/components/security/ScanReportDialog";
 import { AttackMap } from "@/components/AttackMap";
 import { batchLookupGeoIP } from "@/lib/ids-utils";
+import { VlanSubnetManager } from "@/components/security/VlanSubnetManager";
 import { 
   Radar, Shield, Search, Clock, AlertTriangle, CheckCircle,
   Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin
@@ -116,6 +117,7 @@ export default function Security() {
   const [openvasScans, setOpenvasScans] = useState<OpenVASScan[]>([]);
   const [vulnerabilities, setVulnerabilities] = useState<Vulnerability[]>([]);
   const [isLoadingOpenvas, setIsLoadingOpenvas] = useState(false);
+  const [selectedVlans, setSelectedVlans] = useState<string[]>([]);
   
   // OpenVAS new scan dialog
   const [openvasDialogOpen, setOpenvasDialogOpen] = useState(false);
@@ -401,6 +403,13 @@ export default function Security() {
 
           <TabsContent value="nmap">
             <div className="space-y-4">
+              {/* VLAN / Subnet Manager */}
+              <VlanSubnetManager
+                selectedVlans={selectedVlans}
+                onSelectionChange={setSelectedVlans}
+                onScanTargetChange={setNmapTarget}
+              />
+
               <Card className="bg-card border-border">
                 <CardHeader className="border-b border-border py-3">
                   <CardTitle className="text-sm flex items-center gap-2">
