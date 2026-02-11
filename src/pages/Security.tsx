@@ -26,7 +26,7 @@ import {
   Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin, Network, Wifi, ExternalLink, Lock, Activity
 } from "lucide-react";
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
+import { API_BASE, fetchJsonSafely } from '@/lib/api';
 
 interface OpenVASScan {
   id: string;
@@ -538,13 +538,13 @@ export default function Security() {
   };
 
   // Check for running nmap jobs on mount (resume after navigation)
+  // Also load saved results from backend
   useEffect(() => {
     const checkRunningJobs = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/nmap/jobs`);
-        if (res.ok) {
-          const jobs = await res.json();
-          const runningJob = jobs.find((j: any) => j.status === 'scanning');
+        const res = await fetchJsonSafely(`${API_BASE}/api/nmap/jobs`);
+        if (res.ok && res.data) {
+          const runningJob = (res.data as any[]).find((j: any) => j.status === 'scanning');
           if (runningJob) {
             setNmapJobId(runningJob.id);
             setNmapTarget(runningJob.target);
@@ -556,9 +556,26 @@ export default function Security() {
       } catch { /* backend might be offline */ }
     };
 
+    const loadSavedResults = async () => {
+      try {
+        const res = await fetchJsonSafely(`${API_BASE}/api/nmap/results`);
+        if (res.ok && res.data && Array.isArray(res.data) && res.data.length > 0) {
+          // Load the most recent saved result
+          const latest = res.data[0];
+          if (latest.result && nmapResults.length === 0) {
+            const hosts = parseNmapXML(latest.result);
+            setNmapResults(hosts);
+            setNmapTarget(latest.target || nmapTarget);
+            setNmapProgress({ percent: 100, hostsFound: hosts.length, status: 'complete' });
+          }
+        }
+      } catch { /* silent */ }
+    };
+
     fetchOpenvasData();
     fetchWanIp();
     checkRunningJobs();
+    loadSavedResults();
     
     return () => {
       if (nmapPollRef.current) clearInterval(nmapPollRef.current);
