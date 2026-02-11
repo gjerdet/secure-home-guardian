@@ -116,11 +116,20 @@ function parseNmapXML(xmlString: string): NmapHost[] {
 export default function Security() {
   const [nmapTarget, setNmapTarget] = useState("192.168.1.0/24");
   const [nmapScanType, setNmapScanType] = useState("quick");
-  const [nmapResults, setNmapResults] = useState<NmapHost[]>([]);
+  const [nmapResults, setNmapResults] = useState<NmapHost[]>([
+    { host: "192.168.1.1", hostname: "udm-pro.localdomain", status: "up", ports: [22, 443, 8443], os: "Linux 4.15" },
+    { host: "192.168.1.10", hostname: "proxmox-01.localdomain", status: "up", ports: [22, 8006, 3128], os: "Debian 11" },
+    { host: "192.168.1.20", hostname: "truenas.localdomain", status: "up", ports: [22, 80, 443, 9000], os: "FreeBSD 13" },
+    { host: "192.168.1.30", hostname: "homeassistant.local", status: "up", ports: [8123], os: "Linux 5.15" },
+    { host: "192.168.1.40", hostname: "pihole.local", status: "up", ports: [53, 80, 443], os: "Raspbian" },
+    { host: "192.168.1.50", hostname: "plex.localdomain", status: "up", ports: [32400], os: "Ubuntu 22.04" },
+    { host: "192.168.1.100", hostname: "desktop-pc.local", status: "up", ports: [3389, 5900], os: "Windows 11" },
+    { host: "192.168.1.101", hostname: "macbook.local", status: "up", ports: [], os: "macOS 14" },
+  ]);
   const [nmapProgress, setNmapProgress] = useState<NmapProgress>({
-    percent: 0,
-    hostsFound: 0,
-    status: 'idle'
+    percent: 100,
+    hostsFound: 8,
+    status: 'complete'
   });
   const eventSourceRef = useRef<EventSource | null>(null);
   const vlanEventSourcesRef = useRef<Map<string, EventSource>>(new Map());
@@ -129,8 +138,26 @@ export default function Security() {
   const [vlanScanResults, setVlanScanResults] = useState<Map<string, VlanScanResult>>(new Map());
   const [isParallelScanning, setIsParallelScanning] = useState(false);
   
-  const [openvasScans, setOpenvasScans] = useState<OpenVASScan[]>([]);
-  const [vulnerabilities, setVulnerabilities] = useState<Vulnerability[]>([]);
+  const [openvasScans, setOpenvasScans] = useState<OpenVASScan[]>([
+    { id: "ov1", name: "Fullt nettverksscan Q1", target: "192.168.1.0/24", lastRun: "2025-01-15 02:00", status: "Done", high: 3, medium: 7, low: 12, info: 24 },
+    { id: "ov2", name: "DMZ-segmentet", target: "10.0.50.0/24", lastRun: "2025-01-20 14:30", status: "Done", high: 1, medium: 4, low: 8, info: 15 },
+    { id: "ov3", name: "IoT VLAN scan", target: "192.168.40.0/24", lastRun: "2025-01-22 08:00", status: "Done", high: 5, medium: 9, low: 3, info: 11 },
+    { id: "ov4", name: "Proxmox cluster", target: "192.168.1.10-15", lastRun: "2025-02-01 22:00", status: "Running", high: 0, medium: 2, low: 1, info: 6 },
+  ]);
+  const [vulnerabilities, setVulnerabilities] = useState<Vulnerability[]>([
+    { id: "v1", name: "SSL/TLS: Utdatert TLSv1.0 aktivert", severity: "high", host: "192.168.1.10", port: 8006, cvss: 7.5, solution: "Deaktiver TLSv1.0 og TLSv1.1 i Proxmox-konfigurasjon" },
+    { id: "v2", name: "SNMP Agent: Default community string 'public'", severity: "high", host: "192.168.1.1", port: 161, cvss: 7.2, solution: "Endre SNMP community string til noe unikt" },
+    { id: "v3", name: "SSH: Svak nøkkelutveksling (diffie-hellman-group1-sha1)", severity: "high", host: "192.168.1.40", port: 22, cvss: 6.8, solution: "Deaktiver svake KEX-algoritmer i sshd_config" },
+    { id: "v4", name: "HTTP: Missing X-Content-Type-Options header", severity: "medium", host: "192.168.1.30", port: 8123, cvss: 4.3, solution: "Legg til 'X-Content-Type-Options: nosniff' header" },
+    { id: "v5", name: "HTTP: Missing Content-Security-Policy header", severity: "medium", host: "192.168.1.50", port: 32400, cvss: 4.3, solution: "Konfigurer Content-Security-Policy header" },
+    { id: "v6", name: "SSL: Selvsignert sertifikat i bruk", severity: "medium", host: "192.168.1.10", port: 8006, cvss: 4.0, solution: "Installer et gyldig SSL-sertifikat fra Let's Encrypt" },
+    { id: "v7", name: "DNS: Rekursiv DNS åpen for lokalt nettverk", severity: "medium", host: "192.168.1.40", port: 53, cvss: 3.7, solution: "Begrens rekursiv DNS til kun tillatte subnett" },
+    { id: "v8", name: "HTTP: Server header avslører versjon", severity: "low", host: "192.168.1.20", port: 80, cvss: 2.6, solution: "Skjul serverversjon i nginx/apache konfig" },
+    { id: "v9", name: "SSH: Root login tillatt", severity: "medium", host: "192.168.1.20", port: 22, cvss: 5.3, solution: "Sett 'PermitRootLogin no' i sshd_config" },
+    { id: "v10", name: "ICMP Timestamp respons aktivert", severity: "low", host: "192.168.1.1", port: 0, cvss: 1.5, solution: "Blokker ICMP timestamp i brannmur" },
+    { id: "v11", name: "NTP: Monlist kommando tilgjengelig", severity: "medium", host: "192.168.1.1", port: 123, cvss: 5.0, solution: "Deaktiver monlist i NTP-konfigurasjon" },
+    { id: "v12", name: "HTTP: Manglende HSTS header", severity: "low", host: "192.168.1.30", port: 8123, cvss: 2.1, solution: "Aktiver Strict-Transport-Security header" },
+  ]);
   const [isLoadingOpenvas, setIsLoadingOpenvas] = useState(false);
   const [selectedVlans, setSelectedVlans] = useState<string[]>([]);
   const [availableVlans, setAvailableVlans] = useState<VlanSubnet[]>([]);
@@ -147,15 +174,30 @@ export default function Security() {
   const [selectedScan, setSelectedScan] = useState<OpenVASScan | null>(null);
 
   // Geo map state for scan results
-  const [scanGeoLocations, setScanGeoLocations] = useState<Array<{ lat: number; lng: number; severity: string; country: string }>>([]);
+  const [scanGeoLocations, setScanGeoLocations] = useState<Array<{ lat: number; lng: number; severity: string; country: string }>>([
+    { lat: 55.75, lng: 37.62, severity: "critical", country: "Russland" },
+    { lat: 39.90, lng: 116.40, severity: "high", country: "Kina" },
+    { lat: 35.68, lng: 139.69, severity: "medium", country: "Japan" },
+    { lat: 37.57, lng: 126.98, severity: "high", country: "Sør-Korea" },
+    { lat: 28.61, lng: 77.21, severity: "medium", country: "India" },
+    { lat: -23.55, lng: -46.63, severity: "low", country: "Brasil" },
+    { lat: 51.51, lng: -0.13, severity: "low", country: "Storbritannia" },
+    { lat: 40.71, lng: -74.01, severity: "medium", country: "USA" },
+    { lat: 48.86, lng: 2.35, severity: "low", country: "Frankrike" },
+    { lat: 52.52, lng: 13.40, severity: "medium", country: "Tyskland" },
+    { lat: 41.01, lng: 28.98, severity: "high", country: "Tyrkia" },
+    { lat: -33.87, lng: 151.21, severity: "low", country: "Australia" },
+  ]);
   const [isGeoLookingUp, setIsGeoLookingUp] = useState(false);
 
   // WAN scan state
-  const [wanIp, setWanIp] = useState<string>("");
+  const [wanIp, setWanIp] = useState<string>("84.214.132.47");
   const [isLoadingWanIp, setIsLoadingWanIp] = useState(false);
   const [wanScanType, setWanScanType] = useState("ports");
-  const [wanResults, setWanResults] = useState<NmapHost[]>([]);
-  const [wanProgress, setWanProgress] = useState<NmapProgress>({ percent: 0, hostsFound: 0, status: 'idle' });
+  const [wanResults, setWanResults] = useState<NmapHost[]>([
+    { host: "84.214.132.47", hostname: "84-214-132-47.customer.telinet.no", status: "up", ports: [443, 51820], os: "Linux (UDM Pro)" },
+  ]);
+  const [wanProgress, setWanProgress] = useState<NmapProgress>({ percent: 100, hostsFound: 1, status: 'complete' });
   const wanEventSourceRef = useRef<EventSource | null>(null);
 
   // Stats
