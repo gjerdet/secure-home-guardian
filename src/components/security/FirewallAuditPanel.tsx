@@ -649,7 +649,7 @@ export function FirewallAuditPanel() {
 
       {/* Rule Detail Dialog */}
       <Dialog open={!!selectedRule} onOpenChange={(open) => !open && setSelectedRule(null)}>
-        <DialogContent className="bg-card border-border max-w-lg">
+        <DialogContent className="bg-card border-border max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Shield className="h-5 w-5 text-primary" />
@@ -659,8 +659,94 @@ export function FirewallAuditPanel() {
               Regeldetaljer fra UDM Pro
             </DialogDescription>
           </DialogHeader>
-          {selectedRule && (
+          {selectedRule && (() => {
+            const srcLabel = getSourceDisplay(selectedRule);
+            const dstLabel = getDestDisplay(selectedRule);
+            const proto = selectedRule.protocol === 'all' ? 'Alle' : selectedRule.protocol?.toUpperCase();
+            const port = selectedRule.dst_port || 'Alle';
+            const actionLabel = selectedRule.action?.toUpperCase();
+            const isBlock = selectedRule.action === 'drop' || selectedRule.action === 'reject';
+            const rulesetLabel = rulesetLabels[selectedRule.ruleset] || selectedRule.ruleset;
+
+            return (
             <div className="space-y-4">
+              {/* Visual Flow Chart */}
+              <div className="bg-muted rounded-lg p-4">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-3">Trafikkflyt</p>
+                <div className="flex items-center justify-between gap-2">
+                  {/* Source */}
+                  <div className="flex-1 bg-card rounded-lg p-3 border border-border text-center min-w-0">
+                    <Server className="h-5 w-5 mx-auto mb-1 text-primary" />
+                    <p className="text-[10px] text-muted-foreground">Kilde</p>
+                    <p className="text-xs font-mono font-medium text-foreground truncate" title={srcLabel}>{srcLabel}</p>
+                    {selectedRule.src_port && (
+                      <p className="text-[10px] font-mono text-muted-foreground">:{selectedRule.src_port}</p>
+                    )}
+                  </div>
+
+                  {/* Arrow + Protocol */}
+                  <div className="flex flex-col items-center gap-1 shrink-0 px-1">
+                    <Badge variant="outline" className="text-[9px] font-mono">{proto}</Badge>
+                    <div className="flex items-center gap-0.5">
+                      <div className="w-6 h-px bg-muted-foreground" />
+                      <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <Badge variant="outline" className="text-[9px] font-mono">{rulesetLabel}</Badge>
+                  </div>
+
+                  {/* Action */}
+                  <div className={`shrink-0 rounded-lg p-3 border text-center ${
+                    isBlock 
+                      ? 'bg-destructive/10 border-destructive/30' 
+                      : 'bg-success/10 border-success/30'
+                  }`}>
+                    {isBlock ? (
+                      <XCircle className="h-5 w-5 mx-auto mb-1 text-destructive" />
+                    ) : (
+                      <CheckCircle className="h-5 w-5 mx-auto mb-1 text-success" />
+                    )}
+                    <p className={`text-xs font-bold ${isBlock ? 'text-destructive' : 'text-success'}`}>
+                      {actionLabel}
+                    </p>
+                  </div>
+
+                  {/* Arrow to dest (only if accept) */}
+                  {!isBlock && (
+                    <>
+                      <div className="flex items-center gap-0.5 shrink-0 px-1">
+                        <div className="w-6 h-px bg-muted-foreground" />
+                        <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                      <div className="flex-1 bg-card rounded-lg p-3 border border-border text-center min-w-0">
+                        <Globe className="h-5 w-5 mx-auto mb-1 text-primary" />
+                        <p className="text-[10px] text-muted-foreground">Destinasjon</p>
+                        <p className="text-xs font-mono font-medium text-foreground truncate" title={dstLabel}>{dstLabel}</p>
+                        {selectedRule.dst_port && (
+                          <p className="text-[10px] font-mono text-muted-foreground">:{selectedRule.dst_port}</p>
+                        )}
+                      </div>
+                    </>
+                  )}
+                  {isBlock && (
+                    <>
+                      <div className="flex items-center gap-0.5 shrink-0 px-1">
+                        <div className="w-6 h-px bg-muted-foreground/30 border-dashed" />
+                        <XCircle className="h-3 w-3 text-muted-foreground/40" />
+                      </div>
+                      <div className="flex-1 bg-card rounded-lg p-3 border border-border text-center min-w-0 opacity-40">
+                        <Globe className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
+                        <p className="text-[10px] text-muted-foreground">Destinasjon</p>
+                        <p className="text-xs font-mono font-medium text-muted-foreground truncate" title={dstLabel}>{dstLabel}</p>
+                        {selectedRule.dst_port && (
+                          <p className="text-[10px] font-mono text-muted-foreground">:{selectedRule.dst_port}</p>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Status & Action */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-muted rounded-lg p-3">
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Status</p>
@@ -670,34 +756,41 @@ export function FirewallAuditPanel() {
                 </div>
                 <div className="bg-muted rounded-lg p-3">
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Handling</p>
-                  <Badge className={
-                    selectedRule.action === 'drop' || selectedRule.action === 'reject'
-                      ? 'bg-destructive/10 text-destructive'
-                      : 'bg-success/10 text-success'
-                  }>
-                    {selectedRule.action?.toUpperCase()}
+                  <Badge className={isBlock ? 'bg-destructive/10 text-destructive' : 'bg-success/10 text-success'}>
+                    {actionLabel}
                   </Badge>
                 </div>
               </div>
 
+              {/* All details */}
               <div className="space-y-2">
                 {[
                   { label: 'Regel-indeks', value: selectedRule.rule_index?.toString() ?? '-' },
-                  { label: 'Ruleset', value: rulesetLabels[selectedRule.ruleset] || selectedRule.ruleset },
-                  { label: 'Protokoll', value: selectedRule.protocol === 'all' ? 'Alle' : selectedRule.protocol?.toUpperCase() },
-                  { label: 'Kilde', value: getSourceDisplay(selectedRule) },
+                  { label: 'Ruleset', value: rulesetLabel },
+                  { label: 'Protokoll', value: proto },
+                  { label: 'Protokoll-unntak', value: selectedRule.protocol_match_excepted ? 'Ja' : 'Nei' },
+                  { label: 'Kilde', value: srcLabel },
                   { label: 'Kilde-port', value: selectedRule.src_port || '-' },
                   { label: 'Kilde MAC', value: selectedRule.src_mac_address || '-' },
-                  { label: 'Destinasjon', value: getDestDisplay(selectedRule) },
+                  { label: 'Kilde nettverkskonfig', value: selectedRule.src_networkconf_id || '-' },
+                  { label: 'Kilde nettverkstype', value: selectedRule.src_networkconf_type || '-' },
+                  { label: 'Destinasjon', value: dstLabel },
                   { label: 'Destinasjon-port', value: selectedRule.dst_port || '-' },
-                ].map(item => (
+                  { label: 'Dest nettverkskonfig', value: selectedRule.dst_networkconf_id || '-' },
+                  { label: 'Dest nettverkstype', value: selectedRule.dst_networkconf_type || '-' },
+                  { label: 'IPsec', value: selectedRule.ipsec && selectedRule.ipsec !== 'not-set' ? selectedRule.ipsec : '-' },
+                  { label: 'Logging', value: selectedRule.logging ? 'Aktiv' : 'Av' },
+                  { label: 'Preferanse', value: selectedRule.setting_preference || '-' },
+                  { label: 'ID', value: selectedRule._id },
+                ].filter(item => item.value !== '-' && item.value !== 'Nei').map(item => (
                   <div key={item.label} className="flex justify-between items-center py-1.5 border-b border-border last:border-0">
                     <span className="text-xs text-muted-foreground">{item.label}</span>
-                    <span className="text-sm font-mono text-foreground">{item.value}</span>
+                    <span className="text-sm font-mono text-foreground max-w-[60%] text-right truncate" title={item.value}>{item.value}</span>
                   </div>
                 ))}
               </div>
 
+              {/* Connection state */}
               {(selectedRule.state_established || selectedRule.state_related || selectedRule.state_new || selectedRule.state_invalid) && (
                 <div className="bg-muted rounded-lg p-3">
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">Connection state</p>
@@ -710,15 +803,7 @@ export function FirewallAuditPanel() {
                 </div>
               )}
 
-              <div className="flex flex-wrap gap-2">
-                {selectedRule.logging && (
-                  <Badge className="bg-primary/10 text-primary text-[10px]">Logging aktiv</Badge>
-                )}
-                {selectedRule.ipsec && selectedRule.ipsec !== 'not-set' && (
-                  <Badge className="bg-primary/10 text-primary text-[10px]">IPsec: {selectedRule.ipsec}</Badge>
-                )}
-              </div>
-
+              {/* Firewall groups with members */}
               {(selectedRule.src_firewallgroup_ids?.length || selectedRule.dst_firewallgroup_ids?.length) ? (
                 <div className="bg-muted rounded-lg p-3">
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">Brannmurgrupper</p>
@@ -747,7 +832,8 @@ export function FirewallAuditPanel() {
                 </div>
               ) : null}
             </div>
-          )}
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </div>
