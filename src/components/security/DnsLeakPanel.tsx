@@ -26,20 +26,8 @@ interface DnsTestResult {
 
 export function DnsLeakPanel() {
   const { token } = useAuth();
-  const [results, setResults] = useState<DnsTestResult[]>([
-    { test: "configured_dns", status: "ok", servers: ["192.168.1.1", "1.1.1.1", "1.0.0.1"] },
-    { test: "external_ip_check", status: "ok", ip: "84.214.xxx.xxx", location: "Oslo, NO", provider: "Telenor Norge" },
-    { test: "dns_resolve", status: "ok", domain: "google.com", addresses: ["142.250.74.46", "2a00:1450:400f:80a::200e"] },
-    { test: "dns_resolve", status: "ok", domain: "cloudflare.com", addresses: ["104.16.132.229", "104.16.133.229"] },
-    { test: "dns_resolve", status: "ok", domain: "github.com", addresses: ["140.82.121.3"] },
-    { test: "dns_resolve", status: "ok", domain: "nrk.no", addresses: ["160.68.205.99", "2001:67c:21e0::99"] },
-    { test: "dns_provider_check", status: "ok", provider: "Cloudflare", ip: "1.1.1.1", responseTime: 8 },
-    { test: "dns_provider_check", status: "ok", provider: "Google", ip: "8.8.8.8", responseTime: 14 },
-    { test: "dns_provider_check", status: "ok", provider: "Quad9", ip: "9.9.9.9", responseTime: 22 },
-    { test: "dns_provider_check", status: "error", provider: "OpenDNS", ip: "208.67.222.222", responseTime: undefined, error: "Timeout" },
-    { test: "dns_provider_check", status: "ok", provider: "Lokal (UDM Pro)", ip: "192.168.1.1", responseTime: 2 },
-  ]);
-  const [resolvers, setResolvers] = useState<string[]>(["192.168.1.1", "1.1.1.1", "1.0.0.1"]);
+  const [results, setResults] = useState<DnsTestResult[]>([]);
+  const [resolvers, setResolvers] = useState<string[]>([]);
   const [isRunning, setIsRunning] = useState(false);
 
   const runTest = async () => {

@@ -47,49 +47,11 @@ const defaultTargets: SslTarget[] = [
 export function SslCheckPanel() {
   const { token } = useAuth();
   const [targets, setTargets] = useState<SslTarget[]>([
-    { name: "Proxmox VE", host: "192.168.10.10", port: 8006 },
-    { name: "TrueNAS", host: "192.168.10.11", port: 443 },
-    { name: "UniFi Controller", host: "192.168.1.1", port: 443 },
-    { name: "Home Assistant", host: "192.168.40.10", port: 8123 },
-    { name: "Plex Media Server", host: "192.168.10.11", port: 32400 },
+    { name: "Proxmox VE", host: "", port: 8006 },
+    { name: "TrueNAS", host: "", port: 443 },
+    { name: "UniFi Controller", host: "", port: 443 },
   ]);
-  const [results, setResults] = useState<SslResult[]>([
-    {
-      name: "Proxmox VE", host: "192.168.10.10", port: 8006, status: "ok",
-      subject: "CN=proxmox.local", issuer: "CN=Proxmox Virtual Environment",
-      validFrom: "2024-08-15T00:00:00Z", validTo: "2026-08-15T00:00:00Z",
-      daysLeft: 553, isExpired: false, isSelfSigned: true, authorized: false,
-      protocol: "TLSv1.3", fingerprint: "A1:B2:C3:D4:E5:F6:78:90:AB:CD"
-    },
-    {
-      name: "TrueNAS", host: "192.168.10.11", port: 443, status: "ok",
-      subject: "CN=truenas.local", issuer: "CN=iXsystems TrueNAS",
-      validFrom: "2024-11-01T00:00:00Z", validTo: "2025-11-01T00:00:00Z",
-      daysLeft: 263, isExpired: false, isSelfSigned: true, authorized: false,
-      protocol: "TLSv1.3", fingerprint: "F1:E2:D3:C4:B5:A6:09:87:65:43"
-    },
-    {
-      name: "UniFi Controller", host: "192.168.1.1", port: 443, status: "ok",
-      subject: "CN=UniFi", issuer: "CN=UniFi",
-      validFrom: "2025-01-10T00:00:00Z", validTo: "2027-01-10T00:00:00Z",
-      daysLeft: 699, isExpired: false, isSelfSigned: true, authorized: false,
-      protocol: "TLSv1.2", fingerprint: "11:22:33:44:55:66:77:88:99:AA"
-    },
-    {
-      name: "Home Assistant", host: "192.168.40.10", port: 8123, status: "ok",
-      subject: "CN=homeassistant.local", issuer: "CN=Let's Encrypt Authority X3",
-      validFrom: "2025-12-01T00:00:00Z", validTo: "2026-03-01T00:00:00Z",
-      daysLeft: 18, isExpired: false, isSelfSigned: false, authorized: true,
-      protocol: "TLSv1.3", fingerprint: "BB:CC:DD:EE:FF:00:11:22:33:44"
-    },
-    {
-      name: "Plex Media Server", host: "192.168.10.11", port: 32400, status: "ok",
-      subject: "CN=*.plex.direct", issuer: "CN=DigiCert SHA2 Extended Validation Server CA",
-      validFrom: "2025-06-01T00:00:00Z", validTo: "2026-06-01T00:00:00Z",
-      daysLeft: 110, isExpired: false, isSelfSigned: false, authorized: true,
-      protocol: "TLSv1.3", fingerprint: "DD:EE:FF:11:22:33:44:55:66:77"
-    },
-  ]);
+  const [results, setResults] = useState<SslResult[]>([]);
   const [isChecking, setIsChecking] = useState(false);
   const [newTarget, setNewTarget] = useState({ name: "", host: "", port: "443" });
 
