@@ -155,6 +155,11 @@ export function FirewallAuditPanel() {
     }
   };
 
+  const getGroupName = (id: string) => {
+    const group = firewallGroups.find(g => g._id === id);
+    return group ? group.name : id;
+  };
+
   // Helper to resolve source/destination display text
   const getSourceDisplay = (rule: FirewallRule) => {
     return rule.src_address || 
@@ -282,10 +287,6 @@ export function FirewallAuditPanel() {
     </TableHead>
   );
 
-  const getGroupName = (id: string) => {
-    const group = firewallGroups.find(g => g._id === id);
-    return group ? group.name : id;
-  };
 
   // Stats
   const stats = {
