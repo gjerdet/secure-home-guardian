@@ -154,6 +154,7 @@ app.post('/api/auth/setup', async (req, res) => {
     
     if (services?.unifi) {
       updateEnv('UNIFI_CONTROLLER_URL', services.unifi.url);
+      updateEnv('UNIFI_API_KEY', services.unifi.apiKey);
       updateEnv('UNIFI_USERNAME', services.unifi.username);
       updateEnv('UNIFI_PASSWORD', services.unifi.password);
       updateEnv('UNIFI_SITE', services.unifi.site || 'default');
@@ -402,6 +403,7 @@ app.get('/api/config/services', authenticateToken, (req, res) => {
   res.json({
     unifi: {
       url: process.env.UNIFI_CONTROLLER_URL || '',
+      apiKey: process.env.UNIFI_API_KEY ? '••••••••' : '',
       username: process.env.UNIFI_USERNAME || '',
       password: process.env.UNIFI_PASSWORD ? '••••••••' : '',
       site: process.env.UNIFI_SITE || 'default',
@@ -602,7 +604,7 @@ async function unifiRequest(endpoint) {
 }
 
 // UniFi endepunkter
-app.get('/api/unifi/alerts', async (req, res) => {
+app.get('/api/unifi/alerts', authenticateToken, async (req, res) => {
   try {
     const data = await unifiRequest('/stat/ips/event');
     res.json(data);
@@ -611,7 +613,7 @@ app.get('/api/unifi/alerts', async (req, res) => {
   }
 });
 
-app.get('/api/unifi/clients', async (req, res) => {
+app.get('/api/unifi/clients', authenticateToken, async (req, res) => {
   try {
     const data = await unifiRequest('/stat/sta');
     res.json(data);
@@ -620,7 +622,7 @@ app.get('/api/unifi/clients', async (req, res) => {
   }
 });
 
-app.get('/api/unifi/devices', async (req, res) => {
+app.get('/api/unifi/devices', authenticateToken, async (req, res) => {
   try {
     const data = await unifiRequest('/stat/device');
     res.json(data);
@@ -629,7 +631,7 @@ app.get('/api/unifi/devices', async (req, res) => {
   }
 });
 
-app.get('/api/unifi/health', async (req, res) => {
+app.get('/api/unifi/health', authenticateToken, async (req, res) => {
   try {
     const data = await unifiRequest('/stat/health');
     res.json(data);
@@ -747,7 +749,7 @@ async function proxmoxRequest(endpoint) {
   return response.data;
 }
 
-app.get('/api/proxmox/nodes', async (req, res) => {
+app.get('/api/proxmox/nodes', authenticateToken, async (req, res) => {
   try {
     const data = await proxmoxRequest('/nodes');
     res.json(data);
@@ -756,7 +758,7 @@ app.get('/api/proxmox/nodes', async (req, res) => {
   }
 });
 
-app.get('/api/proxmox/vms', async (req, res) => {
+app.get('/api/proxmox/vms', authenticateToken, async (req, res) => {
   try {
     // Hent alle noder først
     const nodes = await proxmoxRequest('/nodes');
@@ -773,7 +775,7 @@ app.get('/api/proxmox/vms', async (req, res) => {
   }
 });
 
-app.get('/api/proxmox/containers', async (req, res) => {
+app.get('/api/proxmox/containers', authenticateToken, async (req, res) => {
   try {
     const nodes = await proxmoxRequest('/nodes');
     const containers = [];
@@ -789,7 +791,7 @@ app.get('/api/proxmox/containers', async (req, res) => {
   }
 });
 
-app.post('/api/proxmox/vms/:node/:vmid/:action', async (req, res) => {
+app.post('/api/proxmox/vms/:node/:vmid/:action', authenticateToken, async (req, res) => {
   try {
     const { node, vmid, action } = req.params;
     const response = await axios.post(
@@ -808,7 +810,7 @@ app.post('/api/proxmox/vms/:node/:vmid/:action', async (req, res) => {
   }
 });
 
-app.get('/api/proxmox/storage', async (req, res) => {
+app.get('/api/proxmox/storage', authenticateToken, async (req, res) => {
   try {
     const nodes = await proxmoxRequest('/nodes');
     const storage = [];
@@ -824,7 +826,7 @@ app.get('/api/proxmox/storage', async (req, res) => {
   }
 });
 
-app.get('/api/proxmox/cluster', async (req, res) => {
+app.get('/api/proxmox/cluster', authenticateToken, async (req, res) => {
   try {
     const data = await proxmoxRequest('/cluster/status');
     res.json(data);
