@@ -7,6 +7,12 @@ import { Cpu, MemoryStick, HardDrive, Monitor, Clock, Server } from "lucide-reac
 
 import { API_BASE, fetchJsonSafely } from '@/lib/api';
 
+interface DiskInfo {
+  mount: string;
+  total: number;
+  used: number;
+}
+
 interface SystemInfo {
   os: string;
   hostname: string;
@@ -16,6 +22,7 @@ interface SystemInfo {
   cpu: { model: string; cores: number; usage: number };
   ram: { total: number; used: number; free: number };
   disk: { total: number; used: number };
+  disks?: DiskInfo[];
 }
 
 function formatBytes(bytes: number): string {
@@ -132,6 +139,28 @@ export function SystemInfoCard() {
             );
           })}
         </div>
+
+        {/* Individual disks */}
+        {info.disks && info.disks.length > 1 && (
+          <div className="pt-3 border-t border-border space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">Diskpartisjoner</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {info.disks.map((d) => {
+                const pct = d.total > 0 ? Math.round((d.used / d.total) * 100) : 0;
+                return (
+                  <div key={d.mount} className="flex items-center gap-2 text-xs">
+                    <HardDrive className="h-3 w-3 text-muted-foreground shrink-0" />
+                    <span className="font-mono text-muted-foreground w-24 truncate" title={d.mount}>{d.mount}</span>
+                    <Progress value={pct} className="h-1.5 flex-1" />
+                    <span className="font-mono text-foreground whitespace-nowrap">
+                      {formatBytes(d.used)} / {formatBytes(d.total)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
