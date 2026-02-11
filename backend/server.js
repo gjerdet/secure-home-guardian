@@ -2024,10 +2024,10 @@ app.post('/api/system/update/apply', authenticateToken, async (req, res) => {
     // Step 5: Restart services
     sendProgress(5, 'Restarter tjenester...');
     try {
-      await execAsync('sudo systemctl restart nginx', { timeout: 15000 });
+      await execAsync('systemctl restart nginx', { timeout: 15000 });
       sendProgress(5, 'Nginx restartet', 'done');
-    } catch {
-      sendProgress(5, 'Kunne ikke restarte Nginx (manuell restart kan trenges)', 'warning');
+    } catch (nginxErr) {
+      sendProgress(5, `Kunne ikke restarte Nginx: ${nginxErr.message}`, 'warning');
     }
 
     // Final
@@ -2036,7 +2036,11 @@ app.post('/api/system/update/apply', authenticateToken, async (req, res) => {
 
     // Restart self after a short delay
     setTimeout(() => {
-      process.exit(0); // systemd will restart the service
+      try {
+        execAsync('systemctl restart netguard-api', { timeout: 10000 });
+      } catch {
+        process.exit(0); // fallback: systemd will restart
+      }
     }, 3000);
 
   } catch (error) {
