@@ -42,27 +42,13 @@ interface IdsAlert {
   isp?: string;
 }
 
-const initialAlerts: IdsAlert[] = [
-  { id: "1", timestamp: "2024-12-17 14:32:05", severity: "high", category: "ET SCAN", signature: "Potential SSH Brute Force Attack", srcIp: "45.33.32.156", dstIp: "192.168.1.1", srcPort: 54321, dstPort: 22, action: "blocked" },
-  { id: "2", timestamp: "2024-12-17 14:28:12", severity: "medium", category: "ET MALWARE", signature: "Suspicious DNS Query - Known Malware Domain", srcIp: "192.168.1.45", dstIp: "8.8.8.8", srcPort: 53421, dstPort: 53, action: "alerted" },
-  { id: "3", timestamp: "2024-12-17 14:15:33", severity: "low", category: "ET POLICY", signature: "Potential Corporate Privacy Violation", srcIp: "192.168.1.52", dstIp: "142.250.185.78", srcPort: 443, dstPort: 443, action: "alerted" },
-  { id: "4", timestamp: "2024-12-17 13:45:00", severity: "high", category: "ET EXPLOIT", signature: "Possible SQL Injection Attempt", srcIp: "103.21.244.15", dstIp: "192.168.1.10", srcPort: 12345, dstPort: 80, action: "blocked" },
-  { id: "5", timestamp: "2024-12-17 13:20:45", severity: "critical", category: "ET TROJAN", signature: "Known Command and Control Traffic", srcIp: "185.220.101.1", dstIp: "192.168.1.99", srcPort: 443, dstPort: 49152, action: "blocked" },
-  { id: "6", timestamp: "2024-12-17 12:55:00", severity: "high", category: "ET SCAN", signature: "Nmap OS Detection Attempt", srcIp: "91.189.88.142", dstIp: "192.168.1.1", srcPort: 45678, dstPort: 0, action: "blocked" },
-  { id: "7", timestamp: "2024-12-17 12:30:22", severity: "medium", category: "ET WEB", signature: "XSS Attack Attempt", srcIp: "177.54.148.213", dstIp: "192.168.1.10", srcPort: 34567, dstPort: 443, action: "blocked" },
-  { id: "8", timestamp: "2024-12-17 11:45:10", severity: "critical", category: "ET EXPLOIT", signature: "Log4j RCE Attempt", srcIp: "5.188.86.172", dstIp: "192.168.1.10", srcPort: 56789, dstPort: 8080, action: "blocked" },
-];
+const initialAlerts: IdsAlert[] = [];
 
-const connectedDevices = [
-  { id: "1", name: "MacBook Pro", type: "laptop", ip: "192.168.1.10", mac: "A4:83:E7:12:34:56", connection: "5GHz", signal: -45, rxRate: 866, txRate: 866, uptime: "5d 12h", connectedTo: "U6-Pro Stue", network: "LAN", vlan: 1, rxBytes: 125400000000, txBytes: 42300000000, channel: "36/80" },
-  { id: "2", name: "iPhone 14 Pro", type: "phone", ip: "192.168.1.45", mac: "F0:18:98:AB:CD:EF", connection: "5GHz", signal: -52, rxRate: 780, txRate: 780, uptime: "2h 34m", connectedTo: "U6-Pro Stue", network: "LAN", vlan: 1, rxBytes: 2300000000, txBytes: 450000000, channel: "36/80" },
-  { id: "3", name: "Samsung TV", type: "tv", ip: "192.168.1.52", mac: "F4:7B:09:CD:EF:12", connection: "2.4GHz", signal: -68, rxRate: 72, txRate: 72, uptime: "3d 8h", connectedTo: "U6-Lite Kontor", network: "IoT", vlan: 10, rxBytes: 89000000000, txBytes: 1200000000, channel: "6" },
-  { id: "4", name: "Windows Desktop", type: "desktop", ip: "192.168.1.20", mac: "DC:4A:3E:78:90:12", connection: "Ethernet", signal: 0, rxRate: 1000, txRate: 1000, uptime: "12d 4h", connectedTo: "USW-24-POE Port 5", network: "LAN", vlan: 1, rxBytes: 534000000000, txBytes: 156000000000, channel: null },
-  { id: "5", name: "Ukjent Enhet", type: "unknown", ip: "192.168.1.99", mac: "00:1A:2B:3C:4D:5E", connection: "2.4GHz", signal: -75, rxRate: 54, txRate: 54, uptime: "45m", connectedTo: "U6-Mesh Garasje", network: "Gjest", vlan: 20, rxBytes: 45000000, txBytes: 12000000, channel: "6" },
-  { id: "6", name: "Sonos Speaker", type: "speaker", ip: "192.168.10.15", mac: "B8:E9:37:45:67:89", connection: "2.4GHz", signal: -58, rxRate: 72, txRate: 72, uptime: "30d 8h", connectedTo: "U6-Pro Stue", network: "IoT", vlan: 10, rxBytes: 34000000000, txBytes: 500000000, channel: "6" },
-  { id: "7", name: "HP Printer", type: "printer", ip: "192.168.1.30", mac: "C4:65:16:AB:CD:01", connection: "Ethernet", signal: 0, rxRate: 100, txRate: 100, uptime: "45d 2h", connectedTo: "USW-Lite-8-POE Port 3", network: "LAN", vlan: 1, rxBytes: 1200000000, txBytes: 890000000, channel: null },
-  { id: "8", name: "Ring Doorbell", type: "camera", ip: "192.168.10.25", mac: "E0:4F:43:CD:EF:23", connection: "2.4GHz", signal: -62, rxRate: 72, txRate: 72, uptime: "14d 6h", connectedTo: "U6-Mesh Garasje", network: "IoT", vlan: 10, rxBytes: 67000000000, txBytes: 2300000000, channel: "6" },
-];
+const connectedDevices: {
+  id: string; name: string; type: string; ip: string; mac: string; connection: string;
+  signal: number; rxRate: number; txRate: number; uptime: string; connectedTo: string;
+  network: string; vlan: number; rxBytes: number; txBytes: number; channel: string | null;
+}[] = [];
 
 interface APDevice {
   name: string;
@@ -120,91 +106,9 @@ const networkDevices: {
   switches: SwitchDevice[];
   gateway: { name: string; status: string; wanIp: string; uptime: string };
 } = {
-  aps: [
-    {
-      name: "U6-Pro Stue", model: "U6-Pro", status: "online", clients: 8,
-      channel2g: "6", channel5g: "36/80", experience: 98,
-      ip: "192.168.1.201", mac: "24:5A:4C:AA:BB:01", firmware: "6.6.77",
-      uptime: "45d 12h", txPower2g: 20, txPower5g: 23, load: 32,
-      memUsage: 45, cpuUsage: 12, satisfaction: 98,
-      connectedClients: [
-        { name: "MacBook Pro", ip: "192.168.1.10", signal: -45, band: "5GHz", rxRate: 866, txRate: 866 },
-        { name: "iPhone 14 Pro", ip: "192.168.1.45", signal: -52, band: "5GHz", rxRate: 780, txRate: 780 },
-        { name: "Sonos Speaker", ip: "192.168.10.15", signal: -58, band: "2.4GHz", rxRate: 72, txRate: 72 },
-      ]
-    },
-    {
-      name: "U6-Lite Kontor", model: "U6-Lite", status: "online", clients: 4,
-      channel2g: "11", channel5g: "149/80", experience: 95,
-      ip: "192.168.1.202", mac: "24:5A:4C:AA:BB:02", firmware: "6.6.77",
-      uptime: "45d 12h", txPower2g: 18, txPower5g: 20, load: 18,
-      memUsage: 38, cpuUsage: 8, satisfaction: 95,
-      connectedClients: [
-        { name: "Samsung TV", ip: "192.168.1.52", signal: -68, band: "2.4GHz", rxRate: 72, txRate: 72 },
-        { name: "iPad Air", ip: "192.168.1.55", signal: -48, band: "5GHz", rxRate: 573, txRate: 573 },
-      ]
-    },
-    {
-      name: "U6-Mesh Garasje", model: "U6-Mesh", status: "online", clients: 2,
-      channel2g: "1", channel5g: "44/40", experience: 88,
-      ip: "192.168.1.203", mac: "24:5A:4C:AA:BB:03", firmware: "6.6.65",
-      uptime: "30d 4h", txPower2g: 20, txPower5g: 23, load: 8,
-      memUsage: 32, cpuUsage: 5, satisfaction: 88,
-      connectedClients: [
-        { name: "Ring Doorbell", ip: "192.168.10.25", signal: -62, band: "2.4GHz", rxRate: 72, txRate: 72 },
-        { name: "Ukjent Enhet", ip: "192.168.1.99", signal: -75, band: "2.4GHz", rxRate: 54, txRate: 54 },
-      ]
-    },
-  ],
-  switches: [
-    {
-      name: "USW-24-POE", model: "USW-24-PoE", status: "online", ports: 24, portsUsed: 18,
-      poeWatts: 145, poeBudget: 250, ip: "192.168.1.210", mac: "24:5A:4C:CC:DD:01",
-      firmware: "6.6.61", uptime: "90d 3h", temperature: 42, fanLevel: 1,
-      portList: [
-        { port: 1, name: "UDM-Pro Uplink", status: "up", speed: "1 Gbps", poeEnabled: false, poeWatts: 0, device: "UDM-Pro", vlan: 1, rxBytes: 1240000000000, txBytes: 890000000000 },
-        { port: 2, name: "U6-Pro Stue", status: "up", speed: "1 Gbps", poeEnabled: true, poeWatts: 12.5, device: "U6-Pro", vlan: 1, rxBytes: 234000000000, txBytes: 67000000000 },
-        { port: 3, name: "U6-Lite Kontor", status: "up", speed: "1 Gbps", poeEnabled: true, poeWatts: 8.2, device: "U6-Lite", vlan: 1, rxBytes: 156000000000, txBytes: 34000000000 },
-        { port: 4, name: "USW-Lite-8", status: "up", speed: "1 Gbps", poeEnabled: false, poeWatts: 0, device: "USW-Lite-8-POE", vlan: 1, rxBytes: 89000000000, txBytes: 23000000000 },
-        { port: 5, name: "Windows Desktop", status: "up", speed: "1 Gbps", poeEnabled: false, poeWatts: 0, device: "PC", vlan: 1, rxBytes: 534000000000, txBytes: 156000000000 },
-        { port: 6, name: "NAS", status: "up", speed: "1 Gbps", poeEnabled: false, poeWatts: 0, device: "TrueNAS", vlan: 1, rxBytes: 2340000000000, txBytes: 1200000000000 },
-        { port: 7, name: "Proxmox Node 1", status: "up", speed: "1 Gbps", poeEnabled: false, poeWatts: 0, device: "Proxmox", vlan: 1, rxBytes: 678000000000, txBytes: 345000000000 },
-        { port: 8, name: "Proxmox Node 2", status: "up", speed: "1 Gbps", poeEnabled: false, poeWatts: 0, device: "Proxmox", vlan: 1, rxBytes: 567000000000, txBytes: 234000000000 },
-        { port: 9, name: "IP Kamera 1", status: "up", speed: "100 Mbps", poeEnabled: true, poeWatts: 8.0, device: "Kamera", vlan: 10, rxBytes: 12000000000, txBytes: 890000000000 },
-        { port: 10, name: "IP Kamera 2", status: "up", speed: "100 Mbps", poeEnabled: true, poeWatts: 7.5, device: "Kamera", vlan: 10, rxBytes: 11000000000, txBytes: 780000000000 },
-        { port: 11, name: "IP Kamera 3", status: "up", speed: "100 Mbps", poeEnabled: true, poeWatts: 8.2, device: "Kamera", vlan: 10, rxBytes: 10500000000, txBytes: 720000000000 },
-        { port: 12, name: "VoIP Telefon", status: "up", speed: "100 Mbps", poeEnabled: true, poeWatts: 5.5, device: "Telefon", vlan: 30, rxBytes: 4500000000, txBytes: 4200000000 },
-        { port: 13, name: "U6-Mesh Garasje", status: "up", speed: "1 Gbps", poeEnabled: true, poeWatts: 10.8, device: "U6-Mesh", vlan: 1, rxBytes: 45000000000, txBytes: 12000000000 },
-        { port: 14, name: "", status: "down", speed: "-", poeEnabled: false, poeWatts: 0, device: "", vlan: 1, rxBytes: 0, txBytes: 0 },
-        { port: 15, name: "", status: "down", speed: "-", poeEnabled: false, poeWatts: 0, device: "", vlan: 1, rxBytes: 0, txBytes: 0 },
-        { port: 16, name: "Smart Plug", status: "up", speed: "100 Mbps", poeEnabled: false, poeWatts: 0, device: "IoT", vlan: 10, rxBytes: 230000000, txBytes: 120000000 },
-        { port: 17, name: "Printer", status: "up", speed: "100 Mbps", poeEnabled: false, poeWatts: 0, device: "Printer", vlan: 1, rxBytes: 1200000000, txBytes: 890000000 },
-        { port: 18, name: "Rack Switch", status: "up", speed: "1 Gbps", poeEnabled: false, poeWatts: 0, device: "Switch", vlan: 1, rxBytes: 345000000000, txBytes: 123000000000 },
-        { port: 19, name: "", status: "down", speed: "-", poeEnabled: false, poeWatts: 0, device: "", vlan: 1, rxBytes: 0, txBytes: 0 },
-        { port: 20, name: "", status: "down", speed: "-", poeEnabled: false, poeWatts: 0, device: "", vlan: 1, rxBytes: 0, txBytes: 0 },
-        { port: 21, name: "", status: "down", speed: "-", poeEnabled: false, poeWatts: 0, device: "", vlan: 1, rxBytes: 0, txBytes: 0 },
-        { port: 22, name: "", status: "down", speed: "-", poeEnabled: false, poeWatts: 0, device: "", vlan: 1, rxBytes: 0, txBytes: 0 },
-        { port: 23, name: "SFP+ Uplink 1", status: "up", speed: "10 Gbps", poeEnabled: false, poeWatts: 0, device: "Uplink", vlan: 1, rxBytes: 5600000000000, txBytes: 3400000000000 },
-        { port: 24, name: "SFP+ Uplink 2", status: "down", speed: "-", poeEnabled: false, poeWatts: 0, device: "", vlan: 1, rxBytes: 0, txBytes: 0 },
-      ]
-    },
-    {
-      name: "USW-Lite-8-POE", model: "USW-Lite-8-PoE", status: "online", ports: 8, portsUsed: 6,
-      poeWatts: 52, poeBudget: 60, ip: "192.168.1.211", mac: "24:5A:4C:CC:DD:02",
-      firmware: "6.6.61", uptime: "90d 3h", temperature: 38, fanLevel: 0,
-      portList: [
-        { port: 1, name: "USW-24-POE Uplink", status: "up", speed: "1 Gbps", poeEnabled: false, poeWatts: 0, device: "Switch", vlan: 1, rxBytes: 89000000000, txBytes: 23000000000 },
-        { port: 2, name: "Smart TV Kontor", status: "up", speed: "100 Mbps", poeEnabled: false, poeWatts: 0, device: "TV", vlan: 1, rxBytes: 45000000000, txBytes: 1200000000 },
-        { port: 3, name: "HP Printer", status: "up", speed: "100 Mbps", poeEnabled: false, poeWatts: 0, device: "Printer", vlan: 1, rxBytes: 1200000000, txBytes: 890000000 },
-        { port: 4, name: "IP Kamera Kontor", status: "up", speed: "100 Mbps", poeEnabled: true, poeWatts: 7.8, device: "Kamera", vlan: 10, rxBytes: 8900000000, txBytes: 670000000000 },
-        { port: 5, name: "VoIP Kontor", status: "up", speed: "100 Mbps", poeEnabled: true, poeWatts: 5.2, device: "Telefon", vlan: 30, rxBytes: 2300000000, txBytes: 2100000000 },
-        { port: 6, name: "Raspberry Pi", status: "up", speed: "1 Gbps", poeEnabled: true, poeWatts: 4.5, device: "Pi", vlan: 1, rxBytes: 12000000000, txBytes: 8900000000 },
-        { port: 7, name: "", status: "down", speed: "-", poeEnabled: false, poeWatts: 0, device: "", vlan: 1, rxBytes: 0, txBytes: 0 },
-        { port: 8, name: "", status: "down", speed: "-", poeEnabled: false, poeWatts: 0, device: "", vlan: 1, rxBytes: 0, txBytes: 0 },
-      ]
-    },
-  ],
-  gateway: { name: "UDM-Pro", status: "online", wanIp: "85.123.45.67", uptime: "45d 12h" },
+  aps: [],
+  switches: [],
+  gateway: { name: "", status: "offline", wanIp: "", uptime: "" },
 };
 
 interface FirewallLog {
@@ -221,28 +125,15 @@ interface FirewallLog {
   bytes: number;
 }
 
-const firewallLogs: FirewallLog[] = [
-  { id: "fw1", timestamp: "2024-12-17 14:35:12", action: "block", rule: "Block Incoming SSH", protocol: "TCP", srcIp: "45.33.32.156", srcPort: 54321, dstIp: "192.168.1.1", dstPort: 22, interface: "WAN", bytes: 64 },
-  { id: "fw2", timestamp: "2024-12-17 14:34:58", action: "allow", rule: "LAN to WAN", protocol: "TCP", srcIp: "192.168.1.10", srcPort: 52341, dstIp: "142.250.185.78", dstPort: 443, interface: "LAN", bytes: 1420 },
-  { id: "fw3", timestamp: "2024-12-17 14:34:45", action: "block", rule: "Block P2P", protocol: "UDP", srcIp: "192.168.1.45", srcPort: 6881, dstIp: "83.129.12.45", dstPort: 6881, interface: "LAN", bytes: 128 },
-  { id: "fw4", timestamp: "2024-12-17 14:34:30", action: "allow", rule: "DNS Allow", protocol: "UDP", srcIp: "192.168.1.52", srcPort: 53421, dstIp: "8.8.8.8", dstPort: 53, interface: "LAN", bytes: 64 },
-  { id: "fw5", timestamp: "2024-12-17 14:34:15", action: "block", rule: "GeoIP Block Russia", protocol: "TCP", srcIp: "91.189.88.142", srcPort: 45678, dstIp: "192.168.1.1", dstPort: 443, interface: "WAN", bytes: 60 },
-  { id: "fw6", timestamp: "2024-12-17 14:34:00", action: "allow", rule: "Established/Related", protocol: "TCP", srcIp: "142.250.185.78", srcPort: 443, dstIp: "192.168.1.10", dstPort: 52341, interface: "WAN", bytes: 8920 },
-  { id: "fw7", timestamp: "2024-12-17 14:33:45", action: "block", rule: "Block ICMP Flood", protocol: "ICMP", srcIp: "103.21.244.15", srcPort: 0, dstIp: "192.168.1.1", dstPort: 0, interface: "WAN", bytes: 84 },
-  { id: "fw8", timestamp: "2024-12-17 14:33:30", action: "allow", rule: "IoT VLAN to DNS", protocol: "UDP", srcIp: "192.168.10.25", srcPort: 42567, dstIp: "192.168.1.1", dstPort: 53, interface: "IoT", bytes: 48 },
-  { id: "fw9", timestamp: "2024-12-17 14:33:15", action: "block", rule: "Block Telnet", protocol: "TCP", srcIp: "5.188.86.172", srcPort: 56789, dstIp: "192.168.1.1", dstPort: 23, interface: "WAN", bytes: 60 },
-  { id: "fw10", timestamp: "2024-12-17 14:33:00", action: "allow", rule: "HTTPS Allow", protocol: "TCP", srcIp: "192.168.1.20", srcPort: 58234, dstIp: "104.26.10.123", dstPort: 443, interface: "LAN", bytes: 2048 },
-  { id: "fw11", timestamp: "2024-12-17 14:32:45", action: "block", rule: "Block Port Scan", protocol: "TCP", srcIp: "185.220.101.1", srcPort: 12345, dstIp: "192.168.1.1", dstPort: 8080, interface: "WAN", bytes: 60 },
-  { id: "fw12", timestamp: "2024-12-17 14:32:30", action: "allow", rule: "VPN Clients", protocol: "UDP", srcIp: "82.45.123.89", srcPort: 54321, dstIp: "192.168.1.1", dstPort: 1194, interface: "WAN", bytes: 512 },
-];
+const firewallLogs: FirewallLog[] = [];
 
 const trafficStats = {
-  totalDownload: "1.2 TB",
-  totalUpload: "342 GB",
-  currentDown: "245 Mbps",
-  currentUp: "45 Mbps",
-  wanLatency: "12ms",
-  dnsQueries: 15234,
+  totalDownload: "—",
+  totalUpload: "—",
+  currentDown: "—",
+  currentUp: "—",
+  wanLatency: "—",
+  dnsQueries: 0,
 };
 
 const severityColors = {

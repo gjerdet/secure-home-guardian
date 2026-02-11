@@ -88,17 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { success: false, error: data.error || 'Innlogging feilet' };
       }
     } catch (error) {
-      // Demo-modus: tillat innlogging med demo/demo1234 når backend ikke er tilgjengelig
-      if (username === 'demo' && password === 'demo1234') {
-        const demoUser: User = { id: 'demo-1', username: 'demo', role: 'admin' };
-        const demoToken = 'demo-token';
-        setToken(demoToken);
-        setUser(demoUser);
-        localStorage.setItem('netguard_token', demoToken);
-        localStorage.setItem('netguard_user', JSON.stringify(demoUser));
-        return { success: true };
-      }
-      return { success: false, error: 'Kunne ikke koble til server. Bruk demo/demo1234 for testmodus.' };
+      return { success: false, error: 'Kunne ikke koble til server. Sjekk at backend kjører på ' + API_URL };
     }
   };
 
