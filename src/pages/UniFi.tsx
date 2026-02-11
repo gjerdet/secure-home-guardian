@@ -982,7 +982,19 @@ export default function UniFi() {
                     {selectedDevice.name}
                   </Badge>
                   <span className="text-muted-foreground">→</span>
-                  <Badge variant="outline" className="gap-1 font-mono text-xs">
+                  <Badge
+                    variant="outline"
+                    className="gap-1 font-mono text-xs cursor-pointer hover:bg-primary/10 transition-colors"
+                    onClick={() => {
+                      const ap = liveAPs.find(a => selectedDevice.connectedTo.includes(a.name));
+                      const sw = liveSwitches.find(s => selectedDevice.connectedTo.includes(s.name));
+                      setSelectedDevice(null);
+                      setTimeout(() => {
+                        if (ap) setSelectedAP(ap);
+                        else if (sw) setSelectedSwitch(sw);
+                      }, 150);
+                    }}
+                  >
                     {selectedDevice.connection === "Ethernet" ? <Network className="h-3 w-3" /> : <Radio className="h-3 w-3" />}
                     {selectedDevice.connectedTo}
                   </Badge>
@@ -1134,20 +1146,38 @@ export default function UniFi() {
               <div>
                 <p className="text-xs text-muted-foreground font-medium mb-2">Tilkoblede klienter ({selectedAP.connectedClients.length})</p>
                 <div className="divide-y divide-border rounded-lg border border-border overflow-hidden">
-                  {selectedAP.connectedClients.map((client, idx) => (
-                    <div key={idx} className="p-3 flex items-center justify-between text-sm">
-                      <div>
-                        <p className="font-medium text-foreground">{client.name}</p>
-                        <p className="text-xs text-muted-foreground font-mono">{client.ip} • {client.band}</p>
+                  {selectedAP.connectedClients.map((client, idx) => {
+                    const device = connectedDevices.find(d => d.ip === client.ip);
+                    return (
+                      <div
+                        key={idx}
+                        className={`p-3 flex items-center justify-between text-sm ${device ? "cursor-pointer hover:bg-muted/50 transition-colors" : ""}`}
+                        onClick={() => {
+                          if (device) {
+                            setSelectedAP(null);
+                            setTimeout(() => setSelectedDevice(device), 150);
+                          }
+                        }}
+                      >
+                        <div className="flex items-center gap-2">
+                          {device && <DeviceIcon type={device.type} />}
+                          <div>
+                            <p className="font-medium text-foreground">{client.name}</p>
+                            <p className="text-xs text-muted-foreground font-mono">{client.ip} • {client.band}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-right text-xs">
+                            <p className={`font-mono ${client.signal > -50 ? "text-success" : client.signal > -65 ? "text-foreground" : "text-warning"}`}>
+                              {client.signal} dBm
+                            </p>
+                            <p className="text-muted-foreground">{client.txRate}/{client.rxRate} Mbps</p>
+                          </div>
+                          {device && <ArrowUpRight className="h-3 w-3 text-muted-foreground" />}
+                        </div>
                       </div>
-                      <div className="text-right text-xs">
-                        <p className={`font-mono ${client.signal > -50 ? "text-success" : client.signal > -65 ? "text-foreground" : "text-warning"}`}>
-                          {client.signal} dBm
-                        </p>
-                        <p className="text-muted-foreground">{client.txRate}/{client.rxRate} Mbps</p>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
@@ -1241,43 +1271,58 @@ export default function UniFi() {
                       <span>Trafikk</span>
                       <span>Handling</span>
                     </div>
-                    {selectedSwitch.portList.map((port) => (
-                      <div key={port.port} className={`grid grid-cols-[50px_1fr_80px_80px_70px_80px_80px_60px] gap-2 p-2 text-xs items-center ${port.status === "down" ? "opacity-50" : ""}`}>
-                        <span className="font-mono font-bold text-foreground">{port.port}</span>
-                        <span className="text-foreground truncate">{port.name || <span className="text-muted-foreground italic">Ledig</span>}</span>
-                        <Badge variant={port.status === "up" ? "default" : "secondary"} className={`text-[10px] justify-center ${port.status === "up" ? "bg-success/10 text-success" : ""}`}>
-                          {port.status === "up" ? "● Oppe" : "○ Nede"}
-                        </Badge>
-                        <span className="font-mono text-foreground text-[11px]">{port.speed}</span>
-                        <span className="font-mono text-foreground">{port.vlan}</span>
-                        <span className="font-mono text-foreground text-[11px]">
-                          {port.poeEnabled ? `${port.poeWatts}W` : <span className="text-muted-foreground">—</span>}
-                        </span>
-                        <span className="font-mono text-foreground text-[11px]">
-                          {port.status === "up" ? `${formatBytes(port.rxBytes + port.txBytes)}` : "—"}
-                        </span>
-                        <span>
-                          {port.poeEnabled && port.status === "up" ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 w-6 p-0"
-                              title="Power Cycle Port"
-                              onClick={() => handlePowerCyclePort(selectedSwitch.mac, port.port)}
-                              disabled={isCyclingPort === port.port}
-                            >
-                              {isCyclingPort === port.port ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : (
-                                <Zap className="h-3 w-3 text-warning" />
-                              )}
-                            </Button>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </span>
-                      </div>
-                    ))}
+                    {selectedSwitch.portList.map((port) => {
+                      const connDevice = port.name ? connectedDevices.find(d => d.connectedTo.includes(selectedSwitch.name) && d.connectedTo.includes(`Port ${port.port}`)) || connectedDevices.find(d => d.name === port.name) : null;
+                      return (
+                        <div
+                          key={port.port}
+                          className={`grid grid-cols-[50px_1fr_80px_80px_70px_80px_80px_60px] gap-2 p-2 text-xs items-center ${port.status === "down" ? "opacity-50" : ""} ${connDevice ? "cursor-pointer hover:bg-muted/50 transition-colors" : ""}`}
+                          onClick={() => {
+                            if (connDevice) {
+                              setSelectedSwitch(null);
+                              setTimeout(() => setSelectedDevice(connDevice), 150);
+                            }
+                          }}
+                        >
+                          <span className="font-mono font-bold text-foreground">{port.port}</span>
+                          <span className="text-foreground truncate flex items-center gap-1">
+                            {port.name || <span className="text-muted-foreground italic">Ledig</span>}
+                            {connDevice && <ArrowUpRight className="h-3 w-3 text-muted-foreground shrink-0" />}
+                          </span>
+                          <Badge variant={port.status === "up" ? "default" : "secondary"} className={`text-[10px] justify-center ${port.status === "up" ? "bg-success/10 text-success" : ""}`}>
+                            {port.status === "up" ? "● Oppe" : "○ Nede"}
+                          </Badge>
+                          <span className="font-mono text-foreground text-[11px]">{port.speed}</span>
+                          <span className="font-mono text-foreground">{port.vlan}</span>
+                          <span className="font-mono text-foreground text-[11px]">
+                            {port.poeEnabled ? `${port.poeWatts}W` : <span className="text-muted-foreground">—</span>}
+                          </span>
+                          <span className="font-mono text-foreground text-[11px]">
+                            {port.status === "up" ? `${formatBytes(port.rxBytes + port.txBytes)}` : "—"}
+                          </span>
+                          <span>
+                            {port.poeEnabled && port.status === "up" ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 w-6 p-0"
+                                title="Power Cycle Port"
+                                onClick={(e) => { e.stopPropagation(); handlePowerCyclePort(selectedSwitch.mac, port.port); }}
+                                disabled={isCyclingPort === port.port}
+                              >
+                                {isCyclingPort === port.port ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <Zap className="h-3 w-3 text-warning" />
+                                )}
+                              </Button>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </ScrollArea>
               </div>
