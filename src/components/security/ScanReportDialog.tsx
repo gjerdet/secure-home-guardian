@@ -20,7 +20,7 @@ interface Vulnerability {
   cvss: number;
   solution: string;
   description?: string;
-  cve?: string;
+  cve?: string[];
 }
 
 interface ScanReport {
@@ -77,7 +77,7 @@ export function ScanReportDialog({ open, onOpenChange, scan, vulnerabilities }: 
         v.name.toLowerCase().includes(query) ||
         v.host.toLowerCase().includes(query) ||
         v.solution?.toLowerCase().includes(query) ||
-        v.cve?.toLowerCase().includes(query)
+        (v.cve ? v.cve.join(' ').toLowerCase().includes(query) : false)
       );
     }
 
