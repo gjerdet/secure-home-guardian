@@ -386,6 +386,9 @@ app.get('/api/config/services', authenticateToken, (req, res) => {
       username: process.env.OPENVAS_USERNAME || 'admin',
       password: process.env.OPENVAS_PASSWORD ? '••••••••' : '',
     },
+    abuseipdb: {
+      apiKey: process.env.ABUSEIPDB_API_KEY ? '••••••••' : '',
+    },
   });
 });
 
@@ -440,6 +443,9 @@ app.post('/api/config/services', authenticateToken, (req, res) => {
         updateEnv('OPENVAS_URL', config.url);
         updateEnv('OPENVAS_USERNAME', config.username);
         updateEnv('OPENVAS_PASSWORD', config.password);
+        break;
+      case 'abuseipdb':
+        updateEnv('ABUSEIPDB_API_KEY', config.apiKey);
         break;
       default:
         return res.status(400).json({ error: `Ukjent tjeneste: ${service}` });
@@ -1515,6 +1521,98 @@ app.post('/api/system/restart/:serviceId', authenticateToken, async (req, res) =
     res.json({ success: true, message: `${serviceId} restartet` });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// AbuseIPDB API
+// ============================================
+
+// Check IP reputation via AbuseIPDB
+app.get('/api/abuseipdb/check/:ip', authenticateToken, async (req, res) => {
+  const apiKey = process.env.ABUSEIPDB_API_KEY;
+  if (!apiKey) {
+    return res.status(400).json({ error: 'AbuseIPDB API-nøkkel er ikke konfigurert. Legg den til under Innstillinger.' });
+  }
+
+  const { ip } = req.params;
+  // Basic IP validation
+  if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) {
+    return res.status(400).json({ error: 'Ugyldig IP-adresse' });
+  }
+
+  try {
+    const response = await axios.get('https://api.abuseipdb.com/api/v2/check', {
+      params: {
+        ipAddress: ip,
+        maxAgeInDays: 90,
+        verbose: true,
+      },
+      headers: {
+        Key: apiKey,
+        Accept: 'application/json',
+      },
+    });
+
+    const data = response.data?.data;
+    if (!data) {
+      return res.status(500).json({ error: 'Ugyldig svar fra AbuseIPDB' });
+    }
+
+    res.json({
+      ipAddress: data.ipAddress,
+      isPublic: data.isPublic,
+      abuseConfidenceScore: data.abuseConfidenceScore,
+      countryCode: data.countryCode,
+      countryName: data.countryName,
+      usageType: data.usageType,
+      isp: data.isp,
+      domain: data.domain,
+      isTor: data.isTor,
+      totalReports: data.totalReports,
+      numDistinctUsers: data.numDistinctUsers,
+      lastReportedAt: data.lastReportedAt,
+      reports: (data.reports || []).slice(0, 5).map((r) => ({
+        reportedAt: r.reportedAt,
+        comment: r.comment,
+        categories: r.categories,
+        reporterCountryCode: r.reporterCountryCode,
+      })),
+    });
+  } catch (error) {
+    if (error.response?.status === 429) {
+      return res.status(429).json({ error: 'AbuseIPDB rate limit nådd. Prøv igjen senere.' });
+    }
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      return res.status(401).json({ error: 'Ugyldig AbuseIPDB API-nøkkel.' });
+    }
+    console.error('AbuseIPDB feil:', error.message);
+    res.status(500).json({ error: 'Kunne ikke hente data fra AbuseIPDB' });
+  }
+});
+
+// Test AbuseIPDB connection
+app.post('/api/health/test/abuseipdb', authenticateToken, async (req, res) => {
+  const apiKey = process.env.ABUSEIPDB_API_KEY;
+  if (!apiKey) {
+    return res.json({ success: false, message: 'API-nøkkel ikke konfigurert' });
+  }
+  try {
+    const response = await axios.get('https://api.abuseipdb.com/api/v2/check', {
+      params: { ipAddress: '8.8.8.8', maxAgeInDays: 1 },
+      headers: { Key: apiKey, Accept: 'application/json' },
+    });
+    if (response.data?.data) {
+      res.json({ success: true, message: 'AbuseIPDB tilkoblet OK' });
+    } else {
+      res.json({ success: false, message: 'Uventet svar fra AbuseIPDB' });
+    }
+  } catch (error) {
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      res.json({ success: false, message: 'Ugyldig API-nøkkel' });
+    } else {
+      res.json({ success: false, message: error.message });
+    }
   }
 });
 
