@@ -58,6 +58,23 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+# Funksjon for å vise status
+status() {
+    echo -e "${GREEN}[✓]${NC} $1"
+}
+
+warn() {
+    echo -e "${YELLOW}[!]${NC} $1"
+}
+
+error() {
+    echo -e "${RED}[✗]${NC} $1"
+}
+
+info() {
+    echo -e "${CYAN}[i]${NC} $1"
+}
+
 # Sjekk Ubuntu-versjon
 check_ubuntu_version() {
     if [ ! -f /etc/os-release ]; then
@@ -91,23 +108,6 @@ check_ubuntu_version() {
 }
 
 check_ubuntu_version
-
-# Funksjon for å vise status
-status() {
-    echo -e "${GREEN}[✓]${NC} $1"
-}
-
-warn() {
-    echo -e "${YELLOW}[!]${NC} $1"
-}
-
-error() {
-    echo -e "${RED}[✗]${NC} $1"
-}
-
-info() {
-    echo -e "${CYAN}[i]${NC} $1"
-}
 
 # Spør om sikkerhetsverktøy hvis ikke spesifisert
 if [ "$SKIP_SECURITY" = false ] && [ "$INSTALL_SECURITY" = false ]; then
