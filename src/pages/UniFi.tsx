@@ -43,26 +43,6 @@ interface IdsAlert {
   isp?: string;
 }
 
-interface TrafficFlow {
-  id: string;
-  timestamp: string;
-  source: string;
-  sourceIp: string;
-  sourceMac: string;
-  destination: string;
-  destinationIp: string;
-  service: string;
-  risk: string;
-  direction: string;
-  inInterface: string;
-  outInterface: string;
-  action: string;
-  bytes: number;
-  bytesOut: number;
-  duration: number;
-  country: string;
-}
-
 const initialAlerts: IdsAlert[] = [];
 
 const connectedDevices: {
@@ -218,8 +198,6 @@ export default function UniFi() {
   const [liveTraffic, setLiveTraffic] = useState(trafficStats);
   const [liveFirewallLogs, setLiveFirewallLogs] = useState<FirewallLog[]>(firewallLogs);
   const [systemEvents, setSystemEvents] = useState<SystemEvent[]>([]);
-  const [trafficFlows, setTrafficFlows] = useState<TrafficFlow[]>([]);
-  const [flowFilter, setFlowFilter] = useState<string>("all");
   const [selectedEvent, setSelectedEvent] = useState<SystemEvent | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -231,14 +209,13 @@ export default function UniFi() {
   const fetchLiveData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [devicesRes, alertsRes, clientsRes, healthRes, idsRes, eventsRes, flowsRes] = await Promise.all([
+      const [devicesRes, alertsRes, clientsRes, healthRes, idsRes, eventsRes] = await Promise.all([
         fetchJsonSafely(`${API_BASE}/api/unifi/devices`, { headers: authHeaders }),
         fetchJsonSafely(`${API_BASE}/api/unifi/alerts`, { headers: authHeaders }),
         fetchJsonSafely(`${API_BASE}/api/unifi/clients`, { headers: authHeaders }),
         fetchJsonSafely(`${API_BASE}/api/unifi/health`, { headers: authHeaders }),
         fetchJsonSafely(`${API_BASE}/api/unifi/ids-alerts`, { headers: authHeaders }),
         fetchJsonSafely(`${API_BASE}/api/unifi/events`, { headers: authHeaders }),
-        fetchJsonSafely(`${API_BASE}/api/unifi/flows`, { headers: authHeaders }),
       ]);
 
       if (!devicesRes.ok && !alertsRes.ok && !clientsRes.ok) {
@@ -458,10 +435,7 @@ export default function UniFi() {
         if (fwLogs.length > 0) setLiveFirewallLogs(fwLogs);
       }
 
-      // Parse traffic flows
-      if (flowsRes.ok && flowsRes.data?.flows) {
-        setTrafficFlows(flowsRes.data.flows);
-      }
+      // Firewall logs come from events
     } catch (err) {
       setConnectionError(err instanceof Error ? err.message : "Nettverksfeil");
     } finally {
@@ -844,12 +818,8 @@ export default function UniFi() {
           </Card>
         </div>
 
-        <Tabs defaultValue="flows" className="space-y-4">
+        <Tabs defaultValue="ids" className="space-y-4">
           <TabsList className="bg-muted flex-wrap">
-            <TabsTrigger value="flows" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-              <ArrowUpDown className="h-4 w-4 mr-2" />
-              Traffic Flows
-            </TabsTrigger>
             <TabsTrigger value="ids" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               <ShieldAlert className="h-4 w-4 mr-2" />
               IDS/IPS Alerts
@@ -875,123 +845,6 @@ export default function UniFi() {
               System Logger
             </TabsTrigger>
           </TabsList>
-
-          {/* Traffic Flows Tab */}
-          <TabsContent value="flows">
-            <Card className="bg-card border-border">
-              <CardHeader className="border-b border-border">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2">
-                    <ArrowUpDown className="h-5 w-5 text-primary" />
-                    Traffic Flows ({trafficFlows.length})
-                  </CardTitle>
-                  <div className="flex items-center gap-2">
-                    <Select value={flowFilter} onValueChange={setFlowFilter}>
-                      <SelectTrigger className="w-[130px] h-8 text-xs bg-muted border-border">
-                        <Filter className="h-3 w-3 mr-1" />
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Alle straumar</SelectItem>
-                        <SelectItem value="blocked">Blokkert</SelectItem>
-                        <SelectItem value="threats">Truslar</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Button variant="ghost" size="icon" onClick={fetchLiveData} disabled={isLoading}>
-                      <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="p-0">
-                <ScrollArea className="h-[600px]">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead className="bg-muted/50 sticky top-0">
-                        <tr className="border-b border-border">
-                          <th className="text-left p-2 font-medium text-muted-foreground">Kilde</th>
-                          <th className="text-left p-2 font-medium text-muted-foreground">Destinasjon</th>
-                          <th className="text-left p-2 font-medium text-muted-foreground">Teneste</th>
-                          <th className="text-left p-2 font-medium text-muted-foreground">Risiko</th>
-                          <th className="text-left p-2 font-medium text-muted-foreground">Retn.</th>
-                          <th className="text-left p-2 font-medium text-muted-foreground">Inn</th>
-                          <th className="text-left p-2 font-medium text-muted-foreground">Ut</th>
-                          <th className="text-left p-2 font-medium text-muted-foreground">Handling</th>
-                          <th className="text-left p-2 font-medium text-muted-foreground">Tidspunkt</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {trafficFlows
-                          .filter(f => {
-                            if (flowFilter === 'blocked') return f.action?.toLowerCase() !== 'allow';
-                            if (flowFilter === 'threats') return f.risk !== 'low' && f.risk !== '';
-                            return true;
-                          })
-                          .map(flow => (
-                          <tr key={flow.id} className="hover:bg-muted/30 transition-colors">
-                            <td className="p-2">
-                              <div className="font-medium text-foreground">{flow.source || flow.sourceIp || '—'}</div>
-                              {flow.sourceIp && flow.source !== flow.sourceIp && (
-                                <div className="text-muted-foreground font-mono text-[10px]">{flow.sourceIp}</div>
-                              )}
-                            </td>
-                            <td className="p-2">
-                              <div className="font-medium text-foreground max-w-[200px] truncate">{flow.destination || flow.destinationIp || '—'}</div>
-                              {flow.destinationIp && flow.destination !== flow.destinationIp && (
-                                <div className="text-muted-foreground font-mono text-[10px]">{flow.destinationIp}</div>
-                              )}
-                            </td>
-                            <td className="p-2 font-mono">{flow.service || '—'}</td>
-                            <td className="p-2">
-                              <Badge className={`text-[10px] ${
-                                flow.risk === 'high' || flow.risk === 'concerning' ? 'bg-destructive/10 text-destructive' :
-                                flow.risk === 'medium' || flow.risk === 'suspicious' ? 'bg-warning/10 text-warning' :
-                                'bg-success/10 text-success'
-                              }`}>
-                                {flow.risk || 'low'}
-                              </Badge>
-                            </td>
-                            <td className="p-2">
-                              {flow.direction === 'out' || flow.direction === 'up' ? (
-                                <ArrowUpRight className="h-3.5 w-3.5 text-primary" />
-                              ) : (
-                                <ArrowDownRight className="h-3.5 w-3.5 text-success" />
-                              )}
-                            </td>
-                            <td className="p-2 text-muted-foreground">{flow.inInterface || '—'}</td>
-                            <td className="p-2 text-muted-foreground">{flow.outInterface || '—'}</td>
-                            <td className="p-2">
-                              <Badge variant="outline" className={`text-[10px] ${
-                                flow.action?.toLowerCase() === 'allow' ? 'text-success border-success/30' : 'text-destructive border-destructive/30'
-                              }`}>
-                                {flow.action || '—'}
-                              </Badge>
-                            </td>
-                            <td className="p-2 text-muted-foreground font-mono whitespace-nowrap">
-                              {flow.timestamp ? new Date(flow.timestamp).toLocaleString('nb-NO', { hour: '2-digit', minute: '2-digit' }) : '—'}
-                            </td>
-                          </tr>
-                        ))}
-                        {trafficFlows.length === 0 && (
-                          <tr>
-                            <td colSpan={9} className="p-8 text-center text-muted-foreground">
-                              {isLoading ? "Henter traffic flows..." : (
-                                <div className="flex flex-col items-center gap-2">
-                                  <ArrowUpDown className="h-8 w-8 text-muted-foreground/50" />
-                                  <p>Ingen traffic flows tilgjengelig</p>
-                                  <p className="text-[10px]">Krever UniFi Network 9.1+ og UDM Pro / UCG Max</p>
-                                </div>
-                              )}
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </ScrollArea>
-              </CardContent>
-            </Card>
-          </TabsContent>
 
           <TabsContent value="ids">
             <Card className="bg-card border-border">
@@ -1049,7 +902,23 @@ export default function UniFi() {
               <CardContent className="p-0">
                 <ScrollArea className="h-[500px]">
                   <div className="divide-y divide-border">
-                    {sortedAlerts.map((alert) => (
+                    {sortedAlerts.length === 0 ? (
+                      <div className="p-12 text-center">
+                        <div className="flex flex-col items-center gap-3">
+                          <div className="rounded-full bg-success/10 p-4">
+                            <CheckCircle className="h-8 w-8 text-success" />
+                          </div>
+                          <h3 className="text-lg font-medium text-foreground">Ingen truslar oppdaga</h3>
+                          <p className="text-sm text-muted-foreground max-w-md">
+                            IPS er aktiv og overvåkar nettverket. Ingen inntrengingsforsøk eller truslar er registrert.
+                          </p>
+                          <div className="flex items-center gap-2 mt-2">
+                            <Badge className="bg-success/10 text-success border-success/20">IPS Aktiv</Badge>
+                            <Badge variant="outline" className="text-xs">Notify & Block</Badge>
+                          </div>
+                        </div>
+                      </div>
+                    ) : sortedAlerts.map((alert) => (
                       <div key={alert.id} className="p-4 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => setSelectedAlert(alert)}>
                         <div className="flex items-start justify-between mb-2">
                           <div className="flex flex-wrap items-center gap-2">
@@ -1136,7 +1005,17 @@ export default function UniFi() {
               <CardContent className="p-0">
                 <ScrollArea className="h-[500px]">
                   <div className="divide-y divide-border">
-                    {liveFirewallLogs
+                    {liveFirewallLogs.filter(log => filterFirewall === "all" || log.action === filterFirewall).length === 0 ? (
+                      <div className="p-12 text-center">
+                        <div className="flex flex-col items-center gap-3">
+                          <Shield className="h-8 w-8 text-muted-foreground/50" />
+                          <h3 className="text-lg font-medium text-foreground">Ingen brannmurlogger</h3>
+                          <p className="text-sm text-muted-foreground max-w-md">
+                            Brannmurlogger kjem frå EVT_FW-hendingar i UniFi. Ingen slike hendingar er registrert i loggen.
+                          </p>
+                        </div>
+                      </div>
+                    ) : liveFirewallLogs
                       .filter(log => filterFirewall === "all" || log.action === filterFirewall)
                       .map((log) => (
                       <div key={log.id} className="p-4 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => setSelectedFirewallLog(log)}>

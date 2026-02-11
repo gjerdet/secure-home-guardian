@@ -57,8 +57,8 @@ const availableModules: ModuleOption[] = [
   },
   { 
     id: "iot", 
-    title: "IoT Enheter", 
-    description: "Smarte enheter på nettverket",
+    title: "Enheter", 
+    description: "Tilkoblede enheter på nettverket",
     icon: Wifi 
   },
 ];
