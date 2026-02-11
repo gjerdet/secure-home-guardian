@@ -8,11 +8,12 @@
  * - OpenVAS
  */
 
-const dotenvResult = require('dotenv').config();
+const dotenvPath = require('path').join(__dirname, '.env');
+const dotenvResult = require('dotenv').config({ path: dotenvPath });
 if (dotenvResult.error) {
-  console.warn('[dotenv] Kunne ikke laste .env:', dotenvResult.error.message);
+  console.warn('[dotenv] Kunne ikke laste .env frå', dotenvPath, ':', dotenvResult.error.message);
 } else {
-  console.log('[dotenv] Lastet .env med', Object.keys(dotenvResult.parsed || {}).length, 'variabler');
+  console.log('[dotenv] Lastet .env frå', dotenvPath, 'med', Object.keys(dotenvResult.parsed || {}).length, 'variabler');
 }
 const express = require('express');
 const cors = require('cors');
