@@ -6,6 +6,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
 import { AttackMap } from "@/components/AttackMap";
 import { exportToCSV, exportToJSON, batchLookupGeoIP } from "@/lib/ids-utils";
 import { useToast } from "@/hooks/use-toast";
@@ -47,11 +50,14 @@ const initialAlerts: IdsAlert[] = [
 ];
 
 const connectedDevices = [
-  { id: "1", name: "MacBook Pro", type: "laptop", ip: "192.168.1.10", mac: "A4:83:E7:12:34:56", connection: "5GHz", signal: -45, rxRate: 866, txRate: 866, uptime: "5d 12h" },
-  { id: "2", name: "iPhone 14 Pro", type: "phone", ip: "192.168.1.45", mac: "F0:18:98:AB:CD:EF", connection: "5GHz", signal: -52, rxRate: 780, txRate: 780, uptime: "2h 34m" },
-  { id: "3", name: "Samsung TV", type: "tv", ip: "192.168.1.52", mac: "F4:7B:09:CD:EF:12", connection: "2.4GHz", signal: -68, rxRate: 72, txRate: 72, uptime: "3d 8h" },
-  { id: "4", name: "Windows Desktop", type: "desktop", ip: "192.168.1.20", mac: "DC:4A:3E:78:90:12", connection: "Ethernet", signal: 0, rxRate: 1000, txRate: 1000, uptime: "12d 4h" },
-  { id: "5", name: "Ukjent Enhet", type: "unknown", ip: "192.168.1.99", mac: "00:1A:2B:3C:4D:5E", connection: "2.4GHz", signal: -75, rxRate: 54, txRate: 54, uptime: "45m" },
+  { id: "1", name: "MacBook Pro", type: "laptop", ip: "192.168.1.10", mac: "A4:83:E7:12:34:56", connection: "5GHz", signal: -45, rxRate: 866, txRate: 866, uptime: "5d 12h", connectedTo: "U6-Pro Stue", network: "LAN", vlan: 1, rxBytes: 125400000000, txBytes: 42300000000, channel: "36/80" },
+  { id: "2", name: "iPhone 14 Pro", type: "phone", ip: "192.168.1.45", mac: "F0:18:98:AB:CD:EF", connection: "5GHz", signal: -52, rxRate: 780, txRate: 780, uptime: "2h 34m", connectedTo: "U6-Pro Stue", network: "LAN", vlan: 1, rxBytes: 2300000000, txBytes: 450000000, channel: "36/80" },
+  { id: "3", name: "Samsung TV", type: "tv", ip: "192.168.1.52", mac: "F4:7B:09:CD:EF:12", connection: "2.4GHz", signal: -68, rxRate: 72, txRate: 72, uptime: "3d 8h", connectedTo: "U6-Lite Kontor", network: "IoT", vlan: 10, rxBytes: 89000000000, txBytes: 1200000000, channel: "6" },
+  { id: "4", name: "Windows Desktop", type: "desktop", ip: "192.168.1.20", mac: "DC:4A:3E:78:90:12", connection: "Ethernet", signal: 0, rxRate: 1000, txRate: 1000, uptime: "12d 4h", connectedTo: "USW-24-POE Port 5", network: "LAN", vlan: 1, rxBytes: 534000000000, txBytes: 156000000000, channel: null },
+  { id: "5", name: "Ukjent Enhet", type: "unknown", ip: "192.168.1.99", mac: "00:1A:2B:3C:4D:5E", connection: "2.4GHz", signal: -75, rxRate: 54, txRate: 54, uptime: "45m", connectedTo: "U6-Mesh Garasje", network: "Gjest", vlan: 20, rxBytes: 45000000, txBytes: 12000000, channel: "6" },
+  { id: "6", name: "Sonos Speaker", type: "speaker", ip: "192.168.10.15", mac: "B8:E9:37:45:67:89", connection: "2.4GHz", signal: -58, rxRate: 72, txRate: 72, uptime: "30d 8h", connectedTo: "U6-Pro Stue", network: "IoT", vlan: 10, rxBytes: 34000000000, txBytes: 500000000, channel: "6" },
+  { id: "7", name: "HP Printer", type: "printer", ip: "192.168.1.30", mac: "C4:65:16:AB:CD:01", connection: "Ethernet", signal: 0, rxRate: 100, txRate: 100, uptime: "45d 2h", connectedTo: "USW-Lite-8-POE Port 3", network: "LAN", vlan: 1, rxBytes: 1200000000, txBytes: 890000000, channel: null },
+  { id: "8", name: "Ring Doorbell", type: "camera", ip: "192.168.10.25", mac: "E0:4F:43:CD:EF:23", connection: "2.4GHz", signal: -62, rxRate: 72, txRate: 72, uptime: "14d 6h", connectedTo: "U6-Mesh Garasje", network: "IoT", vlan: 10, rxBytes: 67000000000, txBytes: 2300000000, channel: "6" },
 ];
 
 const networkDevices = {
@@ -119,6 +125,9 @@ const DeviceIcon = ({ type }: { type: string }) => {
     case "laptop": return <Laptop className="h-4 w-4" />;
     case "phone": return <Smartphone className="h-4 w-4" />;
     case "tv": case "desktop": return <Monitor className="h-4 w-4" />;
+    case "camera": return <Shield className="h-4 w-4" />;
+    case "speaker": return <Radio className="h-4 w-4" />;
+    case "printer": return <Monitor className="h-4 w-4" />;
     default: return <Router className="h-4 w-4" />;
   }
 };
@@ -129,6 +138,7 @@ export default function UniFi() {
   const [filterFirewall, setFilterFirewall] = useState<string>("all");
   const [idsAlerts, setIdsAlerts] = useState<IdsAlert[]>(initialAlerts);
   const [isLookingUp, setIsLookingUp] = useState(false);
+  const [selectedDevice, setSelectedDevice] = useState<typeof connectedDevices[0] | null>(null);
   const { toast } = useToast();
 
   // Load cached GeoIP data on mount
@@ -631,16 +641,22 @@ export default function UniFi() {
           <TabsContent value="devices">
             <Card className="bg-card border-border">
               <CardHeader className="border-b border-border">
-                <CardTitle className="flex items-center gap-2">
-                  <Users className="h-5 w-5 text-primary" />
-                  Tilkoblede Enheter
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <Users className="h-5 w-5 text-primary" />
+                    Tilkoblede Enheter ({connectedDevices.length})
+                  </CardTitle>
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1"><Wifi className="h-3 w-3" /> WiFi: {connectedDevices.filter(d => d.connection !== "Ethernet").length}</span>
+                    <span className="flex items-center gap-1"><Network className="h-3 w-3" /> Kabel: {connectedDevices.filter(d => d.connection === "Ethernet").length}</span>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent className="p-0">
                 <ScrollArea className="h-[500px]">
                   <div className="divide-y divide-border">
                     {connectedDevices.map((device) => (
-                      <div key={device.id} className="p-4 hover:bg-muted/50 transition-colors">
+                      <div key={device.id} className="p-4 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => setSelectedDevice(device)}>
                         <div className="flex items-center gap-4">
                           <div className={`rounded-lg p-2.5 ${device.type === "unknown" ? "bg-warning/10" : "bg-primary/10"}`}>
                             <DeviceIcon type={device.type} />
@@ -651,14 +667,19 @@ export default function UniFi() {
                               {device.type === "unknown" && (
                                 <AlertTriangle className="h-4 w-4 text-warning" />
                               )}
+                              <Badge variant="outline" className="text-[10px] font-mono">{device.network}</Badge>
                             </div>
                             <p className="text-xs text-muted-foreground font-mono">{device.ip} • {device.mac}</p>
+                          </div>
+                          <div className="hidden md:block text-right text-xs">
+                            <p className="text-muted-foreground">Tilkoblet via</p>
+                            <p className="font-mono text-foreground text-[11px]">{device.connectedTo}</p>
                           </div>
                           <div className="text-right text-xs">
                             <p className="text-muted-foreground">{device.connection}</p>
                             <p className="font-mono text-foreground">{device.signal !== 0 ? `${device.signal} dBm` : "Kablet"}</p>
                           </div>
-                          <div className="text-right text-xs">
+                          <div className="hidden lg:block text-right text-xs">
                             <p className="text-muted-foreground">TX/RX</p>
                             <p className="font-mono text-foreground">{device.txRate}/{device.rxRate} Mbps</p>
                           </div>
@@ -676,6 +697,121 @@ export default function UniFi() {
           </TabsContent>
         </Tabs>
       </main>
+
+      {/* Device Detail Dialog */}
+      <Dialog open={!!selectedDevice} onOpenChange={(open) => !open && setSelectedDevice(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div className={`rounded-lg p-2.5 ${selectedDevice?.type === "unknown" ? "bg-warning/10" : "bg-primary/10"}`}>
+                {selectedDevice && <DeviceIcon type={selectedDevice.type} />}
+              </div>
+              <div>
+                <span>{selectedDevice?.name}</span>
+                <div className="flex items-center gap-2 mt-1">
+                  <Badge variant="outline" className="text-[10px] font-mono">{selectedDevice?.network}</Badge>
+                  {selectedDevice?.type === "unknown" && <Badge variant="secondary" className="text-[10px] gap-1"><AlertTriangle className="h-3 w-3" />Ukjent enhet</Badge>}
+                </div>
+              </div>
+            </DialogTitle>
+          </DialogHeader>
+          {selectedDevice && (
+            <div className="space-y-4">
+              {/* Connection path */}
+              <div className="bg-muted/50 rounded-lg p-4">
+                <p className="text-xs text-muted-foreground mb-2">Tilkoblingssti</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge className="gap-1 bg-primary/10 text-primary border-primary/20">
+                    {selectedDevice.connection === "Ethernet" ? <Network className="h-3 w-3" /> : <Wifi className="h-3 w-3" />}
+                    {selectedDevice.name}
+                  </Badge>
+                  <span className="text-muted-foreground">→</span>
+                  <Badge variant="outline" className="gap-1 font-mono text-xs">
+                    {selectedDevice.connection === "Ethernet" ? <Network className="h-3 w-3" /> : <Radio className="h-3 w-3" />}
+                    {selectedDevice.connectedTo}
+                  </Badge>
+                  <span className="text-muted-foreground">→</span>
+                  <Badge variant="outline" className="gap-1 font-mono text-xs">
+                    <Router className="h-3 w-3" />
+                    {networkDevices.gateway.name}
+                  </Badge>
+                  <span className="text-muted-foreground">→</span>
+                  <Badge variant="outline" className="gap-1 font-mono text-xs">
+                    <Globe className="h-3 w-3" />
+                    WAN
+                  </Badge>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Network details */}
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between"><span className="text-muted-foreground">IP-adresse</span><span className="font-mono text-foreground">{selectedDevice.ip}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">MAC-adresse</span><span className="font-mono text-foreground text-xs">{selectedDevice.mac}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Nettverk</span><span className="text-foreground">{selectedDevice.network} (VLAN {selectedDevice.vlan})</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Tilkobling</span><span className="text-foreground">{selectedDevice.connection}</span></div>
+                {selectedDevice.channel && <div className="flex justify-between"><span className="text-muted-foreground">Kanal</span><span className="font-mono text-foreground">{selectedDevice.channel}</span></div>}
+                <div className="flex justify-between"><span className="text-muted-foreground">Tilkoblet til</span><span className="font-mono text-foreground text-xs">{selectedDevice.connectedTo}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Oppetid</span><span className="font-mono text-foreground">{selectedDevice.uptime}</span></div>
+              </div>
+
+              <Separator />
+
+              {/* Signal & speed */}
+              {selectedDevice.signal !== 0 && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-2">Signalstyrke</p>
+                  <div className="flex items-center gap-3">
+                    <Progress
+                      value={Math.min(100, Math.max(0, (selectedDevice.signal + 90) * 2.5))}
+                      className="h-2 flex-1"
+                    />
+                    <span className={`font-mono text-sm ${selectedDevice.signal > -50 ? "text-success" : selectedDevice.signal > -65 ? "text-foreground" : selectedDevice.signal > -75 ? "text-warning" : "text-destructive"}`}>
+                      {selectedDevice.signal} dBm
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {selectedDevice.signal > -50 ? "Utmerket" : selectedDevice.signal > -65 ? "Bra" : selectedDevice.signal > -75 ? "Middels" : "Svakt"} signal
+                  </p>
+                </div>
+              )}
+
+              {/* Speed */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-muted/50 rounded-lg p-3 text-center">
+                  <p className="text-xs text-muted-foreground mb-1">TX hastighet</p>
+                  <p className="font-mono font-bold text-foreground">{selectedDevice.txRate} Mbps</p>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-3 text-center">
+                  <p className="text-xs text-muted-foreground mb-1">RX hastighet</p>
+                  <p className="font-mono font-bold text-foreground">{selectedDevice.rxRate} Mbps</p>
+                </div>
+              </div>
+
+              {/* Traffic */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-muted/50 rounded-lg p-3 text-center">
+                  <p className="text-xs text-muted-foreground mb-1">Nedlastet totalt</p>
+                  <p className="font-mono font-bold text-foreground">{formatBytes(selectedDevice.rxBytes)}</p>
+                </div>
+                <div className="bg-muted/50 rounded-lg p-3 text-center">
+                  <p className="text-xs text-muted-foreground mb-1">Opplastet totalt</p>
+                  <p className="font-mono font-bold text-foreground">{formatBytes(selectedDevice.txBytes)}</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
 }
