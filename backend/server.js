@@ -947,10 +947,10 @@ app.get('/api/unifi/events', authenticateToken, async (req, res) => {
     const axOpts = { httpsAgent, headers, timeout: 15000 };
 
     let events = [];
-    // Use POST with time range to get older events (last 30 days)
+    // Use POST with _limit to get more events, and time range for history
     const now = Date.now();
     const thirtyDaysAgo = now - 30 * 86400000;
-    const postBody = { _sort: '-time', within: 720, start: thirtyDaysAgo, end: now };
+    const postBody = { _sort: '-time', _limit: 500, within: 720, start: thirtyDaysAgo, end: now };
     const eventPaths = [
       `${baseUrl}/proxy/network/api/s/${site}/stat/event`,
       `${baseUrl}/api/s/${site}/stat/event`,
@@ -984,13 +984,32 @@ app.get('/api/unifi/events', authenticateToken, async (req, res) => {
       }
     }
 
-    // Filter out excessive roaming events, keep infrastructure events
+    console.log(`[UniFi] Raw events fetched: ${events.length}`);
+
+    // Local regex-based filtering: classify events into security vs infrastructure vs noise
+    const securityPattern = /ips|ids|threat|suricata|block|blocked|deny|drop|firewall|reject/i;
     const roamingKeys = ['EVT_WU_RoamRadio', 'EVT_WU_Roam'];
-    const importantEvents = events.filter(e => !roamingKeys.includes(e.key));
-    // If we have enough non-roaming events, use those; otherwise include some roaming
-    const finalEvents = importantEvents.length >= 10
-      ? importantEvents
-      : [...importantEvents, ...events.filter(e => roamingKeys.includes(e.key)).slice(0, 20)];
+
+    const classifyEvent = (e) => {
+      const text = [e.subsystem || '', e.key || '', e.msg || ''].join(' ');
+      if (securityPattern.test(text)) return 'security';
+      if (roamingKeys.includes(e.key)) return 'roaming';
+      return 'infrastructure';
+    };
+
+    const classified = events.map(e => ({ ...e, _class: classifyEvent(e) }));
+    const securityEvents = classified.filter(e => e._class === 'security');
+    const infraEvents = classified.filter(e => e._class === 'infrastructure');
+    const roamingEvents = classified.filter(e => e._class === 'roaming');
+
+    console.log(`[UniFi] Classified: security=${securityEvents.length}, infra=${infraEvents.length}, roaming=${roamingEvents.length}`);
+
+    // Priority: security first, then infrastructure, then a few roaming as filler
+    const finalEvents = [
+      ...securityEvents,
+      ...infraEvents,
+      ...roamingEvents.slice(0, Math.max(0, 20 - securityEvents.length - infraEvents.length)),
+    ].slice(0, 500);
 
     const normalized = finalEvents.slice(0, 500).map(e => {
       // Extract client MAC from various UniFi event fields
@@ -1012,7 +1031,7 @@ app.get('/api/unifi/events', authenticateToken, async (req, res) => {
         key: e.key || '',
         msg: e.msg || e.message || '',
         subsystem: e.subsystem || '',
-        type: e.key?.startsWith('EVT_IPS') ? 'ids' : e.key?.startsWith('EVT_FW') ? 'firewall' : 'system',
+        type: e._class === 'security' ? (e.key?.startsWith('EVT_IPS') ? 'ids' : 'firewall') : e._class === 'roaming' ? 'roaming' : 'system',
         srcIp: e.src_ip || '',
         dstIp: e.dst_ip || '',
         srcPort: e.src_port || 0,
