@@ -754,25 +754,44 @@ app.get('/api/unifi/ids-alerts', authenticateToken, async (req, res) => {
       }
     }
 
-    // 3) Fallback: stat/event with POST + filter for IPS/IDS only
+    // 3) Fallback: stat/event with POST then GET + filter for IPS/IDS only
     if (alerts.length === 0) {
+      const fallbackUrl = `${baseUrl}/proxy/network/api/s/${site}/stat/event`;
+      const idsFilter = (a) =>
+        a.key?.includes('EVT_IPS') ||
+        a.key?.includes('EVT_IDS') ||
+        a.key?.includes('EVT_FW') ||
+        a.catname?.toLowerCase().includes('attack') ||
+        a.catname?.toLowerCase().includes('intrusion') ||
+        a.catname?.toLowerCase().includes('threat') ||
+        a.inner_alert_signature ||
+        a.subsystem === 'ids' ||
+        a.subsystem === 'ips';
+
+      // Try POST first
       try {
-        const fallbackUrl = `${baseUrl}/proxy/network/api/s/${site}/stat/event`;
         console.log(`[UniFi] IDS fallback: stat/event POST with filtering`);
         const r = await axios.post(fallbackUrl, postBody, axOpts);
         const data = r.data?.data || [];
-        alerts = data.filter(a =>
-          a.key?.includes('EVT_IPS') ||
-          a.key?.includes('EVT_IDS') ||
-          a.key?.includes('EVT_FW') ||
-          a.catname?.toLowerCase().includes('attack') ||
-          a.catname?.toLowerCase().includes('intrusion') ||
-          a.catname?.toLowerCase().includes('threat') ||
-          a.inner_alert_signature
-        );
-        console.log(`[UniFi] IDS fallback: filtered ${data.length} -> ${alerts.length} security events`);
+        if (data.length > 0) {
+          alerts = data.filter(idsFilter);
+          console.log(`[UniFi] IDS fallback POST: filtered ${data.length} -> ${alerts.length} security events`);
+        }
       } catch (e) {
-        console.log(`[UniFi] IDS fallback fail: ${e.response?.status || e.message}`);
+        console.log(`[UniFi] IDS fallback POST fail: ${e.response?.status || e.message}`);
+      }
+
+      // If POST returned 0 or failed, try GET (which works on this firmware)
+      if (alerts.length === 0) {
+        try {
+          console.log(`[UniFi] IDS fallback: stat/event GET with filtering`);
+          const r = await axios.get(fallbackUrl, axOpts);
+          const data = r.data?.data || [];
+          alerts = data.filter(idsFilter);
+          console.log(`[UniFi] IDS fallback GET: filtered ${data.length} -> ${alerts.length} security events`);
+        } catch (e) {
+          console.log(`[UniFi] IDS fallback GET fail: ${e.response?.status || e.message}`);
+        }
       }
     }
 
