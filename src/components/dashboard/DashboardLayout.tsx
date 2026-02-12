@@ -94,7 +94,6 @@ export function DashboardLayout() {
 
   const renderModule = (config: ModuleConfig, index: number) => {
     const Component = moduleComponents[config.id];
-    const enabledIndex = enabledModules.findIndex((m) => m.id === config.id);
     
     return (
       <DashboardModule
@@ -118,25 +117,27 @@ export function DashboardLayout() {
   const gridModules = modules.filter((m) => m.id !== "status-cards" && m.enabled);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Edit Mode Controls */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
           <Button
             variant={isEditMode ? "default" : "outline"}
             size="sm"
             onClick={() => setIsEditMode(!isEditMode)}
-            className="gap-2"
+            className="gap-1.5 sm:gap-2 h-8 text-xs sm:text-sm"
           >
             {isEditMode ? (
               <>
-                <X className="h-4 w-4" />
-                Avslutt redigering
+                <X className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">Avslutt redigering</span>
+                <span className="sm:hidden">Ferdig</span>
               </>
             ) : (
               <>
-                <Settings2 className="h-4 w-4" />
-                Rediger dashboard
+                <Settings2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">Rediger dashboard</span>
+                <span className="sm:hidden">Rediger</span>
               </>
             )}
           </Button>
@@ -151,10 +152,10 @@ export function DashboardLayout() {
                 variant="ghost"
                 size="sm"
                 onClick={handleReset}
-                className="gap-2 text-muted-foreground"
+                className="gap-1.5 text-muted-foreground h-8 text-xs sm:text-sm"
               >
-                <RotateCcw className="h-4 w-4" />
-                Tilbakestill
+                <RotateCcw className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">Tilbakestill</span>
               </Button>
             </>
           )}
@@ -166,11 +167,11 @@ export function DashboardLayout() {
         renderModule(modules[statusCardsIndex], statusCardsIndex)
       )}
 
-      {/* Main Grid - 3 Columns */}
+      {/* Main Grid - responsive columns */}
       {gridModules.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
           {/* Column 1 - System Metrics */}
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-6">
             {modules.map((config, index) => {
               if (config.id === "system-metrics" && config.enabled) {
                 return renderModule(config, index);
@@ -180,7 +181,7 @@ export function DashboardLayout() {
           </div>
 
           {/* Column 2 - Logs & Scan */}
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-6">
             {modules.map((config, index) => {
               if ((config.id === "logs" || config.id === "scan") && config.enabled) {
                 return renderModule(config, index);
@@ -190,7 +191,7 @@ export function DashboardLayout() {
           </div>
 
           {/* Column 3 - IoT */}
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-6 md:col-span-2 lg:col-span-1">
             {modules.map((config, index) => {
               if (config.id === "iot" && config.enabled) {
                 return renderModule(config, index);
@@ -203,8 +204,8 @@ export function DashboardLayout() {
 
       {/* Empty State */}
       {enabledModules.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <p className="text-muted-foreground mb-4">Ingen moduler er aktive</p>
+        <div className="flex flex-col items-center justify-center py-12 sm:py-20 text-center">
+          <p className="text-muted-foreground mb-4 text-sm sm:text-base">Ingen moduler er aktive</p>
           <AddModuleDialog 
             onAdd={handleAddModule} 
             existingModules={modules.map((m) => m.id)} 

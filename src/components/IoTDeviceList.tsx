@@ -39,51 +39,51 @@ export function IoTDeviceList({ devices, className }: IoTDeviceListProps) {
         className
       )}
     >
-      <div className="border-b border-border px-4 py-3 flex items-center justify-between">
-        <h3 className="font-semibold text-foreground">Enheter</h3>
-        <span className="text-xs text-muted-foreground">
+      <div className="border-b border-border px-3 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between">
+        <h3 className="font-semibold text-foreground text-sm sm:text-base">Enheter</h3>
+        <span className="text-[10px] sm:text-xs text-muted-foreground">
           <span className="text-success font-mono">{onlineCount}</span> /{" "}
           <span className="font-mono">{devices.length}</span> online
         </span>
       </div>
-      <ScrollArea className="h-[280px]">
-        <div className="p-2 space-y-1">
+      <ScrollArea className="h-[250px] sm:h-[280px]">
+        <div className="p-1.5 sm:p-2 space-y-0.5 sm:space-y-1">
           {devices.map((device) => (
             <div
               key={device.id}
               onClick={() => setSelectedDevice(device)}
-              className="flex items-center gap-3 p-3 rounded-md hover:bg-muted/50 transition-colors cursor-pointer"
+              className="flex items-center gap-2 sm:gap-3 p-2 sm:p-3 rounded-md hover:bg-muted/50 transition-colors cursor-pointer"
             >
               <div
                 className={cn(
-                  "rounded-lg p-2",
+                  "rounded-lg p-1.5 sm:p-2 shrink-0",
                   device.status === "online"
                     ? "bg-success/10"
                     : "bg-destructive/10"
                 )}
               >
                 {device.status === "online" ? (
-                  <Wifi className="h-4 w-4 text-success" />
+                  <Wifi className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-success" />
                 ) : (
-                  <WifiOff className="h-4 w-4 text-destructive" />
+                  <WifiOff className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-destructive" />
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium text-foreground truncate">
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                  <p className="text-xs sm:text-sm font-medium text-foreground truncate">
                     {device.name}
                   </p>
                   {device.trusted ? (
-                    <Shield className="h-3.5 w-3.5 text-success" />
+                    <Shield className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-success shrink-0" />
                   ) : (
-                    <ShieldAlert className="h-3.5 w-3.5 text-warning" />
+                    <ShieldAlert className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-warning shrink-0" />
                   )}
                 </div>
-                <p className="text-xs text-muted-foreground font-mono">
+                <p className="text-[10px] sm:text-xs text-muted-foreground font-mono truncate">
                   {device.ip} • {device.mac}
                 </p>
               </div>
-              <span className="text-xs text-muted-foreground">{device.lastSeen}</span>
+              <span className="text-[10px] sm:text-xs text-muted-foreground shrink-0 hidden sm:block">{device.lastSeen}</span>
             </div>
           ))}
         </div>

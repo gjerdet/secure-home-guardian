@@ -6,7 +6,7 @@ const Index = () => {
     <div className="min-h-screen bg-background cyber-grid">
       <Header />
 
-      <main className="container mx-auto px-4 py-6">
+      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-6">
         <DashboardLayout />
       </main>
     </div>
