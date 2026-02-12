@@ -900,37 +900,68 @@ app.get('/api/unifi/dpi', authenticateToken, async (req, res) => {
     let dpiData = [];
     let clientDpi = [];
 
-    // Site-level DPI stats
+    // Time range: last 30 days
+    const now = Math.floor(Date.now() / 1000);
+    const thirtyDaysAgo = now - (30 * 24 * 60 * 60);
+    const postBody = { attrs: ['bytes', 'rx_bytes', 'tx_bytes'], start: thirtyDaysAgo, end: now };
+
+    // Site-level DPI stats - try POST first (like other stat endpoints), then GET
     const dpiPaths = [
       { url: `${baseUrl}/proxy/network/api/s/${site}/stat/sitedpi`, label: 'stat/sitedpi' },
       { url: `${baseUrl}/proxy/network/api/s/${site}/stat/dpi`, label: 'stat/dpi' },
     ];
 
     for (const p of dpiPaths) {
+      // Try POST with time range first
       try {
-        console.log(`[UniFi] DPI trying: ${p.label}`);
-        const r = await axios.get(p.url, axOpts);
+        console.log(`[UniFi] DPI trying POST: ${p.label}`);
+        const r = await axios.post(p.url, postBody, axOpts);
         const data = r.data?.data || r.data || [];
         const items = Array.isArray(data) ? data : [];
-        console.log(`[UniFi] DPI OK: ${p.label} -> ${items.length} entries, keys: ${items[0] ? Object.keys(items[0]).join(',') : 'empty'}`);
+        console.log(`[UniFi] DPI POST OK: ${p.label} -> ${items.length} entries, keys: ${items[0] ? Object.keys(items[0]).join(',') : 'empty'}`);
         if (items.length > 0) {
           dpiData = items;
           break;
         }
       } catch (e) {
-        console.log(`[UniFi] DPI fail: ${p.label} -> ${e.response?.status || e.message}`);
+        console.log(`[UniFi] DPI POST fail: ${p.label} -> ${e.response?.status || e.message}`);
+      }
+
+      // Fallback: GET
+      try {
+        console.log(`[UniFi] DPI trying GET: ${p.label}`);
+        const r = await axios.get(p.url, axOpts);
+        const data = r.data?.data || r.data || [];
+        const items = Array.isArray(data) ? data : [];
+        console.log(`[UniFi] DPI GET OK: ${p.label} -> ${items.length} entries, keys: ${items[0] ? Object.keys(items[0]).join(',') : 'empty'}`);
+        if (items.length > 0) {
+          dpiData = items;
+          break;
+        }
+      } catch (e) {
+        console.log(`[UniFi] DPI GET fail: ${p.label} -> ${e.response?.status || e.message}`);
       }
     }
 
-    // Per-client DPI stats
+    // Per-client DPI stats - try POST first, then GET
+    const stadpiUrl = `${baseUrl}/proxy/network/api/s/${site}/stat/stadpi`;
     try {
-      console.log(`[UniFi] DPI trying: stat/stadpi`);
-      const r = await axios.get(`${baseUrl}/proxy/network/api/s/${site}/stat/stadpi`, axOpts);
+      console.log(`[UniFi] DPI trying POST: stat/stadpi`);
+      const r = await axios.post(stadpiUrl, postBody, axOpts);
       const data = r.data?.data || r.data || [];
       clientDpi = Array.isArray(data) ? data : [];
-      console.log(`[UniFi] DPI stadpi OK: ${clientDpi.length} clients`);
+      console.log(`[UniFi] DPI stadpi POST OK: ${clientDpi.length} clients`);
     } catch (e) {
-      console.log(`[UniFi] DPI stadpi fail: ${e.response?.status || e.message}`);
+      console.log(`[UniFi] DPI stadpi POST fail: ${e.response?.status || e.message}`);
+      try {
+        console.log(`[UniFi] DPI trying GET: stat/stadpi`);
+        const r = await axios.get(stadpiUrl, axOpts);
+        const data = r.data?.data || r.data || [];
+        clientDpi = Array.isArray(data) ? data : [];
+        console.log(`[UniFi] DPI stadpi GET OK: ${clientDpi.length} clients`);
+      } catch (e2) {
+        console.log(`[UniFi] DPI stadpi GET fail: ${e2.response?.status || e2.message}`);
+      }
     }
 
     // UniFi DPI category names
