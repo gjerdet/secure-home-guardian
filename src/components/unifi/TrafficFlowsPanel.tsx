@@ -38,10 +38,12 @@ interface DpiCategory {
   rxBytes: number;
   txBytes: number;
   totalBytes: number;
+  clientCount?: number;
 }
 
 interface DpiApp {
   name: string;
+  count?: number;
   rxBytes: number;
   txBytes: number;
   totalBytes: number;
@@ -52,6 +54,8 @@ interface DpiClient {
   name: string;
   rxBytes: number;
   txBytes: number;
+  ip?: string;
+  network?: string;
 }
 
 function formatBytes(bytes: number): string {
@@ -90,6 +94,9 @@ export function TrafficFlowsPanel() {
   const [dpiCategories, setDpiCategories] = useState<DpiCategory[]>([]);
   const [dpiApps, setDpiApps] = useState<DpiApp[]>([]);
   const [dpiClients, setDpiClients] = useState<DpiClient[]>([]);
+  const [totalRx, setTotalRx] = useState(0);
+  const [totalTx, setTotalTx] = useState(0);
+  const [totalClients, setTotalClients] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -109,6 +116,9 @@ export function TrafficFlowsPanel() {
         setDpiCategories(d.categories || []);
         setDpiApps(d.topApps || []);
         setDpiClients(d.topClients || []);
+        setTotalRx(d.totalRx || 0);
+        setTotalTx(d.totalTx || 0);
+        setTotalClients(d.totalClients || 0);
       }
     } catch {
       toast.error("Kunne ikke hente trafikkdata");
@@ -195,36 +205,33 @@ export function TrafficFlowsPanel() {
 
       {/* Top Stats Row - like UniFi */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        {/* Flow Summary */}
+        {/* Traffic Summary */}
         <Card className="bg-card border-border">
           <CardHeader className="pb-2 pt-3 px-4">
-            <CardTitle className="text-xs text-muted-foreground font-medium">Flow Summary</CardTitle>
+            <CardTitle className="text-xs text-muted-foreground font-medium">Trafikkoversikt</CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-3 space-y-1.5">
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Total</span>
-              <span className="font-mono font-bold">{formatNumber(flowSummary.total)}</span>
+              <span className="text-muted-foreground">Klientar</span>
+              <span className="font-mono font-bold">{formatNumber(totalClients)}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                Low
+                <ArrowDownRight className="h-3 w-3 text-blue-400" />
+                Nedlasta
               </span>
-              <span className="font-mono text-emerald-400">{formatNumber(flowSummary.lowRisk)}</span>
+              <span className="font-mono text-blue-400">{formatBytes(totalRx)}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-warning" />
-                Suspicious
+                <ArrowUpRight className="h-3 w-3 text-emerald-400" />
+                Opplasta
               </span>
-              <span className="font-mono text-warning">{formatNumber(flowSummary.suspicious)}</span>
+              <span className="font-mono text-emerald-400">{formatBytes(totalTx)}</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-destructive" />
-                Concerning
-              </span>
-              <span className="font-mono text-destructive">{formatNumber(flowSummary.concerning)}</span>
+              <span className="text-muted-foreground">Totalt</span>
+              <span className="font-mono font-bold">{formatBytes(totalRx + totalTx)}</span>
             </div>
           </CardContent>
         </Card>
@@ -249,36 +256,37 @@ export function TrafficFlowsPanel() {
         {/* Top Clients */}
         <Card className="bg-card border-border">
           <CardHeader className="pb-2 pt-3 px-4">
-            <CardTitle className="text-xs text-muted-foreground font-medium">Top Clients</CardTitle>
+            <CardTitle className="text-xs text-muted-foreground font-medium">Top Klientar</CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-3 space-y-1">
-            {(dpiClients.length > 0 ? dpiClients.slice(0, 5) : topFlowClients).map((c, i) => (
+            {dpiClients.length > 0 ? dpiClients.slice(0, 5).map((c, i) => (
               <div key={i} className="flex justify-between text-xs">
-                <span className="truncate max-w-[60%]">{c.name}</span>
+                <span className="truncate max-w-[55%]" title={c.ip || c.mac}>{c.name}</span>
                 <span className="font-mono text-muted-foreground">
-                  {'rxBytes' in c ? formatBytes((c as DpiClient).rxBytes + (c as DpiClient).txBytes) : formatNumber((c as any).count)}
+                  {formatBytes(c.rxBytes + c.txBytes)}
                 </span>
               </div>
-            ))}
-            {dpiClients.length === 0 && topFlowClients.length === 0 && (
+            )) : (
               <p className="text-xs text-muted-foreground">Ingen data</p>
             )}
           </CardContent>
         </Card>
 
-        {/* Top Apps (DPI) */}
+        {/* Top Hendingstypar */}
         <Card className="bg-card border-border">
           <CardHeader className="pb-2 pt-3 px-4">
-            <CardTitle className="text-xs text-muted-foreground font-medium">Top Apps</CardTitle>
+            <CardTitle className="text-xs text-muted-foreground font-medium">Hendingstypar</CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-3 space-y-1">
             {dpiApps.length > 0 ? dpiApps.slice(0, 5).map((a, i) => (
               <div key={i} className="flex justify-between text-xs">
                 <span className="truncate max-w-[60%]">{a.name}</span>
-                <span className="font-mono text-muted-foreground">{formatBytes(a.totalBytes)}</span>
+                <span className="font-mono text-muted-foreground">
+                  {a.count ? formatNumber(a.count) : formatBytes(a.totalBytes)}
+                </span>
               </div>
             )) : (
-              <p className="text-xs text-muted-foreground">Ingen DPI-data</p>
+              <p className="text-xs text-muted-foreground">Ingen data</p>
             )}
           </CardContent>
         </Card>
@@ -290,7 +298,7 @@ export function TrafficFlowsPanel() {
           <CardHeader className="border-b border-border py-3">
             <div className="flex items-center gap-2">
               <BarChart3 className="h-4 w-4 text-primary" />
-              <CardTitle className="text-sm">DPI Kategoriar</CardTitle>
+              <CardTitle className="text-sm">Trafikk per nettverk</CardTitle>
               <Badge variant="outline" className="text-[10px]">{formatBytes(totalDpiBytes)} totalt</Badge>
             </div>
           </CardHeader>

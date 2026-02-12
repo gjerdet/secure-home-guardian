@@ -888,142 +888,141 @@ app.get('/api/unifi/flows', authenticateToken, async (req, res) => {
   }
 });
 
-// DPI (Deep Packet Inspection) stats - app usage and traffic categories
+// Traffic & DPI stats - client traffic + event-based analysis
 app.get('/api/unifi/dpi', authenticateToken, async (req, res) => {
   try {
     const baseUrl = process.env.UNIFI_CONTROLLER_URL;
     const apiKey = process.env.UNIFI_API_KEY;
     const site = await discoverUnifiSiteId();
-    const headers = { 'X-API-Key': apiKey };
+    const headers = { 'X-API-Key': apiKey, 'Content-Type': 'application/json' };
     const axOpts = { httpsAgent, headers, timeout: 15000 };
 
-    let dpiData = [];
-    let clientDpi = [];
+    // 1) Get all clients with traffic stats from stat/sta
+    let clients = [];
+    try {
+      const r = await axios.get(`${baseUrl}/proxy/network/api/s/${site}/stat/sta`, axOpts);
+      clients = r.data?.data || [];
+      console.log(`[UniFi] Traffic: stat/sta -> ${clients.length} clients`);
+    } catch (e) {
+      console.log(`[UniFi] Traffic: stat/sta fail -> ${e.response?.status || e.message}`);
+    }
 
-    // Time range: last 30 days
+    // 2) Get recent events (last 30 days) for connection-level data
+    let events = [];
     const now = Math.floor(Date.now() / 1000);
     const thirtyDaysAgo = now - (30 * 24 * 60 * 60);
-    const postBody = { attrs: ['bytes', 'rx_bytes', 'tx_bytes'], start: thirtyDaysAgo, end: now };
-
-    // Site-level DPI stats - try POST first (like other stat endpoints), then GET
-    const dpiPaths = [
-      { url: `${baseUrl}/proxy/network/api/s/${site}/stat/sitedpi`, label: 'stat/sitedpi' },
-      { url: `${baseUrl}/proxy/network/api/s/${site}/stat/dpi`, label: 'stat/dpi' },
-    ];
-
-    for (const p of dpiPaths) {
-      // Try POST with time range first
-      try {
-        console.log(`[UniFi] DPI trying POST: ${p.label}`);
-        const r = await axios.post(p.url, postBody, axOpts);
-        const data = r.data?.data || r.data || [];
-        const items = Array.isArray(data) ? data : [];
-        console.log(`[UniFi] DPI POST OK: ${p.label} -> ${items.length} entries, keys: ${items[0] ? Object.keys(items[0]).join(',') : 'empty'}`);
-        if (items.length > 0) {
-          dpiData = items;
-          break;
-        }
-      } catch (e) {
-        console.log(`[UniFi] DPI POST fail: ${p.label} -> ${e.response?.status || e.message}`);
-      }
-
-      // Fallback: GET
-      try {
-        console.log(`[UniFi] DPI trying GET: ${p.label}`);
-        const r = await axios.get(p.url, axOpts);
-        const data = r.data?.data || r.data || [];
-        const items = Array.isArray(data) ? data : [];
-        console.log(`[UniFi] DPI GET OK: ${p.label} -> ${items.length} entries, keys: ${items[0] ? Object.keys(items[0]).join(',') : 'empty'}`);
-        if (items.length > 0) {
-          dpiData = items;
-          break;
-        }
-      } catch (e) {
-        console.log(`[UniFi] DPI GET fail: ${p.label} -> ${e.response?.status || e.message}`);
-      }
-    }
-
-    // Per-client DPI stats - try POST first, then GET
-    const stadpiUrl = `${baseUrl}/proxy/network/api/s/${site}/stat/stadpi`;
     try {
-      console.log(`[UniFi] DPI trying POST: stat/stadpi`);
-      const r = await axios.post(stadpiUrl, postBody, axOpts);
-      const data = r.data?.data || r.data || [];
-      clientDpi = Array.isArray(data) ? data : [];
-      console.log(`[UniFi] DPI stadpi POST OK: ${clientDpi.length} clients`);
+      const r = await axios.get(`${baseUrl}/proxy/network/api/s/${site}/stat/event`, axOpts);
+      events = r.data?.data || [];
+      console.log(`[UniFi] Traffic: stat/event -> ${events.length} events`);
     } catch (e) {
-      console.log(`[UniFi] DPI stadpi POST fail: ${e.response?.status || e.message}`);
-      try {
-        console.log(`[UniFi] DPI trying GET: stat/stadpi`);
-        const r = await axios.get(stadpiUrl, axOpts);
-        const data = r.data?.data || r.data || [];
-        clientDpi = Array.isArray(data) ? data : [];
-        console.log(`[UniFi] DPI stadpi GET OK: ${clientDpi.length} clients`);
-      } catch (e2) {
-        console.log(`[UniFi] DPI stadpi GET fail: ${e2.response?.status || e2.message}`);
-      }
+      console.log(`[UniFi] Traffic: stat/event fail -> ${e.response?.status || e.message}`);
     }
 
-    // UniFi DPI category names
-    const catNames = {
-      0: 'Instant Messaging', 1: 'P2P', 2: 'File Transfer', 3: 'Streaming Media',
-      4: 'Mail & Calendar', 5: 'VoIP & Video', 6: 'Database', 7: 'Gaming',
-      8: 'Network Management', 10: 'Web', 13: 'Security & VPN', 14: 'Ad & Analytics',
-      15: 'Social', 17: 'Education', 18: 'Shopping', 20: 'Productivity',
-      23: 'Cloud', 24: 'IoT', 255: 'Other',
-    };
+    // 3) Try DPI stat endpoints (may return data on some firmware)
+    let dpiData = [];
+    const dpiPaths = [
+      `${baseUrl}/proxy/network/api/s/${site}/stat/sitedpi`,
+      `${baseUrl}/proxy/network/api/s/${site}/stat/dpi`,
+    ];
+    for (const url of dpiPaths) {
+      try {
+        const r = await axios.get(url, axOpts);
+        const items = r.data?.data || [];
+        const hasData = items.some(i => i.by_cat || i.by_app);
+        if (hasData) { dpiData = items; break; }
+      } catch (_) {}
+    }
 
-    // Aggregate by category
-    const categoryStats = {};
-    dpiData.forEach(entry => {
-      if (entry.by_cat) {
-        entry.by_cat.forEach(c => {
-          const name = catNames[c.cat] || `Category ${c.cat}`;
-          if (!categoryStats[name]) categoryStats[name] = { rxBytes: 0, txBytes: 0 };
-          categoryStats[name].rxBytes += c.rx_bytes || 0;
-          categoryStats[name].txBytes += c.tx_bytes || 0;
-        });
-      }
-    });
-
-    // Top apps from by_app entries
-    const appStats = {};
-    dpiData.forEach(entry => {
-      if (entry.by_app) {
-        entry.by_app.forEach(a => {
-          const appName = a.app_name || a.name || `App ${a.cat}:${a.app}`;
-          if (!appStats[appName]) appStats[appName] = { rxBytes: 0, txBytes: 0, cat: a.cat };
-          appStats[appName].rxBytes += a.rx_bytes || 0;
-          appStats[appName].txBytes += a.tx_bytes || 0;
-        });
-      }
-    });
-
-    // Top clients by traffic
-    const topClients = clientDpi
+    // Build top clients by traffic volume
+    const topClients = clients
       .map(c => ({
         mac: c.mac || '',
-        name: c.name || c.hostname || c.mac || 'Unknown',
-        rxBytes: (c.by_cat || []).reduce((s, cat) => s + (cat.rx_bytes || 0), 0),
-        txBytes: (c.by_cat || []).reduce((s, cat) => s + (cat.tx_bytes || 0), 0),
+        name: c.name || c.hostname || c.oui || c.mac || 'Unknown',
+        rxBytes: c.rx_bytes || c['wired-rx_bytes'] || 0,
+        txBytes: c.tx_bytes || c['wired-tx_bytes'] || 0,
+        ip: c.ip || '',
+        network: c.network || c.essid || '',
+        lastSeen: c.last_seen || 0,
       }))
       .filter(c => c.rxBytes + c.txBytes > 0)
       .sort((a, b) => (b.rxBytes + b.txBytes) - (a.rxBytes + a.txBytes))
-      .slice(0, 20);
+      .slice(0, 30);
 
-    const categories = Object.entries(categoryStats)
-      .map(([name, stats]) => ({ name, ...stats, totalBytes: stats.rxBytes + stats.txBytes }))
+    // Build traffic categories from client usage patterns
+    const networkGroups = {};
+    clients.forEach(c => {
+      const net = c.network || c.essid || (c.is_wired ? 'Wired' : 'Wireless');
+      if (!networkGroups[net]) networkGroups[net] = { rxBytes: 0, txBytes: 0, count: 0 };
+      networkGroups[net].rxBytes += c.rx_bytes || 0;
+      networkGroups[net].txBytes += c.tx_bytes || 0;
+      networkGroups[net].count++;
+    });
+
+    const categories = Object.entries(networkGroups)
+      .map(([name, s]) => ({ name, rxBytes: s.rxBytes, txBytes: s.txBytes, totalBytes: s.rxBytes + s.txBytes, clientCount: s.count }))
       .sort((a, b) => b.totalBytes - a.totalBytes);
 
+    // Build "top apps" from event subsystems/keys
+    const appStats = {};
+    events.forEach(ev => {
+      const key = ev.subsystem || ev.key || 'unknown';
+      if (!appStats[key]) appStats[key] = { count: 0, totalBytes: 0 };
+      appStats[key].count++;
+      appStats[key].totalBytes += ev.bytes || 0;
+    });
     const topApps = Object.entries(appStats)
-      .map(([name, stats]) => ({ name, ...stats, totalBytes: stats.rxBytes + stats.txBytes }))
-      .sort((a, b) => b.totalBytes - a.totalBytes)
+      .map(([name, s]) => ({ name, count: s.count, totalBytes: s.totalBytes, rxBytes: 0, txBytes: 0 }))
+      .sort((a, b) => b.count - a.count)
       .slice(0, 20);
 
-    console.log(`[UniFi] DPI: returning ${categories.length} categories, ${topApps.length} apps, ${topClients.length} clients`);
-    res.json({ categories, topApps, topClients, raw: dpiData.length });
+    // If real DPI data exists, override categories
+    if (dpiData.length > 0) {
+      const catNames = {
+        0: 'Instant Messaging', 1: 'P2P', 2: 'File Transfer', 3: 'Streaming Media',
+        4: 'Mail & Calendar', 5: 'VoIP & Video', 6: 'Database', 7: 'Gaming',
+        8: 'Network Management', 10: 'Web', 13: 'Security & VPN', 14: 'Ad & Analytics',
+        15: 'Social', 17: 'Education', 18: 'Shopping', 20: 'Productivity',
+        23: 'Cloud', 24: 'IoT', 255: 'Other',
+      };
+      const dpiCats = {};
+      dpiData.forEach(entry => {
+        if (entry.by_cat) {
+          entry.by_cat.forEach(c => {
+            const name = catNames[c.cat] || `Category ${c.cat}`;
+            if (!dpiCats[name]) dpiCats[name] = { rxBytes: 0, txBytes: 0 };
+            dpiCats[name].rxBytes += c.rx_bytes || 0;
+            dpiCats[name].txBytes += c.tx_bytes || 0;
+          });
+        }
+      });
+      const dpiCategories = Object.entries(dpiCats)
+        .map(([name, s]) => ({ name, ...s, totalBytes: s.rxBytes + s.txBytes }))
+        .sort((a, b) => b.totalBytes - a.totalBytes);
+      if (dpiCategories.length > 0) {
+        categories.length = 0;
+        categories.push(...dpiCategories);
+      }
+    }
+
+    // Total traffic stats
+    const totalRx = clients.reduce((s, c) => s + (c.rx_bytes || 0), 0);
+    const totalTx = clients.reduce((s, c) => s + (c.tx_bytes || 0), 0);
+
+    console.log(`[UniFi] Traffic: returning ${categories.length} categories, ${topApps.length} event types, ${topClients.length} clients, total ${((totalRx+totalTx)/1e9).toFixed(1)} GB`);
+    res.json({
+      categories,
+      topApps,
+      topClients,
+      totalRx,
+      totalTx,
+      totalClients: clients.length,
+      totalEvents: events.length,
+      raw: dpiData.length,
+      dpiEnabled: dpiData.length > 0,
+    });
   } catch (error) {
-    console.error('[UniFi] DPI error:', error.message);
+    console.error('[UniFi] Traffic error:', error.message);
     res.status(500).json({ error: error.message, categories: [], topApps: [], topClients: [] });
   }
 });
