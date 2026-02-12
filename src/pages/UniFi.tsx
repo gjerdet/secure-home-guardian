@@ -651,24 +651,24 @@ export default function UniFi() {
     <div className="min-h-screen bg-background cyber-grid">
       <Header />
       
-      <main className="container mx-auto px-4 py-6">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="rounded-lg bg-primary/10 p-3">
-            <Wifi className="h-6 w-6 text-primary" />
+      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-6">
+        <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6">
+          <div className="rounded-lg bg-primary/10 p-2 sm:p-3">
+            <Wifi className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
           </div>
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">UniFi Controller</h1>
-            <p className="text-sm text-muted-foreground">IDS/IPS Overvåkning • Enhetsadministrasjon</p>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-lg sm:text-2xl font-bold text-foreground truncate">UniFi Controller</h1>
+            <p className="text-xs sm:text-sm text-muted-foreground truncate">IDS/IPS Overvåkning • Enhetsadministrasjon</p>
           </div>
-          <div className="ml-auto flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={fetchLiveData} disabled={isLoading}>
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <Button variant="ghost" size="icon" onClick={fetchLiveData} disabled={isLoading} className="h-8 w-8">
               <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
             </Button>
-            <Badge className={connectionError
+            <Badge className={`text-[10px] sm:text-xs ${connectionError
               ? "bg-destructive/10 text-destructive border-destructive/20"
               : "bg-success/10 text-success border-success/20"
-            }>
-              {isLoading ? "Laster..." : connectionError ? "Ikke tilkoblet" : "Online"}
+            }`}>
+              {isLoading ? "Laster..." : connectionError ? "Frakobla" : "Online"}
             </Badge>
           </div>
         </div>
@@ -682,7 +682,7 @@ export default function UniFi() {
           </Card>
         )}
         {/* Network Equipment Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 sm:gap-3 mb-4 sm:mb-6">
           <Card className="bg-card border-border">
             <CardContent className="p-3">
               <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
@@ -758,7 +758,7 @@ export default function UniFi() {
         </div>
 
         {/* Network Equipment Details */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
           <Card className="bg-card border-border">
             <CardHeader className="py-3 border-b border-border">
               <CardTitle className="text-sm flex items-center gap-2">
@@ -819,32 +819,40 @@ export default function UniFi() {
         </div>
 
         <Tabs defaultValue="ids" className="space-y-4">
-          <TabsList className="bg-muted flex-wrap">
-            <TabsTrigger value="ids" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-              <ShieldAlert className="h-4 w-4 mr-2" />
-              IDS/IPS Alerts
-            </TabsTrigger>
-            <TabsTrigger value="firewall" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-              <Shield className="h-4 w-4 mr-2" />
-              Firewall Logger
-            </TabsTrigger>
-            <TabsTrigger value="map" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-              <Globe className="h-4 w-4 mr-2" />
-              Angreps-kart
-            </TabsTrigger>
-            <TabsTrigger value="devices" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-              <Users className="h-4 w-4 mr-2" />
-              Tilkoblede Enheter
-            </TabsTrigger>
-            <TabsTrigger value="fw-rules" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-              <Shield className="h-4 w-4 mr-2" />
-              Brannmurregler
-            </TabsTrigger>
-            <TabsTrigger value="syslog" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-              <Activity className="h-4 w-4 mr-2" />
-              System Logger
-            </TabsTrigger>
-          </TabsList>
+          <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0">
+            <TabsList className="bg-muted inline-flex w-auto min-w-full sm:min-w-0">
+              <TabsTrigger value="ids" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs sm:text-sm whitespace-nowrap px-2 sm:px-3">
+                <ShieldAlert className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                <span className="hidden sm:inline">IDS/IPS Alerts</span>
+                <span className="sm:hidden">IDS</span>
+              </TabsTrigger>
+              <TabsTrigger value="firewall" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs sm:text-sm whitespace-nowrap px-2 sm:px-3">
+                <Shield className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                <span className="hidden sm:inline">Firewall Logger</span>
+                <span className="sm:hidden">FW</span>
+              </TabsTrigger>
+              <TabsTrigger value="map" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs sm:text-sm whitespace-nowrap px-2 sm:px-3">
+                <Globe className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                <span className="hidden sm:inline">Angreps-kart</span>
+                <span className="sm:hidden">Kart</span>
+              </TabsTrigger>
+              <TabsTrigger value="devices" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs sm:text-sm whitespace-nowrap px-2 sm:px-3">
+                <Users className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                <span className="hidden sm:inline">Enheter</span>
+                <span className="sm:hidden">Enh.</span>
+              </TabsTrigger>
+              <TabsTrigger value="fw-rules" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs sm:text-sm whitespace-nowrap px-2 sm:px-3">
+                <Shield className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                <span className="hidden sm:inline">Brannmurregler</span>
+                <span className="sm:hidden">Regler</span>
+              </TabsTrigger>
+              <TabsTrigger value="syslog" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs sm:text-sm whitespace-nowrap px-2 sm:px-3">
+                <Activity className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                <span className="hidden sm:inline">System Logger</span>
+                <span className="sm:hidden">Logg</span>
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
           <TabsContent value="ids">
             <Card className="bg-card border-border">
