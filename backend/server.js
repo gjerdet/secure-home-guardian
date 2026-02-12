@@ -702,42 +702,65 @@ app.get('/api/unifi/ids-alerts', authenticateToken, async (req, res) => {
     const axOpts = { httpsAgent, headers, timeout: 15000 };
 
     let alerts = [];
+    const now = Date.now();
+    const thirtyDaysAgo = now - 30 * 86400000;
+    const postBody = { _sort: '-time', _limit: 500, within: 720, start: thirtyDaysAgo, end: now };
 
-    // Try IPS-specific event paths first (not generic stat/event which has client roaming)
-    // UDM Pro with Network 10.x uses v2 threat management API
-    const idsPaths = [
-      { url: `${baseUrl}/proxy/network/v2/api/site/${site}/threat-management/detections`, label: 'v2 threat-management/detections' },
-      { url: `${baseUrl}/proxy/network/v2/api/site/${site}/threat-management/alerts`, label: 'v2 threat-management/alerts' },
-      { url: `${baseUrl}/proxy/network/api/s/${site}/stat/ips/event`, label: 'stat/ips/event (proxy)' },
-      { url: `${baseUrl}/proxy/network/v2/api/site/${site}/security/events`, label: 'v2 security/events' },
-      { url: `${baseUrl}/proxy/network/v2/api/site/${site}/security/threats`, label: 'v2 security/threats' },
-      { url: `${baseUrl}/api/s/${site}/stat/ips/event`, label: 'stat/ips/event (direct)' },
+    // 1) Try stat/ips/event with POST (needs time range on UDM Pro)
+    const ipsPostPaths = [
+      { url: `${baseUrl}/proxy/network/api/s/${site}/stat/ips/event`, label: 'stat/ips/event (proxy POST)' },
+      { url: `${baseUrl}/api/s/${site}/stat/ips/event`, label: 'stat/ips/event (direct POST)' },
     ];
 
-    for (const p of idsPaths) {
+    for (const p of ipsPostPaths) {
       try {
-        console.log(`[UniFi] IDS trying: ${p.label}`);
-        const r = await axios.get(p.url, axOpts);
+        console.log(`[UniFi] IDS trying POST: ${p.label}`);
+        const r = await axios.post(p.url, postBody, axOpts);
         const data = r.data?.data || r.data || [];
         const items = Array.isArray(data) ? data : [];
-        console.log(`[UniFi] IDS OK: ${p.label} -> ${items.length} events`);
+        console.log(`[UniFi] IDS POST OK: ${p.label} -> ${items.length} events`);
         if (items.length > 0) {
           alerts = items;
           break;
         }
       } catch (e) {
-        console.log(`[UniFi] IDS fail: ${p.label} -> ${e.response?.status || e.message}`);
+        console.log(`[UniFi] IDS POST fail: ${p.label} -> ${e.response?.status || e.message}`);
       }
     }
 
-    // If no IPS-specific data, try stat/event but FILTER for IPS/IDS only
+    // 2) Try v2 API paths (GET)
+    if (alerts.length === 0) {
+      const v2Paths = [
+        { url: `${baseUrl}/proxy/network/v2/api/site/${site}/threat-management/detections`, label: 'v2 threat-management/detections' },
+        { url: `${baseUrl}/proxy/network/v2/api/site/${site}/threat-management/alerts`, label: 'v2 threat-management/alerts' },
+        { url: `${baseUrl}/proxy/network/v2/api/site/${site}/security/events`, label: 'v2 security/events' },
+        { url: `${baseUrl}/proxy/network/v2/api/site/${site}/security/threats`, label: 'v2 security/threats' },
+      ];
+
+      for (const p of v2Paths) {
+        try {
+          console.log(`[UniFi] IDS trying: ${p.label}`);
+          const r = await axios.get(p.url, axOpts);
+          const data = r.data?.data || r.data || [];
+          const items = Array.isArray(data) ? data : [];
+          console.log(`[UniFi] IDS OK: ${p.label} -> ${items.length} events`);
+          if (items.length > 0) {
+            alerts = items;
+            break;
+          }
+        } catch (e) {
+          console.log(`[UniFi] IDS fail: ${p.label} -> ${e.response?.status || e.message}`);
+        }
+      }
+    }
+
+    // 3) Fallback: stat/event with POST + filter for IPS/IDS only
     if (alerts.length === 0) {
       try {
         const fallbackUrl = `${baseUrl}/proxy/network/api/s/${site}/stat/event`;
-        console.log(`[UniFi] IDS fallback: stat/event with filtering`);
-        const r = await axios.get(fallbackUrl, axOpts);
+        console.log(`[UniFi] IDS fallback: stat/event POST with filtering`);
+        const r = await axios.post(fallbackUrl, postBody, axOpts);
         const data = r.data?.data || [];
-        // Only keep IPS/IDS/security events, NOT client roaming/connection events
         alerts = data.filter(a =>
           a.key?.includes('EVT_IPS') ||
           a.key?.includes('EVT_IDS') ||
