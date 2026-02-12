@@ -888,6 +888,115 @@ app.get('/api/unifi/flows', authenticateToken, async (req, res) => {
   }
 });
 
+// DPI (Deep Packet Inspection) stats - app usage and traffic categories
+app.get('/api/unifi/dpi', authenticateToken, async (req, res) => {
+  try {
+    const baseUrl = process.env.UNIFI_CONTROLLER_URL;
+    const apiKey = process.env.UNIFI_API_KEY;
+    const site = await discoverUnifiSiteId();
+    const headers = { 'X-API-Key': apiKey };
+    const axOpts = { httpsAgent, headers, timeout: 15000 };
+
+    let dpiData = [];
+    let clientDpi = [];
+
+    // Site-level DPI stats
+    const dpiPaths = [
+      { url: `${baseUrl}/proxy/network/api/s/${site}/stat/sitedpi`, label: 'stat/sitedpi' },
+      { url: `${baseUrl}/proxy/network/api/s/${site}/stat/dpi`, label: 'stat/dpi' },
+    ];
+
+    for (const p of dpiPaths) {
+      try {
+        console.log(`[UniFi] DPI trying: ${p.label}`);
+        const r = await axios.get(p.url, axOpts);
+        const data = r.data?.data || r.data || [];
+        const items = Array.isArray(data) ? data : [];
+        console.log(`[UniFi] DPI OK: ${p.label} -> ${items.length} entries, keys: ${items[0] ? Object.keys(items[0]).join(',') : 'empty'}`);
+        if (items.length > 0) {
+          dpiData = items;
+          break;
+        }
+      } catch (e) {
+        console.log(`[UniFi] DPI fail: ${p.label} -> ${e.response?.status || e.message}`);
+      }
+    }
+
+    // Per-client DPI stats
+    try {
+      console.log(`[UniFi] DPI trying: stat/stadpi`);
+      const r = await axios.get(`${baseUrl}/proxy/network/api/s/${site}/stat/stadpi`, axOpts);
+      const data = r.data?.data || r.data || [];
+      clientDpi = Array.isArray(data) ? data : [];
+      console.log(`[UniFi] DPI stadpi OK: ${clientDpi.length} clients`);
+    } catch (e) {
+      console.log(`[UniFi] DPI stadpi fail: ${e.response?.status || e.message}`);
+    }
+
+    // UniFi DPI category names
+    const catNames = {
+      0: 'Instant Messaging', 1: 'P2P', 2: 'File Transfer', 3: 'Streaming Media',
+      4: 'Mail & Calendar', 5: 'VoIP & Video', 6: 'Database', 7: 'Gaming',
+      8: 'Network Management', 10: 'Web', 13: 'Security & VPN', 14: 'Ad & Analytics',
+      15: 'Social', 17: 'Education', 18: 'Shopping', 20: 'Productivity',
+      23: 'Cloud', 24: 'IoT', 255: 'Other',
+    };
+
+    // Aggregate by category
+    const categoryStats = {};
+    dpiData.forEach(entry => {
+      if (entry.by_cat) {
+        entry.by_cat.forEach(c => {
+          const name = catNames[c.cat] || `Category ${c.cat}`;
+          if (!categoryStats[name]) categoryStats[name] = { rxBytes: 0, txBytes: 0 };
+          categoryStats[name].rxBytes += c.rx_bytes || 0;
+          categoryStats[name].txBytes += c.tx_bytes || 0;
+        });
+      }
+    });
+
+    // Top apps from by_app entries
+    const appStats = {};
+    dpiData.forEach(entry => {
+      if (entry.by_app) {
+        entry.by_app.forEach(a => {
+          const appName = a.app_name || a.name || `App ${a.cat}:${a.app}`;
+          if (!appStats[appName]) appStats[appName] = { rxBytes: 0, txBytes: 0, cat: a.cat };
+          appStats[appName].rxBytes += a.rx_bytes || 0;
+          appStats[appName].txBytes += a.tx_bytes || 0;
+        });
+      }
+    });
+
+    // Top clients by traffic
+    const topClients = clientDpi
+      .map(c => ({
+        mac: c.mac || '',
+        name: c.name || c.hostname || c.mac || 'Unknown',
+        rxBytes: (c.by_cat || []).reduce((s, cat) => s + (cat.rx_bytes || 0), 0),
+        txBytes: (c.by_cat || []).reduce((s, cat) => s + (cat.tx_bytes || 0), 0),
+      }))
+      .filter(c => c.rxBytes + c.txBytes > 0)
+      .sort((a, b) => (b.rxBytes + b.txBytes) - (a.rxBytes + a.txBytes))
+      .slice(0, 20);
+
+    const categories = Object.entries(categoryStats)
+      .map(([name, stats]) => ({ name, ...stats, totalBytes: stats.rxBytes + stats.txBytes }))
+      .sort((a, b) => b.totalBytes - a.totalBytes);
+
+    const topApps = Object.entries(appStats)
+      .map(([name, stats]) => ({ name, ...stats, totalBytes: stats.rxBytes + stats.txBytes }))
+      .sort((a, b) => b.totalBytes - a.totalBytes)
+      .slice(0, 20);
+
+    console.log(`[UniFi] DPI: returning ${categories.length} categories, ${topApps.length} apps, ${topClients.length} clients`);
+    res.json({ categories, topApps, topClients, raw: dpiData.length });
+  } catch (error) {
+    console.error('[UniFi] DPI error:', error.message);
+    res.status(500).json({ error: error.message, categories: [], topApps: [], topClients: [] });
+  }
+});
+
 // Helper to map IDS severity from UniFi format
 function mapIdsSeverity(alert) {
   // UniFi uses inner_alert_severity (1=high, 2=medium, 3=low)

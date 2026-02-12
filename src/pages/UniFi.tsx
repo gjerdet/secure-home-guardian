@@ -13,6 +13,7 @@ import { Separator } from "@/components/ui/separator";
 import { AttackMap } from "@/components/AttackMap";
 import { exportToCSV, exportToJSON, batchLookupGeoIP } from "@/lib/ids-utils";
 import { FirewallAuditPanel } from "@/components/security/FirewallAuditPanel";
+import { TrafficFlowsPanel } from "@/components/unifi/TrafficFlowsPanel";
 import { useToast } from "@/hooks/use-toast";
 import { 
   Wifi, Shield, ShieldAlert, AlertTriangle, Activity, 
@@ -846,6 +847,11 @@ export default function UniFi() {
                 <span className="hidden sm:inline">Brannmurregler</span>
                 <span className="sm:hidden">Regler</span>
               </TabsTrigger>
+              <TabsTrigger value="traffic" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs sm:text-sm whitespace-nowrap px-2 sm:px-3">
+                <Activity className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                <span className="hidden sm:inline">Traffic & DPI</span>
+                <span className="sm:hidden">Traffic</span>
+              </TabsTrigger>
               <TabsTrigger value="syslog" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs sm:text-sm whitespace-nowrap px-2 sm:px-3">
                 <Activity className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
                 <span className="hidden sm:inline">System Logger</span>
@@ -1265,6 +1271,10 @@ export default function UniFi() {
                 </ScrollArea>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="traffic">
+            <TrafficFlowsPanel />
           </TabsContent>
         </Tabs>
       </main>
