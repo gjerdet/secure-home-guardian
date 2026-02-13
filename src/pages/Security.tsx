@@ -1602,9 +1602,14 @@ export default function Security() {
                   <div className="flex items-center gap-2">
                     <Badge variant="outline">{scanHistory.length} skanninger</Badge>
                     {scanHistory.length > 0 && (
-                      <Button variant="ghost" size="sm" className="text-xs text-muted-foreground hover:text-destructive" onClick={deleteAllNmapResults}>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="text-xs"
+                        onClick={deleteAllNmapResults}
+                      >
                         <Trash2 className="h-3.5 w-3.5 mr-1" />
-                        Slett alle
+                        Slett all historikk
                       </Button>
                     )}
                   </div>
@@ -1628,7 +1633,7 @@ export default function Security() {
                       {scanHistory.map((scan) => {
                         const date = scan.timestamp ? new Date(scan.timestamp) : null;
                         const isSelected = selectedHistoryId === scan.id;
-                        const parsedHosts = isSelected && scan.result ? parseNmapXML(scan.result) : [];
+                        const parsedHosts = isSelected && scan.result ? enrichWithUnifi(parseNmapXML(scan.result)) : [];
                         return (
                           <div key={scan.id}>
                             <button
