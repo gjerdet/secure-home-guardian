@@ -1517,24 +1517,32 @@ app.get('/api/proxmox/cluster', authenticateToken, async (req, res) => {
 // OpenVAS / Greenbone via gvm-cli (docker exec)
 // ============================================
 
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 
 /**
  * Execute a GMP XML command against OpenVAS via gvm-cli inside Docker.
  * Uses TLS connection to gvmd on port 9390.
+ * Credentials are piped via stdin to avoid shell escaping issues.
  */
 function gmpExec(xmlCommand, timeoutSec = 120) {
   const username = process.env.OPENVAS_USERNAME || 'admin';
   const password = process.env.OPENVAS_PASSWORD || 'admin';
   const containerName = process.env.OPENVAS_CONTAINER || 'openvas';
   
-  // Escape single quotes in XML command
-  const escapedXml = xmlCommand.replace(/'/g, "'\\''");
+  // Build the inner command that runs inside the container
+  const innerScript = `echo '${username}' && echo '${password.replace(/'/g, "'\\''")}' | gvm-cli tls --hostname 127.0.0.1 --port 9390 --xml '${xmlCommand.replace(/'/g, "'\\''")}'`;
   
-  // Pipe credentials via echo to avoid gvm-cli prompting
-  const cmd = `echo -e "${username}\\n${password}" | docker exec -i ${containerName} su -c "gvm-cli tls --hostname 127.0.0.1 --port 9390 --xml '${escapedXml}'" gvm 2>/dev/null`;
+  // Use execFileSync to avoid shell interpretation issues on the host side
+  // We use /usr/bin/docker directly with explicit args
+  const stdin = `${username}\n${password}`;
   
-  const result = execSync(cmd, { 
+  const result = execFileSync('docker', [
+    'exec', '-i', containerName,
+    'su', '-c',
+    `gvm-cli tls --hostname 127.0.0.1 --port 9390 --xml '${xmlCommand.replace(/'/g, "'\\''")}'`,
+    'gvm'
+  ], { 
+    input: stdin,
     timeout: timeoutSec * 1000,
     encoding: 'utf8',
     stdio: ['pipe', 'pipe', 'pipe']
