@@ -130,6 +130,8 @@ export default function Security() {
   const [openvasScans, setOpenvasScans] = useState<OpenVASScan[]>([]);
   const [vulnerabilities, setVulnerabilities] = useState<Vulnerability[]>([]);
   const [isLoadingOpenvas, setIsLoadingOpenvas] = useState(false);
+  const [isLoadingReport, setIsLoadingReport] = useState(false);
+  const [unifiClients, setUnifiClients] = useState<any[]>([]);
   const [selectedVlans, setSelectedVlans] = useState<string[]>([]);
   const [availableVlans, setAvailableVlans] = useState<VlanSubnet[]>([]);
   
@@ -184,8 +186,94 @@ export default function Security() {
     low: vulnerabilities.filter(v => v.severity === "low").length,
     info: vulnerabilities.filter(v => v.severity === "info").length,
   };
+  // Enrich nmap hosts with UniFi client data
+  const enrichWithUnifi = (hosts: NmapHost[]): NmapHost[] => {
+    if (unifiClients.length === 0) return hosts;
+    return hosts.map(host => {
+      const client = unifiClients.find((c: any) => 
+        c.ip === host.host || c.mac?.toLowerCase() === host.mac?.toLowerCase()
+      );
+      if (!client) return host;
+      
+      const enriched = { ...host };
+      if (!enriched.hostname || enriched.hostname === 'unknown') {
+        enriched.hostname = client.name || client.hostname || enriched.hostname;
+      }
+      if (!enriched.mac && client.mac) enriched.mac = client.mac;
+      if (!enriched.vendor && client.oui) enriched.vendor = client.oui;
+      
+      // Add connection info from UniFi
+      if (client.is_wired) {
+        enriched.connection = {
+          type: 'ethernet',
+          switchName: client.sw_name || client.sw_mac || undefined,
+          switchMac: client.sw_mac || undefined,
+          switchPort: client.sw_port || undefined,
+          portSpeed: client.network_speed ? `${client.network_speed} Mbps` : undefined,
+        };
+      } else {
+        enriched.connection = {
+          type: 'wifi',
+          ap: client.ap_name || client.ap_mac || undefined,
+          apMac: client.ap_mac || undefined,
+          ssid: client.essid || client.bssid || undefined,
+          channel: client.channel || undefined,
+          band: client.radio_proto || undefined,
+          signal: client.rssi || client.signal || undefined,
+          txRate: client.tx_rate ? `${Math.round(client.tx_rate / 1000)} Mbps` : undefined,
+          rxRate: client.rx_rate ? `${Math.round(client.rx_rate / 1000)} Mbps` : undefined,
+        };
+      }
+      
+      return enriched;
+    });
+  };
 
-  // Fetch OpenVAS data
+  // Fetch report for a specific OpenVAS scan
+  const fetchScanReport = async (scan: OpenVASScan) => {
+    setSelectedScan(scan);
+    setReportDialogOpen(true);
+    setIsLoadingReport(true);
+    
+    try {
+      const statusRes = await fetch(`${API_BASE}/api/openvas/scan/${scan.id}/status`, { headers: authHeaders });
+      if (!statusRes.ok) { setIsLoadingReport(false); return; }
+      const statusData = await statusRes.json();
+      
+      // Update progress
+      const updated = { ...scan, status: statusData.status, progress: statusData.progress };
+      
+      if (statusData.reportId) {
+        const reportRes = await fetch(`${API_BASE}/api/openvas/report/${statusData.reportId}`, { headers: authHeaders });
+        if (reportRes.ok) {
+          const reportData = await reportRes.json();
+          const mappedVulns = (reportData.results || []).map((r: any) => ({
+            id: r.id,
+            name: r.name || 'Ukjend',
+            severity: parseFloat(r.severity) >= 7 ? 'high' : parseFloat(r.severity) >= 4 ? 'medium' : parseFloat(r.severity) > 0 ? 'low' : 'info',
+            host: r.host || '',
+            port: parseInt(r.port) || 0,
+            cvss: parseFloat(r.severity) || 0,
+            solution: '',
+            description: r.description || '',
+            threat: r.threat || '',
+          }));
+          setVulnerabilities(mappedVulns);
+          updated.high = mappedVulns.filter((v: any) => v.severity === 'high').length;
+          updated.medium = mappedVulns.filter((v: any) => v.severity === 'medium').length;
+          updated.low = mappedVulns.filter((v: any) => v.severity === 'low').length;
+          updated.info = mappedVulns.filter((v: any) => v.severity === 'info').length;
+        }
+      }
+      setSelectedScan(updated);
+    } catch (err) {
+      console.error('Kunne ikkje hente rapport:', err);
+    } finally {
+      setIsLoadingReport(false);
+    }
+  };
+
+
   const fetchOpenvasData = async () => {
     setIsLoadingOpenvas(true);
     try {
@@ -231,7 +319,7 @@ export default function Security() {
           clearInterval(nmapPollRef.current!);
           nmapPollRef.current = null;
           const hosts = parseNmapXML(data.result);
-          setNmapResults(hosts);
+          setNmapResults(enrichWithUnifi(hosts));
           setNmapProgress({ percent: 100, hostsFound: hosts.length, status: 'complete' });
           toast.success(`Scan fullført! Fant ${hosts.length} host(s)`);
           setNmapJobId(null);
@@ -584,7 +672,7 @@ export default function Security() {
           const latest = res.data[0];
           if (latest.result && nmapResults.length === 0) {
             const hosts = parseNmapXML(latest.result);
-            setNmapResults(hosts);
+            setNmapResults(enrichWithUnifi(hosts));
             setNmapTarget(latest.target || nmapTarget);
             setNmapProgress({ percent: 100, hostsFound: hosts.length, status: 'complete' });
           }
@@ -611,7 +699,19 @@ export default function Security() {
       finally { setIsLoadingHistory(false); }
     };
 
+    // Fetch UniFi clients for nmap enrichment
+    const fetchUnifiClients = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/unifi/clients`, { headers: authHeaders });
+        if (res.ok) {
+          const data = await res.json();
+          setUnifiClients(data.data || data || []);
+        }
+      } catch { /* silent */ }
+    };
+
     fetchOpenvasData();
+    fetchUnifiClients();
     fetchWanIp();
     checkRunningJobs();
     loadSavedResults();
@@ -1284,45 +1384,7 @@ export default function Security() {
                         <div 
                           key={scan.id} 
                           className="p-4 hover:bg-muted/50 transition-colors cursor-pointer"
-                          onClick={async () => {
-                            setSelectedScan(scan);
-                            setReportDialogOpen(true);
-                            // Fetch task details to get report ID and results
-                            try {
-                              const statusRes = await fetch(`${API_BASE}/api/openvas/scan/${scan.id}/status`, { headers: authHeaders });
-                              if (statusRes.ok) {
-                                const statusData = await statusRes.json();
-                                if (statusData.reportId) {
-                                  const reportRes = await fetch(`${API_BASE}/api/openvas/report/${statusData.reportId}`, { headers: authHeaders });
-                                  if (reportRes.ok) {
-                                    const reportData = await reportRes.json();
-                                    // Map report results to vulnerability format
-                                    const mappedVulns = (reportData.results || []).map((r: any) => ({
-                                      id: r.id,
-                                      name: r.name || 'Ukjend',
-                                      severity: parseFloat(r.severity) >= 7 ? 'high' : parseFloat(r.severity) >= 4 ? 'medium' : parseFloat(r.severity) > 0 ? 'low' : 'info',
-                                      host: r.host || '',
-                                      port: parseInt(r.port) || 0,
-                                      cvss: parseFloat(r.severity) || 0,
-                                      solution: '',
-                                      description: r.description || '',
-                                      threat: r.threat || '',
-                                    }));
-                                    setVulnerabilities(mappedVulns);
-                                    // Update scan counts
-                                    const updated = { ...scan };
-                                    updated.high = mappedVulns.filter((v: any) => v.severity === 'high').length;
-                                    updated.medium = mappedVulns.filter((v: any) => v.severity === 'medium').length;
-                                    updated.low = mappedVulns.filter((v: any) => v.severity === 'low').length;
-                                    updated.info = mappedVulns.filter((v: any) => v.severity === 'info').length;
-                                    setSelectedScan(updated);
-                                  }
-                                }
-                              }
-                            } catch (err) {
-                              console.error('Kunne ikkje hente rapport:', err);
-                            }
-                          }}
+                          onClick={() => fetchScanReport(scan)}
                         >
                           <div className="flex items-center justify-between mb-2">
                             <div>
@@ -1512,7 +1574,7 @@ export default function Security() {
                                     onClick={() => {
                                       if (scan.result) {
                                         const hosts = parseNmapXML(scan.result);
-                                        setNmapResults(hosts);
+                                        setNmapResults(enrichWithUnifi(hosts));
                                         setNmapTarget(scan.target);
                                         setNmapProgress({ percent: 100, hostsFound: hosts.length, status: 'complete' });
                                         toast.success(`Lastet ${hosts.length} hosts fra historikk`);
@@ -1590,6 +1652,8 @@ export default function Security() {
           onOpenChange={setReportDialogOpen}
           scan={selectedScan}
           vulnerabilities={vulnerabilities}
+          isLoading={isLoadingReport}
+          onVulnClick={(vuln) => { setSelectedVuln(vuln); setVulnDetailOpen(true); }}
         />
         
         {/* Nmap Host Detail Dialog */}

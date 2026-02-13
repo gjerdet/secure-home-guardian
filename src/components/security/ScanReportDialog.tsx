@@ -44,6 +44,8 @@ interface ScanReportDialogProps {
   scan: ScanReport | null;
   vulnerabilities: Vulnerability[];
   openvasUrl?: string;
+  isLoading?: boolean;
+  onVulnClick?: (vuln: Vulnerability) => void;
 }
 
 const severityColors = {
@@ -56,7 +58,7 @@ const severityColors = {
 
 const severityOrder = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
 
-export function ScanReportDialog({ open, onOpenChange, scan, vulnerabilities, openvasUrl }: ScanReportDialogProps) {
+export function ScanReportDialog({ open, onOpenChange, scan, vulnerabilities, openvasUrl, isLoading, onVulnClick }: ScanReportDialogProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [severityFilter, setSeverityFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("severity");
@@ -315,7 +317,12 @@ export function ScanReportDialog({ open, onOpenChange, scan, vulnerabilities, op
 
             {/* Vulnerability list */}
             <ScrollArea className="h-[400px]">
-              {filteredVulnerabilities.length === 0 ? (
+              {isLoading ? (
+                <div className="p-8 text-center">
+                  <Loader2 className="h-8 w-8 mx-auto animate-spin text-primary" />
+                  <p className="mt-2 text-sm text-muted-foreground">Hentar rapport frå OpenVAS...</p>
+                </div>
+              ) : filteredVulnerabilities.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">
                   <Info className="h-12 w-12 mx-auto mb-3 opacity-50" />
                   <p>Ingen sårbarheter funnet med valgte filtre.</p>
@@ -323,7 +330,11 @@ export function ScanReportDialog({ open, onOpenChange, scan, vulnerabilities, op
               ) : (
                 <div className="space-y-2">
                   {filteredVulnerabilities.map((vuln) => (
-                    <div key={vuln.id} className="p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors">
+                    <div 
+                      key={vuln.id} 
+                      className={`p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors ${onVulnClick ? 'cursor-pointer' : ''}`}
+                      onClick={() => onVulnClick?.(vuln)}
+                    >
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex items-center gap-2">
                           <Badge className={severityColors[vuln.severity as keyof typeof severityColors]}>
