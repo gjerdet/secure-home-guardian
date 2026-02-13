@@ -66,9 +66,11 @@ export function ScanReportDialog({ open, onOpenChange, scan, vulnerabilities, op
   // Filter vulnerabilities for this scan's target
   const scanVulnerabilities = useMemo(() => {
     if (!scan) return [];
-    return vulnerabilities.filter(v => 
-      v.host.includes(scan.target.split('/')[0]) || scan.target.includes(v.host)
-    );
+    const target = scan.target || scan.comment || '';
+    return vulnerabilities.filter(v => {
+      const host = v.host || '';
+      return host.includes(target.split('/')[0]) || target.includes(host);
+    });
   }, [scan, vulnerabilities]);
 
   // Apply filters and sorting

@@ -231,7 +231,17 @@ export default function Security() {
 
   // Fetch report for a specific OpenVAS scan
   const fetchScanReport = async (scan: OpenVASScan) => {
-    const safeScan = { ...scan, high: scan.high || 0, medium: scan.medium || 0, low: scan.low || 0, info: scan.info || 0 };
+    const safeScan = {
+      ...scan,
+      name: scan.name || 'Ukjend skanning',
+      target: scan.target || scan.comment || '',
+      high: scan.high || 0,
+      medium: scan.medium || 0,
+      low: scan.low || 0,
+      info: scan.info || 0,
+      status: scan.status || 'Unknown',
+      progress: scan.progress || 0,
+    };
     setSelectedScan(safeScan);
     setReportDialogOpen(true);
     setIsLoadingReport(true);
