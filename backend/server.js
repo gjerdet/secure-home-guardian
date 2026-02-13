@@ -1514,123 +1514,197 @@ app.get('/api/proxmox/cluster', authenticateToken, async (req, res) => {
 });
 
 // ============================================
+// OpenVAS / Greenbone via gvm-cli (docker exec)
 // ============================================
 
-let openvasToken = null;
+const { execSync } = require('child_process');
 
-async function openvasLogin() {
-  try {
-    const response = await axios.post(
-      `${process.env.OPENVAS_URL}/api/login`,
-      {
-        username: process.env.OPENVAS_USERNAME,
-        password: process.env.OPENVAS_PASSWORD,
-      }
-    );
-    openvasToken = response.data.token;
-    return true;
-  } catch (error) {
-    console.error('OpenVAS login feilet:', error.message);
-    return false;
-  }
+/**
+ * Execute a GMP XML command against OpenVAS via gvm-cli inside Docker.
+ * Uses TLS connection to gvmd on port 9390.
+ */
+function gmpExec(xmlCommand, timeoutSec = 120) {
+  const username = process.env.OPENVAS_USERNAME || 'admin';
+  const password = process.env.OPENVAS_PASSWORD || 'admin';
+  const containerName = process.env.OPENVAS_CONTAINER || 'openvas';
+  
+  // Escape single quotes in XML command
+  const escapedXml = xmlCommand.replace(/'/g, "'\\''");
+  
+  // Pipe credentials via echo to avoid gvm-cli prompting
+  const cmd = `echo -e "${username}\\n${password}" | docker exec -i ${containerName} su -c "gvm-cli tls --hostname 127.0.0.1 --port 9390 --xml '${escapedXml}'" gvm 2>/dev/null`;
+  
+  const result = execSync(cmd, { 
+    timeout: timeoutSec * 1000,
+    encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+  
+  // Strip any login prompts from output, keep only XML
+  const xmlMatch = result.match(/<[^>]+[\s\S]*$/);
+  return xmlMatch ? xmlMatch[0].trim() : result.trim();
 }
 
-app.get('/api/openvas/scans', async (req, res) => {
+function extractXmlElements(xml, tagName) {
+  const regex = new RegExp(`<${tagName}[\\s>][\\s\\S]*?<\\/${tagName}>`, 'g');
+  return xml.match(regex) || [];
+}
+
+function extractXmlValue(xml, tagName) {
+  const regex = new RegExp(`<${tagName}>([\\s\\S]*?)<\\/${tagName}>`);
+  const match = xml.match(regex);
+  return match ? match[1].trim() : null;
+}
+
+// Test OpenVAS GMP connection
+app.post('/api/openvas/test-gmp', authenticateToken, async (req, res) => {
   try {
-    if (!openvasToken) await openvasLogin();
-    
-    const response = await axios.get(
-      `${process.env.OPENVAS_URL}/api/tasks`,
-      {
-        headers: { Authorization: `Bearer ${openvasToken}` },
-      }
-    );
-    res.json(response.data);
+    const result = gmpExec('<get_version/>');
+    const version = extractXmlValue(result, 'version');
+    if (version) {
+      res.json({ success: true, message: `GMP versjon ${version}`, version });
+    } else {
+      res.json({ success: false, message: 'Kunne ikkje lese GMP-versjon', raw: result });
+    }
+  } catch (error) {
+    res.json({ success: false, message: error.message });
+  }
+});
+
+// Get scan configs
+app.get('/api/openvas/configs', authenticateToken, async (req, res) => {
+  try {
+    const result = gmpExec('<get_scan_configs/>');
+    const configs = extractXmlElements(result, 'config').map(c => ({
+      id: (c.match(/id="([^"]*)"/) || [])[1],
+      name: extractXmlValue(c, 'name'),
+    })).filter(c => c.id && c.name);
+    res.json({ configs });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.get('/api/openvas/vulnerabilities', async (req, res) => {
+// List existing tasks/scans
+app.get('/api/openvas/scans', authenticateToken, async (req, res) => {
   try {
-    if (!openvasToken) await openvasLogin();
-    
-    const response = await axios.get(
-      `${process.env.OPENVAS_URL}/api/results`,
-      {
-        headers: { Authorization: `Bearer ${openvasToken}` },
-      }
-    );
-    res.json(response.data);
+    const result = gmpExec('<get_tasks/>');
+    const tasks = extractXmlElements(result, 'task').map(t => {
+      const statusVal = extractXmlValue(t, 'status') || '';
+      const progressVal = extractXmlValue(t, 'progress') || '0';
+      return {
+        id: (t.match(/id="([^"]*)"/) || [])[1],
+        name: extractXmlValue(t, 'name'),
+        status: statusVal,
+        progress: parseInt(progressVal, 10) || 0,
+        comment: extractXmlValue(t, 'comment') || '',
+      };
+    }).filter(t => t.id);
+    res.json({ tasks });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get vulnerabilities/results
+app.get('/api/openvas/vulnerabilities', authenticateToken, async (req, res) => {
+  try {
+    const taskId = req.query.task_id;
+    const filter = taskId ? ` filter="task_id=${taskId}"` : '';
+    const result = gmpExec(`<get_results${filter}/>`);
+    const results = extractXmlElements(result, 'result').map(r => ({
+      id: (r.match(/id="([^"]*)"/) || [])[1],
+      name: extractXmlValue(r, 'name'),
+      host: extractXmlValue(r, 'host'),
+      port: extractXmlValue(r, 'port'),
+      severity: extractXmlValue(r, 'severity'),
+      description: extractXmlValue(r, 'description'),
+      threat: extractXmlValue(r, 'threat'),
+    })).filter(r => r.id);
+    res.json({ results });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // Start new OpenVAS scan
-app.post('/api/openvas/scan', async (req, res) => {
+app.post('/api/openvas/scan', authenticateToken, async (req, res) => {
   try {
-    if (!openvasToken) await openvasLogin();
-    
     const { target, name, scanConfig = 'full' } = req.body;
     
     if (!target || !name) {
-      return res.status(400).json({ error: 'Mål og navn er påkrevd' });
+      return res.status(400).json({ error: 'Mål og namn er påkrevd' });
     }
     
-    // Create target first
-    const targetResponse = await axios.post(
-      `${process.env.OPENVAS_URL}/api/targets`,
-      { name: `Target: ${name}`, hosts: target },
-      { headers: { Authorization: `Bearer ${openvasToken}` } }
-    );
-    
-    const targetId = targetResponse.data.id;
-    
-    // Get scan config ID based on type
     const configMap = {
-      'full': 'daba56c8-73ec-11df-a475-002264764cea', // Full and fast
-      'discovery': '8715c877-47a0-438d-98a3-27c7a6ab2196', // Host Discovery
-      'system': '74db13d6-7489-11df-91b9-002264764cea', // System Discovery
+      'full': 'daba56c8-73ec-11df-a475-002264764cea',
+      'discovery': '8715c877-47a0-438d-98a3-27c7a6ab2196',
+      'system': '74db13d6-7489-11df-91b9-002264764cea',
     };
+    const configId = configMap[scanConfig] || configMap['full'];
     
-    // Create and start task
-    const taskResponse = await axios.post(
-      `${process.env.OPENVAS_URL}/api/tasks`,
-      {
-        name,
-        target_id: targetId,
-        config_id: configMap[scanConfig] || configMap['full'],
-      },
-      { headers: { Authorization: `Bearer ${openvasToken}` } }
-    );
+    // 1. Create target
+    const createTargetXml = `<create_target><name>NetGuard: ${name}</name><hosts>${target}</hosts><port_list id="33d0cd82-57c6-11e1-8ed1-406186ea4fc5"/></create_target>`;
+    const targetResult = gmpExec(createTargetXml);
+    const targetId = (targetResult.match(/id="([^"]*)"/) || [])[1];
     
-    const taskId = taskResponse.data.id;
+    if (!targetId) {
+      return res.status(500).json({ error: 'Kunne ikkje opprette mål', raw: targetResult });
+    }
     
-    // Start the task
-    await axios.post(
-      `${process.env.OPENVAS_URL}/api/tasks/${taskId}/start`,
-      {},
-      { headers: { Authorization: `Bearer ${openvasToken}` } }
-    );
+    // 2. Create task
+    const createTaskXml = `<create_task><name>${name}</name><config id="${configId}"/><target id="${targetId}"/></create_task>`;
+    const taskResult = gmpExec(createTaskXml);
+    const taskId = (taskResult.match(/id="([^"]*)"/) || [])[1];
     
-    res.json({ success: true, taskId, targetId });
+    if (!taskId) {
+      return res.status(500).json({ error: 'Kunne ikkje opprette oppgåve', raw: taskResult });
+    }
+    
+    // 3. Start task
+    const startResult = gmpExec(`<start_task task_id="${taskId}"/>`);
+    const reportId = extractXmlValue(startResult, 'report_id');
+    
+    console.log(`[OpenVAS] Skanning starta: task=${taskId}, target=${targetId}, report=${reportId}`);
+    
+    res.json({ success: true, taskId, targetId, reportId });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // Get scan status
-app.get('/api/openvas/scan/:taskId/status', async (req, res) => {
+app.get('/api/openvas/scan/:taskId/status', authenticateToken, async (req, res) => {
   try {
-    if (!openvasToken) await openvasLogin();
-    
     const { taskId } = req.params;
-    const response = await axios.get(
-      `${process.env.OPENVAS_URL}/api/tasks/${taskId}`,
-      { headers: { Authorization: `Bearer ${openvasToken}` } }
-    );
-    res.json(response.data);
+    const result = gmpExec(`<get_tasks task_id="${taskId}"/>`);
+    const status = extractXmlValue(result, 'status') || 'Unknown';
+    const progress = parseInt(extractXmlValue(result, 'progress') || '0', 10);
+    const reportElements = extractXmlElements(result, 'report');
+    const lastReportId = reportElements.length > 0 ? (reportElements[0].match(/id="([^"]*)"/) || [])[1] : null;
+    
+    res.json({ taskId, status, progress, reportId: lastReportId });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get scan report
+app.get('/api/openvas/report/:reportId', authenticateToken, async (req, res) => {
+  try {
+    const { reportId } = req.params;
+    const result = gmpExec(`<get_reports report_id="${reportId}" details="1"/>`, 300);
+    const results = extractXmlElements(result, 'result').map(r => ({
+      id: (r.match(/id="([^"]*)"/) || [])[1],
+      name: extractXmlValue(r, 'name'),
+      host: extractXmlValue(r, 'host'),
+      port: extractXmlValue(r, 'port'),
+      severity: extractXmlValue(r, 'severity'),
+      threat: extractXmlValue(r, 'threat'),
+      description: extractXmlValue(r, 'description'),
+    })).filter(r => r.id);
+    
+    res.json({ reportId, results, count: results.length });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2311,30 +2385,17 @@ app.post('/api/health/test/:service', authenticateToken, async (req, res) => {
         break;
         
       case 'openvas':
-        if (!process.env.OPENVAS_URL) {
-          message = 'OpenVAS URL ikke konfigurert i .env';
-          break;
-        }
         try {
-          // Try GSA login page first (most reliable check)
-          const openvasRes = await axios.get(`${process.env.OPENVAS_URL}/login`, { 
-            timeout: 10000,
-            validateStatus: (s) => s < 500
-          });
-          if (openvasRes.status < 400) {
+          const gmpResult = gmpExec('<get_version/>');
+          const gmpVersion = extractXmlValue(gmpResult, 'version');
+          if (gmpVersion) {
             success = true;
-            message = 'OpenVAS/Greenbone GSA tilgjengelig';
+            message = `OpenVAS GMP tilgjengelig (v${gmpVersion})`;
           } else {
-            // Fallback: just check if the port responds
-            await axios.get(process.env.OPENVAS_URL, { 
-              timeout: 10000,
-              validateStatus: (s) => s < 500 
-            });
-            success = true;
-            message = 'OpenVAS/Greenbone tilgjengelig (GSA responderer)';
+            message = 'GMP svarte, men kunne ikkje lese versjon';
           }
         } catch (openvasErr) {
-          message = `Kunne ikkje nå OpenVAS på ${process.env.OPENVAS_URL}: ${openvasErr.message}`;
+          message = `GMP-tilkobling feila: ${openvasErr.message}`;
         }
         break;
         
