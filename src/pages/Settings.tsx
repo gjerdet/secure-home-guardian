@@ -649,6 +649,21 @@ export default function Settings() {
                       <Input type="password" value={configs.openvas.password} onChange={e => updateConfig('openvas', 'password', e.target.value)} className="bg-muted border-border mt-1" />
                     </div>
                   </div>
+                  <div className="rounded-md bg-muted/50 border border-border p-3 space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      Docker-oppsett (immauss/openvas)
+                    </p>
+                    <div className="text-xs text-muted-foreground space-y-1">
+                      <p>Standard brukarnamn er <code className="bg-muted px-1 rounded text-foreground">admin</code>. For å sette/nullstille passordet:</p>
+                      <pre className="bg-background/80 border border-border rounded p-2 text-[11px] overflow-x-auto font-mono text-foreground">
+{`sudo docker exec -it openvas \\
+  su -c "gvmd --user=admin \\
+  --new-password=DITT_PASSORD" gvm`}
+                      </pre>
+                      <p>Bruk same passord her som du sette i kommandoen over.</p>
+                    </div>
+                  </div>
                   <div className="flex gap-2">
                     {renderTestButton('openvas')}
                     {renderSaveButton('openvas')}
