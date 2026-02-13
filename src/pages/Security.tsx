@@ -37,6 +37,8 @@ interface OpenVASScan {
   target: string;
   lastRun: string;
   status: string;
+  progress: number;
+  comment: string;
   high: number;
   medium: number;
   low: number;
@@ -1282,33 +1284,74 @@ export default function Security() {
                         <div 
                           key={scan.id} 
                           className="p-4 hover:bg-muted/50 transition-colors cursor-pointer"
-                          onClick={() => {
+                          onClick={async () => {
                             setSelectedScan(scan);
                             setReportDialogOpen(true);
+                            // Fetch task details to get report ID and results
+                            try {
+                              const statusRes = await fetch(`${API_BASE}/api/openvas/scan/${scan.id}/status`, { headers: authHeaders });
+                              if (statusRes.ok) {
+                                const statusData = await statusRes.json();
+                                if (statusData.reportId) {
+                                  const reportRes = await fetch(`${API_BASE}/api/openvas/report/${statusData.reportId}`, { headers: authHeaders });
+                                  if (reportRes.ok) {
+                                    const reportData = await reportRes.json();
+                                    // Map report results to vulnerability format
+                                    const mappedVulns = (reportData.results || []).map((r: any) => ({
+                                      id: r.id,
+                                      name: r.name || 'Ukjend',
+                                      severity: parseFloat(r.severity) >= 7 ? 'high' : parseFloat(r.severity) >= 4 ? 'medium' : parseFloat(r.severity) > 0 ? 'low' : 'info',
+                                      host: r.host || '',
+                                      port: parseInt(r.port) || 0,
+                                      cvss: parseFloat(r.severity) || 0,
+                                      solution: '',
+                                      description: r.description || '',
+                                      threat: r.threat || '',
+                                    }));
+                                    setVulnerabilities(mappedVulns);
+                                    // Update scan counts
+                                    const updated = { ...scan };
+                                    updated.high = mappedVulns.filter((v: any) => v.severity === 'high').length;
+                                    updated.medium = mappedVulns.filter((v: any) => v.severity === 'medium').length;
+                                    updated.low = mappedVulns.filter((v: any) => v.severity === 'low').length;
+                                    updated.info = mappedVulns.filter((v: any) => v.severity === 'info').length;
+                                    setSelectedScan(updated);
+                                  }
+                                }
+                              }
+                            } catch (err) {
+                              console.error('Kunne ikkje hente rapport:', err);
+                            }
                           }}
                         >
                           <div className="flex items-center justify-between mb-2">
                             <div>
                               <p className="font-medium text-foreground">{scan.name}</p>
-                              <p className="text-xs text-muted-foreground font-mono">{scan.target}</p>
+                              {scan.comment && <p className="text-xs text-muted-foreground">{scan.comment}</p>}
                             </div>
                             <div className="flex items-center gap-2">
-                              <Badge className={scan.status === 'Running' ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success border-success/20'}>
+                              <Badge className={
+                                scan.status === 'Running' ? 'bg-warning/10 text-warning' 
+                                : scan.status === 'Done' ? 'bg-success/10 text-success border-success/20'
+                                : 'bg-muted text-muted-foreground'
+                              }>
                                 {scan.status === 'Running' ? (
                                   <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                ) : (
+                                ) : scan.status === 'Done' ? (
                                   <CheckCircle className="h-3 w-3 mr-1" />
-                                )}
+                                ) : null}
                                 {scan.status}
                               </Badge>
                               <ChevronRight className="h-4 w-4 text-muted-foreground" />
                             </div>
                           </div>
+                          {scan.status === 'Running' && scan.progress > 0 && (
+                            <div className="mb-2">
+                              <Progress value={scan.progress} className="h-1.5" />
+                              <p className="text-[10px] text-muted-foreground mt-0.5">{scan.progress}%</p>
+                            </div>
+                          )}
                           <div className="flex items-center gap-4 text-xs">
-                            <span className="flex items-center gap-1 text-muted-foreground">
-                              <Clock className="h-3 w-3" />
-                              {scan.lastRun}
-                            </span>
                             <div className="flex gap-2">
                               <Badge variant="destructive" className="text-[10px]">{scan.high} Høy</Badge>
                               <Badge className="bg-warning/80 text-warning-foreground text-[10px]">{scan.medium} Medium</Badge>
