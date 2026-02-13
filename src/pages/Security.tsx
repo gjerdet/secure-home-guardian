@@ -26,7 +26,7 @@ import { NmapHostDetailDialog, type NmapHostDetail } from "@/components/security
 import { VulnerabilityDetailDialog, type VulnerabilityDetail } from "@/components/security/VulnerabilityDetailDialog";
 import { 
   Radar, Shield, Search, Clock, AlertTriangle, CheckCircle,
-  Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin, Network, Wifi, ExternalLink, Lock, Activity, History
+  Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin, Network, Wifi, ExternalLink, Lock, Activity, History, Trash2
 } from "lucide-react";
 
 import { API_BASE, fetchJsonSafely } from '@/lib/api';
@@ -313,6 +313,48 @@ export default function Security() {
     }
   };
 
+
+  // Delete nmap scan from history
+  const deleteNmapResult = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Er du sikker på at du vil slette denne skanningen?')) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/nmap/results/${id}`, { method: 'DELETE', headers: authHeaders });
+      if (res.ok) {
+        setScanHistory(prev => prev.filter(s => s.id !== id));
+        toast.success('Skanning sletta');
+      } else {
+        toast.error('Kunne ikkje slette skanning');
+      }
+    } catch { toast.error('Feil ved sletting'); }
+  };
+
+  const deleteAllNmapResults = async () => {
+    if (!confirm('Er du sikker på at du vil slette ALL nmap-historikk?')) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/nmap/results`, { method: 'DELETE', headers: authHeaders });
+      if (res.ok) {
+        setScanHistory([]);
+        toast.success('All historikk sletta');
+      } else {
+        toast.error('Kunne ikkje slette historikk');
+      }
+    } catch { toast.error('Feil ved sletting'); }
+  };
+
+  const deleteOpenvasScan = async (taskId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Er du sikker på at du vil slette denne OpenVAS-skanningen?')) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/openvas/scan/${taskId}`, { method: 'DELETE', headers: authHeaders });
+      if (res.ok) {
+        setOpenvasScans(prev => prev.filter(s => s.id !== taskId));
+        toast.success('OpenVAS-skanning sletta');
+      } else {
+        toast.error('Kunne ikkje slette skanning');
+      }
+    } catch { toast.error('Feil ved sletting'); }
+  };
 
   const fetchOpenvasData = async () => {
     setIsLoadingOpenvas(true);
@@ -1444,6 +1486,14 @@ export default function Security() {
                                 ) : null}
                                 {scan.status}
                               </Badge>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                onClick={(e) => deleteOpenvasScan(scan.id, e)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
                               <ChevronRight className="h-4 w-4 text-muted-foreground" />
                             </div>
                           </div>
@@ -1549,7 +1599,15 @@ export default function Security() {
                     <History className="h-5 w-5 text-primary" />
                     Scan-historikk
                   </div>
-                  <Badge variant="outline">{scanHistory.length} skanninger</Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">{scanHistory.length} skanninger</Badge>
+                    {scanHistory.length > 0 && (
+                      <Button variant="ghost" size="sm" className="text-xs text-muted-foreground hover:text-destructive" onClick={deleteAllNmapResults}>
+                        <Trash2 className="h-3.5 w-3.5 mr-1" />
+                        Slett alle
+                      </Button>
+                    )}
+                  </div>
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-4">
@@ -1600,6 +1658,14 @@ export default function Security() {
                                   <p className="text-lg font-mono font-bold text-foreground">{scan.hostsFound}</p>
                                   <p className="text-xs text-muted-foreground">hosts</p>
                                 </div>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                  onClick={(e) => deleteNmapResult(scan.id, e)}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
                                 <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${isSelected ? 'rotate-90' : ''}`} />
                               </div>
                             </button>

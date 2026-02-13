@@ -1898,6 +1898,44 @@ app.get('/api/nmap/results', (req, res) => {
   res.json(results);
 });
 
+// Delete a specific nmap result by id
+app.delete('/api/nmap/results/:id', authenticateToken, (req, res) => {
+  try {
+    const results = loadNmapResults();
+    const filtered = results.filter(r => r.id !== req.params.id);
+    if (filtered.length === results.length) {
+      return res.status(404).json({ error: 'Resultat ikkje funne' });
+    }
+    fs.writeFileSync(NMAP_RESULTS_FILE, JSON.stringify(filtered, null, 2));
+    res.json({ success: true, remaining: filtered.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete all nmap results
+app.delete('/api/nmap/results', authenticateToken, (req, res) => {
+  try {
+    fs.writeFileSync(NMAP_RESULTS_FILE, JSON.stringify([]));
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete an OpenVAS task
+app.delete('/api/openvas/scan/:taskId', authenticateToken, (req, res) => {
+  try {
+    const { taskId } = req.params;
+    // Stop task first if running
+    try { gmpExec(`<stop_task task_id="${taskId}"/>`); } catch {}
+    const result = gmpExec(`<delete_task task_id="${taskId}" ultimate="1"/>`);
+    res.json({ success: true, result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Cancel a running job
 app.post('/api/nmap/scan-cancel/:jobId', (req, res) => {
   const job = nmapJobs.get(req.params.jobId);
