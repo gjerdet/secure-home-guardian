@@ -2315,9 +2315,27 @@ app.post('/api/health/test/:service', authenticateToken, async (req, res) => {
           message = 'OpenVAS URL ikke konfigurert i .env';
           break;
         }
-        await axios.get(`${process.env.OPENVAS_URL}/api/version`, { timeout: 10000 });
-        success = true;
-        message = 'OpenVAS/Greenbone tilgjengelig';
+        try {
+          // Try GSA login page first (most reliable check)
+          const openvasRes = await axios.get(`${process.env.OPENVAS_URL}/login`, { 
+            timeout: 10000,
+            validateStatus: (s) => s < 500
+          });
+          if (openvasRes.status < 400) {
+            success = true;
+            message = 'OpenVAS/Greenbone GSA tilgjengelig';
+          } else {
+            // Fallback: just check if the port responds
+            await axios.get(process.env.OPENVAS_URL, { 
+              timeout: 10000,
+              validateStatus: (s) => s < 500 
+            });
+            success = true;
+            message = 'OpenVAS/Greenbone tilgjengelig (GSA responderer)';
+          }
+        } catch (openvasErr) {
+          message = `Kunne ikkje nå OpenVAS på ${process.env.OPENVAS_URL}: ${openvasErr.message}`;
+        }
         break;
         
       default:
