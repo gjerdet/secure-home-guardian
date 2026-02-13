@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   Download, FileText, Search, Filter, AlertTriangle, 
-  CheckCircle, Info, Server, Clock, Shield
+  CheckCircle, Info, Server, Clock, Shield, ExternalLink, Loader2
 } from "lucide-react";
 
 interface Vulnerability {
@@ -29,6 +29,8 @@ interface ScanReport {
   target: string;
   lastRun: string;
   status: string;
+  progress?: number;
+  comment?: string;
   high: number;
   medium: number;
   low: number;
@@ -41,6 +43,7 @@ interface ScanReportDialogProps {
   onOpenChange: (open: boolean) => void;
   scan: ScanReport | null;
   vulnerabilities: Vulnerability[];
+  openvasUrl?: string;
 }
 
 const severityColors = {
@@ -53,7 +56,7 @@ const severityColors = {
 
 const severityOrder = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
 
-export function ScanReportDialog({ open, onOpenChange, scan, vulnerabilities }: ScanReportDialogProps) {
+export function ScanReportDialog({ open, onOpenChange, scan, vulnerabilities, openvasUrl }: ScanReportDialogProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [severityFilter, setSeverityFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("severity");
@@ -191,21 +194,40 @@ export function ScanReportDialog({ open, onOpenChange, scan, vulnerabilities }: 
                 <div className="flex items-center gap-2 text-sm">
                   <Server className="h-4 w-4 text-muted-foreground" />
                   <span className="text-muted-foreground">Mål:</span>
-                  <span className="font-mono">{scan.target}</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm">
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">Sist kjørt:</span>
-                  <span>{scan.lastRun}</span>
+                  <span className="font-mono">{scan.target || scan.comment || '–'}</span>
                 </div>
                 <div className="flex items-center gap-2 text-sm">
                   <Shield className="h-4 w-4 text-muted-foreground" />
                   <span className="text-muted-foreground">Status:</span>
-                  <Badge variant="outline" className="bg-success/10 text-success">
-                    <CheckCircle className="h-3 w-3 mr-1" />
+                  <Badge variant="outline" className={
+                    scan.status === 'Running' ? 'bg-warning/10 text-warning'
+                    : scan.status === 'Done' ? 'bg-success/10 text-success'
+                    : 'bg-muted text-muted-foreground'
+                  }>
+                    {scan.status === 'Running' ? (
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    ) : scan.status === 'Done' ? (
+                      <CheckCircle className="h-3 w-3 mr-1" />
+                    ) : null}
                     {scan.status}
                   </Badge>
                 </div>
+                {scan.status === 'Running' && scan.progress !== undefined && scan.progress > 0 && (
+                  <div className="text-sm text-muted-foreground">
+                    Framdrift: {scan.progress}%
+                  </div>
+                )}
+                {openvasUrl && (
+                  <a 
+                    href={openvasUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Opne i OpenVAS GSA
+                  </a>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-2">
