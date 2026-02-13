@@ -166,6 +166,12 @@ export function ScanReportDialog({ open, onOpenChange, scan, vulnerabilities, op
 
   if (!scan) return null;
 
+  const safeHigh = scan.high || 0;
+  const safeMedium = scan.medium || 0;
+  const safeLow = scan.low || 0;
+  const safeInfo = scan.info || 0;
+  const riskScore = Math.max(0, 100 - safeHigh * 10 - safeMedium * 3 - safeLow);
+
   const stats = {
     high: filteredVulnerabilities.filter(v => v.severity === "high").length,
     medium: filteredVulnerabilities.filter(v => v.severity === "medium").length,
@@ -234,19 +240,19 @@ export function ScanReportDialog({ open, onOpenChange, scan, vulnerabilities, op
 
               <div className="grid grid-cols-2 gap-2">
                 <div className="p-3 rounded-lg bg-destructive/10 text-center">
-                  <p className="text-2xl font-bold text-destructive">{scan.high}</p>
+                  <p className="text-2xl font-bold text-destructive">{safeHigh}</p>
                   <p className="text-xs text-muted-foreground">Høy</p>
                 </div>
                 <div className="p-3 rounded-lg bg-warning/10 text-center">
-                  <p className="text-2xl font-bold text-warning">{scan.medium}</p>
+                  <p className="text-2xl font-bold text-warning">{safeMedium}</p>
                   <p className="text-xs text-muted-foreground">Medium</p>
                 </div>
                 <div className="p-3 rounded-lg bg-primary/10 text-center">
-                  <p className="text-2xl font-bold text-primary">{scan.low}</p>
+                  <p className="text-2xl font-bold text-primary">{safeLow}</p>
                   <p className="text-xs text-muted-foreground">Lav</p>
                 </div>
                 <div className="p-3 rounded-lg bg-muted text-center">
-                  <p className="text-2xl font-bold text-muted-foreground">{scan.info}</p>
+                  <p className="text-2xl font-bold text-muted-foreground">{safeInfo}</p>
                   <p className="text-xs text-muted-foreground">Info</p>
                 </div>
               </div>
@@ -257,13 +263,13 @@ export function ScanReportDialog({ open, onOpenChange, scan, vulnerabilities, op
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Risiko-score</span>
                 <span className="text-2xl font-bold text-success">
-                  {Math.max(0, 100 - scan.high * 10 - scan.medium * 3 - scan.low)}%
+                  {riskScore}%
                 </span>
               </div>
               <div className="mt-2 h-2 bg-muted rounded-full overflow-hidden">
                 <div 
                   className="h-full bg-success transition-all"
-                  style={{ width: `${Math.max(0, 100 - scan.high * 10 - scan.medium * 3 - scan.low)}%` }}
+                  style={{ width: `${riskScore}%` }}
                 />
               </div>
             </div>

@@ -231,38 +231,47 @@ export default function Security() {
 
   // Fetch report for a specific OpenVAS scan
   const fetchScanReport = async (scan: OpenVASScan) => {
-    setSelectedScan(scan);
+    const safeScan = { ...scan, high: scan.high || 0, medium: scan.medium || 0, low: scan.low || 0, info: scan.info || 0 };
+    setSelectedScan(safeScan);
     setReportDialogOpen(true);
     setIsLoadingReport(true);
     
     try {
       const statusRes = await fetch(`${API_BASE}/api/openvas/scan/${scan.id}/status`, { headers: authHeaders });
       if (!statusRes.ok) { setIsLoadingReport(false); return; }
+      
+      const contentType = statusRes.headers.get('content-type');
+      if (!contentType?.includes('application/json')) { setIsLoadingReport(false); return; }
+      
       const statusData = await statusRes.json();
       
       // Update progress
-      const updated = { ...scan, status: statusData.status, progress: statusData.progress };
+      const updated = { ...safeScan, status: statusData.status, progress: statusData.progress };
       
       if (statusData.reportId) {
-        const reportRes = await fetch(`${API_BASE}/api/openvas/report/${statusData.reportId}`, { headers: authHeaders });
-        if (reportRes.ok) {
-          const reportData = await reportRes.json();
-          const mappedVulns = (reportData.results || []).map((r: any) => ({
-            id: r.id,
-            name: r.name || 'Ukjend',
-            severity: parseFloat(r.severity) >= 7 ? 'high' : parseFloat(r.severity) >= 4 ? 'medium' : parseFloat(r.severity) > 0 ? 'low' : 'info',
-            host: r.host || '',
-            port: parseInt(r.port) || 0,
-            cvss: parseFloat(r.severity) || 0,
-            solution: '',
-            description: r.description || '',
-            threat: r.threat || '',
-          }));
-          setVulnerabilities(mappedVulns);
-          updated.high = mappedVulns.filter((v: any) => v.severity === 'high').length;
-          updated.medium = mappedVulns.filter((v: any) => v.severity === 'medium').length;
-          updated.low = mappedVulns.filter((v: any) => v.severity === 'low').length;
-          updated.info = mappedVulns.filter((v: any) => v.severity === 'info').length;
+        try {
+          const reportRes = await fetch(`${API_BASE}/api/openvas/report/${statusData.reportId}`, { headers: authHeaders });
+          if (reportRes.ok) {
+            const reportData = await reportRes.json();
+            const mappedVulns = (reportData.results || []).map((r: any) => ({
+              id: r.id,
+              name: r.name || 'Ukjend',
+              severity: parseFloat(r.severity) >= 7 ? 'high' : parseFloat(r.severity) >= 4 ? 'medium' : parseFloat(r.severity) > 0 ? 'low' : 'info',
+              host: r.host || '',
+              port: parseInt(r.port) || 0,
+              cvss: parseFloat(r.severity) || 0,
+              solution: '',
+              description: r.description || '',
+              threat: r.threat || '',
+            }));
+            setVulnerabilities(mappedVulns);
+            updated.high = mappedVulns.filter((v: any) => v.severity === 'high').length;
+            updated.medium = mappedVulns.filter((v: any) => v.severity === 'medium').length;
+            updated.low = mappedVulns.filter((v: any) => v.severity === 'low').length;
+            updated.info = mappedVulns.filter((v: any) => v.severity === 'info').length;
+          }
+        } catch (reportErr) {
+          console.error('Kunne ikkje hente rapport-detaljar:', reportErr);
         }
       }
       setSelectedScan(updated);
