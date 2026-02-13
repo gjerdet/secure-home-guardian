@@ -202,6 +202,23 @@ export default function Security() {
       if (!enriched.mac && client.mac) enriched.mac = client.mac;
       if (!enriched.vendor && client.oui) enriched.vendor = client.oui;
       
+      // Add UniFi-specific data
+      enriched.unifiData = {
+        name: client.name || client.hostname || undefined,
+        network: client.network || client.network_id || undefined,
+        fixedIp: client.fixed_ip || client.use_fixedip ? client.fixed_ip : undefined,
+        note: client.note || undefined,
+        firstSeen: client.first_seen || undefined,
+        lastSeen: client.last_seen || undefined,
+        uptime: client.uptime || undefined,
+        txBytes: client.tx_bytes || undefined,
+        rxBytes: client.rx_bytes || undefined,
+        satisfaction: client.satisfaction !== undefined ? client.satisfaction : undefined,
+        blocked: client.blocked || false,
+        guestNetwork: client.is_guest || false,
+        wiredRateMbps: client.wired_rate_mbps || undefined,
+      };
+      
       // Add connection info from UniFi
       if (client.is_wired) {
         enriched.connection = {
@@ -209,7 +226,7 @@ export default function Security() {
           switchName: client.sw_name || client.sw_mac || undefined,
           switchMac: client.sw_mac || undefined,
           switchPort: client.sw_port || undefined,
-          portSpeed: client.network_speed ? `${client.network_speed} Mbps` : undefined,
+          portSpeed: client.network_speed ? `${client.network_speed} Mbps` : client.wired_rate_mbps ? `${client.wired_rate_mbps} Mbps` : undefined,
         };
       } else {
         enriched.connection = {

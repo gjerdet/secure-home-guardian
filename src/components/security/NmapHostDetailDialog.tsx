@@ -2,7 +2,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Server, Wifi, Cpu, HardDrive, Clock, Network, Globe, Shield, Cable, Radio } from "lucide-react";
+import { Server, Wifi, Cpu, HardDrive, Clock, Network, Globe, Shield, Cable, Radio, Activity, ArrowDown, ArrowUp, User } from "lucide-react";
 
 export interface NmapHostDetail {
   host: string;
@@ -18,6 +18,22 @@ export interface NmapHostDetail {
   connectionType?: string;
   gateway?: string;
   vlan?: string;
+  // UniFi enrichment
+  unifiData?: {
+    name?: string;
+    network?: string;
+    fixedIp?: string;
+    note?: string;
+    firstSeen?: number;
+    lastSeen?: number;
+    uptime?: number;
+    txBytes?: number;
+    rxBytes?: number;
+    satisfaction?: number;
+    blocked?: boolean;
+    guestNetwork?: boolean;
+    wiredRateMbps?: number;
+  };
   // Connection details
   connection?: {
     type: "wifi" | "ethernet";
@@ -71,6 +87,22 @@ interface NmapHostDetailDialogProps {
   host: NmapHostDetail | null;
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function formatUptime(seconds: number): string {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${d}d ${h}t ${m}m`;
+  if (h > 0) return `${h}t ${m}m`;
+  return `${m}m`;
+}
+
 export function NmapHostDetailDialog({ open, onOpenChange, host }: NmapHostDetailDialogProps) {
   if (!host) return null;
 
@@ -100,6 +132,81 @@ export function NmapHostDetailDialog({ open, onOpenChange, host }: NmapHostDetai
                 {host.lastBoot && <InfoRow icon={<Clock className="h-4 w-4" />} label="Sist startet" value={host.lastBoot} />}
               </CardContent>
             </Card>
+
+            {/* UniFi Client Data */}
+            {host.unifiData && (
+              <Card className="bg-primary/5 border-primary/20">
+                <CardContent className="p-4">
+                  <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                    <User className="h-4 w-4 text-primary" />
+                    UniFi-klientdata
+                    {host.unifiData.blocked && (
+                      <Badge variant="destructive" className="text-[10px]">Blokkert</Badge>
+                    )}
+                    {host.unifiData.guestNetwork && (
+                      <Badge variant="secondary" className="text-[10px]">Gjest</Badge>
+                    )}
+                  </h4>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    {host.unifiData.name && (
+                      <InfoRow icon={<User className="h-4 w-4" />} label="Namn (UniFi)" value={host.unifiData.name} />
+                    )}
+                    {host.unifiData.network && (
+                      <InfoRow icon={<Network className="h-4 w-4" />} label="Nettverk" value={host.unifiData.network} />
+                    )}
+                    {host.unifiData.fixedIp && (
+                      <InfoRow icon={<Globe className="h-4 w-4" />} label="Fast IP" value={host.unifiData.fixedIp} mono />
+                    )}
+                    {host.unifiData.satisfaction !== undefined && host.unifiData.satisfaction >= 0 && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-primary"><Activity className="h-4 w-4" /></span>
+                        <div>
+                          <span className="text-muted-foreground text-xs">Tilfredshet</span>
+                          <div className="flex items-center gap-2">
+                            <p className="text-foreground text-sm">{host.unifiData.satisfaction}%</p>
+                            <Badge variant={host.unifiData.satisfaction > 80 ? "default" : host.unifiData.satisfaction > 50 ? "secondary" : "destructive"} className="text-[10px]">
+                              {host.unifiData.satisfaction > 80 ? "Bra" : host.unifiData.satisfaction > 50 ? "Ok" : "Dårleg"}
+                            </Badge>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {host.unifiData.txBytes !== undefined && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-primary"><ArrowUp className="h-4 w-4" /></span>
+                        <div>
+                          <span className="text-muted-foreground text-xs">Sendt</span>
+                          <p className="text-foreground text-sm font-mono">{formatBytes(host.unifiData.txBytes)}</p>
+                        </div>
+                      </div>
+                    )}
+                    {host.unifiData.rxBytes !== undefined && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-primary"><ArrowDown className="h-4 w-4" /></span>
+                        <div>
+                          <span className="text-muted-foreground text-xs">Mottatt</span>
+                          <p className="text-foreground text-sm font-mono">{formatBytes(host.unifiData.rxBytes)}</p>
+                        </div>
+                      </div>
+                    )}
+                    {host.unifiData.uptime !== undefined && host.unifiData.uptime > 0 && (
+                      <InfoRow icon={<Clock className="h-4 w-4" />} label="Oppetid" value={formatUptime(host.unifiData.uptime)} />
+                    )}
+                    {host.unifiData.lastSeen !== undefined && (
+                      <InfoRow icon={<Clock className="h-4 w-4" />} label="Sist sett" value={new Date(host.unifiData.lastSeen * 1000).toLocaleString('nb-NO')} />
+                    )}
+                    {host.unifiData.firstSeen !== undefined && (
+                      <InfoRow icon={<Clock className="h-4 w-4" />} label="Først sett" value={new Date(host.unifiData.firstSeen * 1000).toLocaleString('nb-NO')} />
+                    )}
+                  </div>
+                  {host.unifiData.note && (
+                    <p className="mt-3 text-xs text-muted-foreground italic border-t border-border pt-2">
+                      Notat: {host.unifiData.note}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             {/* Connection Details */}
             {host.connection && (
