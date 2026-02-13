@@ -270,9 +270,13 @@ export default function Security() {
               host: r.host || '',
               port: parseInt(r.port) || 0,
               cvss: parseFloat(r.severity) || 0,
-              solution: '',
+              solution: r.solution || r.fix || '',
               description: r.description || '',
               threat: r.threat || '',
+              impact: r.impact || '',
+              cve: r.cves ? (Array.isArray(r.cves) ? r.cves : [r.cves]) : r.cve ? (Array.isArray(r.cve) ? r.cve : [r.cve]) : [],
+              references: r.refs ? (Array.isArray(r.refs) ? r.refs : r.refs.split(/\s+/)) : [],
+              family: r.family || r.nvt_family || '',
             }));
             setVulnerabilities(mappedVulns);
             updated.high = mappedVulns.filter((v: any) => v.severity === 'high').length;
