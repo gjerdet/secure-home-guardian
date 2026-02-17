@@ -169,7 +169,7 @@ export function TrafficFlowsPanel() {
     return { total, lowRisk, suspicious, concerning };
   }, [flows]);
 
-  // Top destinations from flows, fallback to DPI apps
+  // Top destinations from flows, fallback to DPI categories (which actually have data)
   const topDestinations = useMemo(() => {
     if (flows.length > 0) {
       const map: Record<string, { count: number; country: string }> = {};
@@ -184,14 +184,24 @@ export function TrafficFlowsPanel() {
         .sort((a, b) => b.count - a.count)
         .slice(0, 5);
     }
-    // Fallback: show top DPI apps by traffic
-    return dpiApps.slice(0, 5).map(a => ({
+    // Fallback: show top DPI categories (these have real traffic data)
+    const nonZeroCats = dpiCategories.filter(c => c.totalBytes > 0);
+    if (nonZeroCats.length > 0) {
+      return nonZeroCats.slice(0, 5).map(c => ({
+        name: c.name,
+        value: formatBytes(c.totalBytes),
+        count: c.clientCount || 0,
+        country: "",
+      }));
+    }
+    // Last fallback: DPI apps
+    return dpiApps.filter(a => a.totalBytes > 0).slice(0, 5).map(a => ({
       name: a.name,
       value: formatBytes(a.totalBytes),
       count: a.count || 0,
       country: "",
     }));
-  }, [flows, dpiApps]);
+  }, [flows, dpiApps, dpiCategories]);
 
   // Top clients from flows
   const topFlowClients = useMemo(() => {
@@ -284,7 +294,7 @@ export function TrafficFlowsPanel() {
         <Card className="bg-card border-border">
           <CardHeader className="pb-2 pt-3 px-4">
             <CardTitle className="text-xs text-muted-foreground font-medium">
-              {flows.length > 0 ? "Top Destinations" : "Top Appar (DPI)"}
+              {flows.length > 0 ? "Top Destinations" : "Top Nettverk (DPI)"}
             </CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-3 space-y-1">
