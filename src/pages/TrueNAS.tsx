@@ -63,17 +63,31 @@ export default function TrueNAS() {
         fetchJsonSafely(`${API_BASE}/api/truenas/shares`, { headers: authHeaders }),
       ]);
 
-      if (poolsRes.ok && poolsRes.data) setPools(Array.isArray(poolsRes.data) ? poolsRes.data : []);
-      if (datasetsRes.ok && datasetsRes.data) setDatasets(Array.isArray(datasetsRes.data) ? datasetsRes.data : []);
+      // Debug logging — will show in browser console
+      console.log("[TrueNAS] pools:", poolsRes);
+      console.log("[TrueNAS] datasets:", datasetsRes);
+      console.log("[TrueNAS] system:", systemRes);
+      console.log("[TrueNAS] snapshots:", snapshotsRes);
+      console.log("[TrueNAS] shares:", sharesRes);
+
+      if (poolsRes.ok && poolsRes.data) setPools(Array.isArray(poolsRes.data) ? poolsRes.data : [poolsRes.data]);
+      if (datasetsRes.ok && datasetsRes.data) setDatasets(Array.isArray(datasetsRes.data) ? datasetsRes.data : [datasetsRes.data]);
       if (snapshotsRes.ok && snapshotsRes.data) setSnapshots(Array.isArray(snapshotsRes.data) ? snapshotsRes.data : []);
       if (systemRes.ok && systemRes.data) setSystemInfo(systemRes.data);
       if (sharesRes.ok && sharesRes.data) setShares(Array.isArray(sharesRes.data) ? sharesRes.data : []);
 
-      // Show error if main endpoints fail
-      if (!poolsRes.ok && !systemRes.ok) {
-        const errMsg = poolsRes.error || systemRes.error || "Kan ikkje koble til TrueNAS";
+      // Show error if ANY main endpoint fails
+      const failedEndpoints = [
+        !poolsRes.ok && `Pools: ${poolsRes.error || poolsRes.status}`,
+        !systemRes.ok && `System: ${systemRes.error || systemRes.status}`,
+        !datasetsRes.ok && `Datasets: ${datasetsRes.error || datasetsRes.status}`,
+      ].filter(Boolean);
+
+      if (failedEndpoints.length > 0) {
+        const errMsg = failedEndpoints.join("; ");
+        console.error("[TrueNAS] Failed endpoints:", errMsg);
         setError(errMsg);
-        toast.error(errMsg);
+        toast.error("TrueNAS: " + errMsg);
       }
     } catch {
       setError("Nettverksfeil ved henting av TrueNAS-data");
