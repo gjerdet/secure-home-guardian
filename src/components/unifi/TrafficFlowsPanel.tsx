@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import {
   Activity, ArrowDownRight, ArrowUpRight, Globe, Loader2,
   RefreshCw, Search, Users, Wifi, ArrowLeftRight, ShieldCheck,
-  ArrowUpDown, BarChart3
+  ArrowUpDown, BarChart3, Radio, Smile, Gauge, Server
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { API_BASE, fetchJsonSafely } from "@/lib/api";
@@ -65,9 +65,22 @@ interface ClientInfo {
   ip?: string;
   is_wired?: boolean;
   network?: string;
+  essid?: string;
   satisfaction?: number;
   rx_bytes?: number;
   tx_bytes?: number;
+  ap_mac?: string;
+  channel?: number;
+  rssi?: number;
+  uptime?: number;
+}
+
+interface APDevice {
+  name: string;
+  mac: string;
+  clients: number;
+  satisfaction: number;
+  status: string;
 }
 
 function formatBytes(bytes: number): string {
@@ -107,6 +120,7 @@ export function TrafficFlowsPanel() {
   const [dpiApps, setDpiApps] = useState<DpiApp[]>([]);
   const [dpiClients, setDpiClients] = useState<DpiClient[]>([]);
   const [clients, setClients] = useState<ClientInfo[]>([]);
+  const [apDevices, setApDevices] = useState<APDevice[]>([]);
   const [totalRx, setTotalRx] = useState(0);
   const [totalTx, setTotalTx] = useState(0);
   const [totalClients, setTotalClients] = useState(0);
@@ -116,10 +130,11 @@ export function TrafficFlowsPanel() {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [flowsRes, dpiRes, clientsRes] = await Promise.all([
+      const [flowsRes, dpiRes, clientsRes, devicesRes] = await Promise.all([
         fetchJsonSafely(`${API_BASE}/api/unifi/flows`, { headers: authHeaders }),
         fetchJsonSafely(`${API_BASE}/api/unifi/dpi`, { headers: authHeaders }),
         fetchJsonSafely(`${API_BASE}/api/unifi/clients`, { headers: authHeaders }),
+        fetchJsonSafely(`${API_BASE}/api/unifi/devices`, { headers: authHeaders }),
       ]);
 
       if (flowsRes.ok && flowsRes.data) {
@@ -137,6 +152,20 @@ export function TrafficFlowsPanel() {
       if (clientsRes.ok && clientsRes.data) {
         const raw = (clientsRes.data as any)?.clients || (clientsRes.data as any)?.data || [];
         setClients(raw);
+      }
+      if (devicesRes.ok && devicesRes.data) {
+        const devs = (devicesRes.data as any)?.data || (devicesRes.data as any)?.devices || [];
+        const aps: APDevice[] = devs
+          .filter((d: any) => d.type === "uap")
+          .map((d: any) => ({
+            name: d.name || d.model || "AP",
+            mac: d.mac || "",
+            clients: d.num_sta || 0,
+            satisfaction: d.satisfaction ?? 0,
+            status: d.state === 1 ? "online" : "offline",
+          }))
+          .sort((a: APDevice, b: APDevice) => b.clients - a.clients);
+        setApDevices(aps);
       }
     } catch {
       toast.error("Kunne ikke hente trafikkdata");
@@ -222,7 +251,6 @@ export function TrafficFlowsPanel() {
     const wlan = clients.filter(c => !c.is_wired).length;
     const lan = clients.filter(c => c.is_wired).length;
     const total = clients.length;
-    // Network breakdown
     const networkMap: Record<string, number> = {};
     clients.forEach(c => {
       const net = c.network || (c.is_wired ? "LAN" : "WLAN");
@@ -232,6 +260,31 @@ export function TrafficFlowsPanel() {
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count);
     return { wlan, lan, total, networks };
+  }, [clients]);
+
+  // Average satisfaction from WiFi clients
+  const satisfactionStats = useMemo(() => {
+    const wifiClients = clients.filter(c => !c.is_wired && c.satisfaction != null && (c.satisfaction as number) > 0);
+    if (wifiClients.length === 0) return { avg: 0, count: 0, good: 0, fair: 0, poor: 0 };
+    const total = wifiClients.reduce((s, c) => s + (c.satisfaction || 0), 0);
+    const avg = Math.round(total / wifiClients.length);
+    const good = wifiClients.filter(c => (c.satisfaction || 0) >= 80).length;
+    const fair = wifiClients.filter(c => (c.satisfaction || 0) >= 50 && (c.satisfaction || 0) < 80).length;
+    const poor = wifiClients.filter(c => (c.satisfaction || 0) < 50).length;
+    return { avg, count: wifiClients.length, good, fair, poor };
+  }, [clients]);
+
+  // Top sources by traffic from live clients
+  const topSources = useMemo(() => {
+    return [...clients]
+      .filter(c => (c.rx_bytes || 0) + (c.tx_bytes || 0) > 0)
+      .sort((a, b) => ((b.rx_bytes || 0) + (b.tx_bytes || 0)) - ((a.rx_bytes || 0) + (a.tx_bytes || 0)))
+      .slice(0, 5)
+      .map(c => ({
+        name: c.name || c.hostname || c.ip || c.mac,
+        bytes: (c.rx_bytes || 0) + (c.tx_bytes || 0),
+        network: c.network || c.essid || (c.is_wired ? "LAN" : "WLAN"),
+      }));
   }, [clients]);
 
   const totalDpiBytes = dpiCategories.reduce((s, c) => s + c.totalBytes, 0);
@@ -257,7 +310,7 @@ export function TrafficFlowsPanel() {
         </CardHeader>
       </Card>
 
-      {/* Top Stats Row - like UniFi */}
+      {/* Top Stats Row 1 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {/* Traffic Summary */}
         <Card className="bg-card border-border">
@@ -290,7 +343,7 @@ export function TrafficFlowsPanel() {
           </CardContent>
         </Card>
 
-        {/* Top Destinations / Apps */}
+        {/* Top Destinations / Networks */}
         <Card className="bg-card border-border">
           <CardHeader className="pb-2 pt-3 px-4">
             <CardTitle className="text-xs text-muted-foreground font-medium">
@@ -309,7 +362,7 @@ export function TrafficFlowsPanel() {
           </CardContent>
         </Card>
 
-        {/* Top Clients */}
+        {/* Top Clients by traffic */}
         <Card className="bg-card border-border">
           <CardHeader className="pb-2 pt-3 px-4">
             <CardTitle className="text-xs text-muted-foreground font-medium">Top Klientar</CardTitle>
@@ -356,6 +409,106 @@ export function TrafficFlowsPanel() {
                 ))}
               </>
             ) : (
+              <p className="text-xs text-muted-foreground">Ingen data</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Stats Row 2 — new cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {/* Satisfaction */}
+        <Card className="bg-card border-border">
+          <CardHeader className="pb-2 pt-3 px-4">
+            <CardTitle className="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
+              <Smile className="h-3 w-3" /> Klient-tilfredsheit
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-3 space-y-1.5">
+            {satisfactionStats.count > 0 ? (
+              <>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Gjennomsnitt</span>
+                  <span className={`font-mono font-bold ${
+                    satisfactionStats.avg >= 80 ? "text-emerald-400" :
+                    satisfactionStats.avg >= 50 ? "text-warning" : "text-destructive"
+                  }`}>{satisfactionStats.avg}%</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-emerald-400">God (≥80%)</span>
+                  <span className="font-mono">{satisfactionStats.good}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-warning">Middels (50-79%)</span>
+                  <span className="font-mono">{satisfactionStats.fair}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-destructive">Dårleg (&lt;50%)</span>
+                  <span className="font-mono">{satisfactionStats.poor}</span>
+                </div>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">Ingen WiFi-data</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Most Active APs */}
+        <Card className="bg-card border-border">
+          <CardHeader className="pb-2 pt-3 px-4">
+            <CardTitle className="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
+              <Radio className="h-3 w-3" /> Mest aktive AP-ar
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-3 space-y-1">
+            {apDevices.length > 0 ? apDevices.slice(0, 5).map((ap, i) => (
+              <div key={i} className="flex justify-between text-xs">
+                <span className="truncate max-w-[60%]">{ap.name}</span>
+                <span className="font-mono text-muted-foreground">
+                  {ap.clients} kl. • {ap.satisfaction}%
+                </span>
+              </div>
+            )) : (
+              <p className="text-xs text-muted-foreground">Ingen AP-data</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Top Sources by live traffic */}
+        <Card className="bg-card border-border">
+          <CardHeader className="pb-2 pt-3 px-4">
+            <CardTitle className="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
+              <ArrowUpDown className="h-3 w-3" /> Top Kjelder (live)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-3 space-y-1">
+            {topSources.length > 0 ? topSources.map((s, i) => (
+              <div key={i} className="flex justify-between text-xs">
+                <span className="truncate max-w-[55%]" title={s.name}>{s.name}</span>
+                <span className="font-mono text-muted-foreground">{formatBytes(s.bytes)}</span>
+              </div>
+            )) : (
+              <p className="text-xs text-muted-foreground">Ingen data</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Top DPI Apps */}
+        <Card className="bg-card border-border">
+          <CardHeader className="pb-2 pt-3 px-4">
+            <CardTitle className="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
+              <BarChart3 className="h-3 w-3" /> Top Appar (DPI)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-3 space-y-1">
+            {dpiApps.length > 0 ? dpiApps.slice(0, 5).map((a, i) => (
+              <div key={i} className="flex justify-between text-xs">
+                <span className="truncate max-w-[60%]">{a.name}</span>
+                <span className="font-mono text-muted-foreground">
+                  {a.totalBytes > 0 ? formatBytes(a.totalBytes) : formatNumber(a.count || 0)}
+                </span>
+              </div>
+            )) : (
               <p className="text-xs text-muted-foreground">Ingen data</p>
             )}
           </CardContent>
