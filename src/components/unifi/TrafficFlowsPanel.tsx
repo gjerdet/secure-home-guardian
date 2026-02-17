@@ -58,6 +58,18 @@ interface DpiClient {
   network?: string;
 }
 
+interface ClientInfo {
+  mac: string;
+  name?: string;
+  hostname?: string;
+  ip?: string;
+  is_wired?: boolean;
+  network?: string;
+  satisfaction?: number;
+  rx_bytes?: number;
+  tx_bytes?: number;
+}
+
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
   const k = 1024;
@@ -94,6 +106,7 @@ export function TrafficFlowsPanel() {
   const [dpiCategories, setDpiCategories] = useState<DpiCategory[]>([]);
   const [dpiApps, setDpiApps] = useState<DpiApp[]>([]);
   const [dpiClients, setDpiClients] = useState<DpiClient[]>([]);
+  const [clients, setClients] = useState<ClientInfo[]>([]);
   const [totalRx, setTotalRx] = useState(0);
   const [totalTx, setTotalTx] = useState(0);
   const [totalClients, setTotalClients] = useState(0);
@@ -103,9 +116,10 @@ export function TrafficFlowsPanel() {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [flowsRes, dpiRes] = await Promise.all([
+      const [flowsRes, dpiRes, clientsRes] = await Promise.all([
         fetchJsonSafely(`${API_BASE}/api/unifi/flows`, { headers: authHeaders }),
         fetchJsonSafely(`${API_BASE}/api/unifi/dpi`, { headers: authHeaders }),
+        fetchJsonSafely(`${API_BASE}/api/unifi/clients`, { headers: authHeaders }),
       ]);
 
       if (flowsRes.ok && flowsRes.data) {
@@ -119,6 +133,10 @@ export function TrafficFlowsPanel() {
         setTotalRx(d.totalRx || 0);
         setTotalTx(d.totalTx || 0);
         setTotalClients(d.totalClients || 0);
+      }
+      if (clientsRes.ok && clientsRes.data) {
+        const raw = (clientsRes.data as any)?.clients || (clientsRes.data as any)?.data || [];
+        setClients(raw);
       }
     } catch {
       toast.error("Kunne ikke hente trafikkdata");
@@ -151,20 +169,29 @@ export function TrafficFlowsPanel() {
     return { total, lowRisk, suspicious, concerning };
   }, [flows]);
 
-  // Top destinations from flows
+  // Top destinations from flows, fallback to DPI apps
   const topDestinations = useMemo(() => {
-    const map: Record<string, { count: number; country: string }> = {};
-    flows.forEach(f => {
-      const key = f.destination || f.destinationIp;
-      if (!key) return;
-      if (!map[key]) map[key] = { count: 0, country: f.country };
-      map[key].count++;
-    });
-    return Object.entries(map)
-      .map(([name, data]) => ({ name, ...data }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
-  }, [flows]);
+    if (flows.length > 0) {
+      const map: Record<string, { count: number; country: string }> = {};
+      flows.forEach(f => {
+        const key = f.destination || f.destinationIp;
+        if (!key) return;
+        if (!map[key]) map[key] = { count: 0, country: f.country };
+        map[key].count++;
+      });
+      return Object.entries(map)
+        .map(([name, data]) => ({ name, value: `${formatNumber(data.count)}`, ...data }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+    }
+    // Fallback: show top DPI apps by traffic
+    return dpiApps.slice(0, 5).map(a => ({
+      name: a.name,
+      value: formatBytes(a.totalBytes),
+      count: a.count || 0,
+      country: "",
+    }));
+  }, [flows, dpiApps]);
 
   // Top clients from flows
   const topFlowClients = useMemo(() => {
@@ -179,6 +206,23 @@ export function TrafficFlowsPanel() {
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
   }, [flows]);
+
+  // Connection type breakdown from live clients
+  const connectionStats = useMemo(() => {
+    const wlan = clients.filter(c => !c.is_wired).length;
+    const lan = clients.filter(c => c.is_wired).length;
+    const total = clients.length;
+    // Network breakdown
+    const networkMap: Record<string, number> = {};
+    clients.forEach(c => {
+      const net = c.network || (c.is_wired ? "LAN" : "WLAN");
+      networkMap[net] = (networkMap[net] || 0) + 1;
+    });
+    const networks = Object.entries(networkMap)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+    return { wlan, lan, total, networks };
+  }, [clients]);
 
   const totalDpiBytes = dpiCategories.reduce((s, c) => s + c.totalBytes, 0);
 
@@ -236,16 +280,18 @@ export function TrafficFlowsPanel() {
           </CardContent>
         </Card>
 
-        {/* Top Destinations */}
+        {/* Top Destinations / Apps */}
         <Card className="bg-card border-border">
           <CardHeader className="pb-2 pt-3 px-4">
-            <CardTitle className="text-xs text-muted-foreground font-medium">Top Destinations</CardTitle>
+            <CardTitle className="text-xs text-muted-foreground font-medium">
+              {flows.length > 0 ? "Top Destinations" : "Top Appar (DPI)"}
+            </CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-3 space-y-1">
             {topDestinations.length > 0 ? topDestinations.map((d, i) => (
               <div key={i} className="flex justify-between text-xs">
                 <span className="truncate max-w-[70%] font-mono">{d.name}</span>
-                <span className="font-mono text-muted-foreground">{formatNumber(d.count)}</span>
+                <span className="font-mono text-muted-foreground">{d.value}</span>
               </div>
             )) : (
               <p className="text-xs text-muted-foreground">Ingen data</p>
@@ -272,20 +318,34 @@ export function TrafficFlowsPanel() {
           </CardContent>
         </Card>
 
-        {/* Top Hendingstypar */}
+        {/* Connection Types */}
         <Card className="bg-card border-border">
           <CardHeader className="pb-2 pt-3 px-4">
-            <CardTitle className="text-xs text-muted-foreground font-medium">Hendingstypar</CardTitle>
+            <CardTitle className="text-xs text-muted-foreground font-medium">Tilkoplingstypar</CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-3 space-y-1">
-            {dpiApps.length > 0 ? dpiApps.slice(0, 5).map((a, i) => (
-              <div key={i} className="flex justify-between text-xs">
-                <span className="truncate max-w-[60%]">{a.name}</span>
-                <span className="font-mono text-muted-foreground">
-                  {a.count ? formatNumber(a.count) : formatBytes(a.totalBytes)}
-                </span>
-              </div>
-            )) : (
+            {connectionStats.total > 0 ? (
+              <>
+                <div className="flex justify-between text-xs">
+                  <span className="flex items-center gap-1.5">
+                    <Wifi className="h-3 w-3 text-primary" /> wlan
+                  </span>
+                  <span className="font-mono font-bold">{connectionStats.wlan}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="flex items-center gap-1.5">
+                    <Globe className="h-3 w-3 text-muted-foreground" /> lan
+                  </span>
+                  <span className="font-mono font-bold">{connectionStats.lan}</span>
+                </div>
+                {connectionStats.networks.length > 2 && connectionStats.networks.slice(0, 4).map((n, i) => (
+                  <div key={i} className="flex justify-between text-xs text-muted-foreground">
+                    <span className="truncate max-w-[65%]">{n.name}</span>
+                    <span className="font-mono">{n.count}</span>
+                  </div>
+                ))}
+              </>
+            ) : (
               <p className="text-xs text-muted-foreground">Ingen data</p>
             )}
           </CardContent>
