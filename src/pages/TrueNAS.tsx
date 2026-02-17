@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Header } from "@/components/Header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,39 +8,117 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   HardDrive, Database, Clock, CheckCircle, AlertTriangle,
   Thermometer, Activity, Server, FolderOpen, Container, Share2, 
-  Play, Square, RotateCcw
+  Play, Square, RotateCcw, RefreshCw, Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
+import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
+import { API_BASE, fetchJsonSafely } from "@/lib/api";
 
-const pools: any[] = [];
-const datasets: any[] = [];
-const recentSnapshots: any[] = [];
-const dockerContainers: any[] = [];
-const shares: any[] = [];
-
-const systemStats = {
-  cpu: 0,
-  memory: { used: 0, total: 0 },
-  uptime: "Ikke tilkoblet",
-  version: "Ikke tilkoblet",
-};
+function formatBytes(bytes: number): string {
+  if (!bytes || bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB", "TB", "PB"];
+  const i = Math.floor(Math.log(Math.abs(bytes)) / Math.log(k));
+  return `${(bytes / Math.pow(k, i)).toFixed(i > 1 ? 1 : 0)} ${sizes[i]}`;
+}
 
 interface DatasetType {
+  id?: string;
   name: string;
-  used: string;
-  quota: string;
-  snapshots: number;
-  compression: string;
+  used: { rawvalue?: string; value?: string; parsed?: number };
+  available: { rawvalue?: string; value?: string; parsed?: number };
+  quota: { rawvalue?: string; value?: string; parsed?: number };
+  compression: { value?: string };
   mountpoint: string;
-  recordsize: string;
-  atime: string;
+  type: string;
+  comments?: { value?: string };
+  children?: DatasetType[];
 }
 
 export default function TrueNAS() {
+  const { token } = useAuth();
+  const authHeaders = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
+
+  const [pools, setPools] = useState<any[]>([]);
+  const [datasets, setDatasets] = useState<DatasetType[]>([]);
+  const [snapshots, setSnapshots] = useState<any[]>([]);
+  const [shares, setShares] = useState<any[]>([]);
+  const [systemInfo, setSystemInfo] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [selectedDataset, setSelectedDataset] = useState<DatasetType | null>(null);
-  const [selectedContainer, setSelectedContainer] = useState<typeof dockerContainers[0] | null>(null);
+
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const [poolsRes, datasetsRes, snapshotsRes, systemRes, sharesRes] = await Promise.all([
+        fetchJsonSafely(`${API_BASE}/api/truenas/pools`, { headers: authHeaders }),
+        fetchJsonSafely(`${API_BASE}/api/truenas/datasets`, { headers: authHeaders }),
+        fetchJsonSafely(`${API_BASE}/api/truenas/snapshots`, { headers: authHeaders }),
+        fetchJsonSafely(`${API_BASE}/api/truenas/system`, { headers: authHeaders }),
+        fetchJsonSafely(`${API_BASE}/api/truenas/shares`, { headers: authHeaders }),
+      ]);
+
+      if (poolsRes.ok && poolsRes.data) setPools(Array.isArray(poolsRes.data) ? poolsRes.data : []);
+      if (datasetsRes.ok && datasetsRes.data) setDatasets(Array.isArray(datasetsRes.data) ? datasetsRes.data : []);
+      if (snapshotsRes.ok && snapshotsRes.data) setSnapshots(Array.isArray(snapshotsRes.data) ? snapshotsRes.data : []);
+      if (systemRes.ok && systemRes.data) setSystemInfo(systemRes.data);
+      if (sharesRes.ok && sharesRes.data) setShares(Array.isArray(sharesRes.data) ? sharesRes.data : []);
+
+      // Show error if main endpoints fail
+      if (!poolsRes.ok && !systemRes.ok) {
+        const errMsg = poolsRes.error || systemRes.error || "Kan ikkje koble til TrueNAS";
+        setError(errMsg);
+        toast.error(errMsg);
+      }
+    } catch {
+      setError("Nettverksfeil ved henting av TrueNAS-data");
+      toast.error("Kunne ikkje hente TrueNAS-data");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [authHeaders]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const isConnected = systemInfo || pools.length > 0;
+
+  // Parse pool stats
+  const poolStats = useMemo(() => {
+    return pools.map(p => {
+      const totalRaw = p.topology?.data?.reduce((s: number, vdev: any) => {
+        return s + (vdev.stats?.size || 0);
+      }, 0) || 0;
+      const allocRaw = p.topology?.data?.reduce((s: number, vdev: any) => {
+        return s + (vdev.stats?.allocated || 0);
+      }, 0) || 0;
+      return {
+        name: p.name,
+        status: p.status || p.healthy ? "ONLINE" : "DEGRADED",
+        healthy: p.healthy,
+        totalBytes: totalRaw,
+        usedBytes: allocRaw,
+        usedPct: totalRaw > 0 ? (allocRaw / totalRaw) * 100 : 0,
+        topology: p.topology,
+      };
+    });
+  }, [pools]);
+
+  const totalStorage = poolStats.reduce((s, p) => s + p.totalBytes, 0);
+  const usedStorage = poolStats.reduce((s, p) => s + p.usedBytes, 0);
+
+  // System stats
+  const cpuUsage = systemInfo?.loadavg ? Math.round(systemInfo.loadavg[0] * 100 / (systemInfo.cores || 4)) : 0;
+  const memTotal = systemInfo?.physmem ? systemInfo.physmem : 0;
+  const memUsed = memTotal - (systemInfo?.physmem_free || memTotal);
+  const uptime = systemInfo?.uptime_seconds
+    ? `${Math.floor(systemInfo.uptime_seconds / 86400)}d ${Math.floor((systemInfo.uptime_seconds % 86400) / 3600)}h`
+    : systemInfo?.uptime || "—";
+  const version = systemInfo?.version_str || systemInfo?.version || "—";
 
   return (
     <div className="min-h-screen bg-background cyber-grid">
@@ -53,51 +131,71 @@ export default function TrueNAS() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-foreground">TrueNAS Scale</h1>
-            <p className="text-sm text-muted-foreground">{systemStats.version} • Uptime: {systemStats.uptime}</p>
+            <p className="text-sm text-muted-foreground">{version} • Uptime: {uptime}</p>
           </div>
-          <Badge className="ml-auto bg-muted text-muted-foreground border-border">Ikke tilkoblet</Badge>
+          <Badge className={`ml-auto ${isConnected ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-muted text-muted-foreground border-border"}`}>
+            {isConnected ? "Tilkobla" : "Ikkje tilkobla"}
+          </Badge>
+          <Button onClick={fetchData} disabled={isLoading} size="sm" variant="outline">
+            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          </Button>
         </div>
+
+        {error && (
+          <Card className="bg-destructive/10 border-destructive/30 mb-6">
+            <CardContent className="p-4 flex items-center gap-3">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              <div>
+                <p className="text-sm font-medium text-destructive">{error}</p>
+                <p className="text-xs text-muted-foreground">Sjekk at TrueNAS URL og API-nøkkel er riktig i Innstillingar.</p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* System Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <Card className="bg-card border-border">
             <CardContent className="p-4">
               <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
-                <Activity className="h-3 w-3" />
-                CPU
+                <Activity className="h-3 w-3" /> CPU
               </div>
-              <p className="text-2xl font-mono font-bold text-foreground mb-2">{systemStats.cpu}%</p>
-              <Progress value={systemStats.cpu} className="h-1.5" />
+              <p className="text-2xl font-mono font-bold text-foreground mb-2">{cpuUsage}%</p>
+              <Progress value={cpuUsage} className="h-1.5" />
             </CardContent>
           </Card>
           <Card className="bg-card border-border">
             <CardContent className="p-4">
               <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
-                <Server className="h-3 w-3" />
-                RAM
+                <Server className="h-3 w-3" /> RAM
               </div>
-              <p className="text-2xl font-mono font-bold text-foreground mb-2">{systemStats.memory.used} GB</p>
-              <Progress value={systemStats.memory.total > 0 ? (systemStats.memory.used / systemStats.memory.total) * 100 : 0} className="h-1.5" />
+              <p className="text-2xl font-mono font-bold text-foreground mb-2">
+                {memTotal > 0 ? formatBytes(memUsed) : "—"}
+              </p>
+              <Progress value={memTotal > 0 ? (memUsed / memTotal) * 100 : 0} className="h-1.5" />
+              {memTotal > 0 && (
+                <p className="text-[10px] text-muted-foreground mt-1">av {formatBytes(memTotal)}</p>
+              )}
             </CardContent>
           </Card>
           <Card className="bg-card border-border">
             <CardContent className="p-4">
               <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
-                <Database className="h-3 w-3" />
-                Total Lagring
+                <Database className="h-3 w-3" /> Total Lagring
               </div>
-              <p className="text-2xl font-mono font-bold text-foreground">66 TB</p>
-              <p className="text-xs text-muted-foreground">2 pools</p>
+              <p className="text-2xl font-mono font-bold text-foreground">
+                {totalStorage > 0 ? formatBytes(totalStorage) : "—"}
+              </p>
+              <p className="text-xs text-muted-foreground">{pools.length} pool{pools.length !== 1 ? "s" : ""}</p>
             </CardContent>
           </Card>
           <Card className="bg-card border-border">
             <CardContent className="p-4">
               <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
-                <Container className="h-3 w-3" />
-                Docker
+                <Clock className="h-3 w-3" /> Snapshots
               </div>
-              <p className="text-2xl font-mono font-bold text-foreground">{dockerContainers.filter(c => c.status === "running").length}/{dockerContainers.length}</p>
-              <p className="text-xs text-muted-foreground">containere kjører</p>
+              <p className="text-2xl font-mono font-bold text-foreground">{snapshots.length}</p>
+              <p className="text-xs text-muted-foreground">{datasets.length} datasets</p>
             </CardContent>
           </Card>
         </div>
@@ -105,31 +203,38 @@ export default function TrueNAS() {
         <Tabs defaultValue="pools" className="space-y-4">
           <TabsList className="bg-muted flex-wrap">
             <TabsTrigger value="pools" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-              <Database className="h-4 w-4 mr-2" />
-              Pools
+              <Database className="h-4 w-4 mr-2" /> Pools ({pools.length})
             </TabsTrigger>
             <TabsTrigger value="datasets" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-              <FolderOpen className="h-4 w-4 mr-2" />
-              Datasets
+              <FolderOpen className="h-4 w-4 mr-2" /> Datasets ({datasets.length})
             </TabsTrigger>
             <TabsTrigger value="snapshots" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-              <Clock className="h-4 w-4 mr-2" />
-              Snapshots
-            </TabsTrigger>
-            <TabsTrigger value="docker" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-              <Container className="h-4 w-4 mr-2" />
-              Docker
+              <Clock className="h-4 w-4 mr-2" /> Snapshots ({snapshots.length})
             </TabsTrigger>
             <TabsTrigger value="shares" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-              <Share2 className="h-4 w-4 mr-2" />
-              Deling
+              <Share2 className="h-4 w-4 mr-2" /> Deling ({shares.length})
             </TabsTrigger>
           </TabsList>
 
           {/* Pools Tab */}
           <TabsContent value="pools">
             <div className="space-y-4">
-              {pools.map((pool) => (
+              {isLoading && pools.length === 0 ? (
+                <Card className="bg-card border-border">
+                  <CardContent className="p-8 flex flex-col items-center gap-2">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground">Hentar pools...</p>
+                  </CardContent>
+                </Card>
+              ) : poolStats.length === 0 ? (
+                <Card className="bg-card border-border">
+                  <CardContent className="p-8 text-center text-muted-foreground">
+                    <Database className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">Ingen pools funne</p>
+                    <p className="text-xs">Sjekk TrueNAS-tilkoblinga i Innstillingar</p>
+                  </CardContent>
+                </Card>
+              ) : poolStats.map((pool) => (
                 <Card key={pool.name} className="bg-card border-border">
                   <CardHeader className="border-b border-border">
                     <div className="flex items-center justify-between">
@@ -138,43 +243,36 @@ export default function TrueNAS() {
                         {pool.name}
                       </CardTitle>
                       <div className="flex items-center gap-2">
-                        <Badge className="bg-success/10 text-success border-success/20">
-                          <CheckCircle className="h-3 w-3 mr-1" />
+                        <Badge className={pool.status === "ONLINE"
+                          ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                          : "bg-destructive/10 text-destructive border-destructive/20"
+                        }>
+                          {pool.status === "ONLINE" ? <CheckCircle className="h-3 w-3 mr-1" /> : <AlertTriangle className="h-3 w-3 mr-1" />}
                           {pool.status}
                         </Badge>
-                        <Badge variant="outline">Health: {pool.health}%</Badge>
                       </div>
                     </div>
                   </CardHeader>
                   <CardContent className="p-4">
                     <div className="mb-4">
                       <div className="flex justify-between text-sm mb-1">
-                        <span className="text-muted-foreground">Brukt: {pool.used} TB / {pool.total} TB</span>
-                        <span className="font-mono text-foreground">{((pool.used / pool.total) * 100).toFixed(1)}%</span>
+                        <span className="text-muted-foreground">Brukt: {formatBytes(pool.usedBytes)} / {formatBytes(pool.totalBytes)}</span>
+                        <span className="font-mono text-foreground">{pool.usedPct.toFixed(1)}%</span>
                       </div>
-                      <Progress value={(pool.used / pool.total) * 100} className="h-2" />
+                      <Progress value={pool.usedPct} className="h-2" />
                     </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs mb-4">
-                      <div><span className="text-muted-foreground">Komprimering:</span><p className="font-mono text-foreground">{pool.compression}</p></div>
-                      <div><span className="text-muted-foreground">Dedup:</span><p className="font-mono text-foreground">{pool.dedup ? "Aktivert" : "Deaktivert"}</p></div>
-                      <div><span className="text-muted-foreground">Disker:</span><p className="font-mono text-foreground">{pool.disks.length} stk</p></div>
-                      <div><span className="text-muted-foreground">Tilgjengelig:</span><p className="font-mono text-foreground">{(pool.total - pool.used).toFixed(1)} TB</p></div>
-                    </div>
-                    <div className="border-t border-border pt-4">
-                      <p className="text-xs text-muted-foreground mb-2">Disker:</p>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                        {pool.disks.map((disk) => (
-                          <div key={disk.name} className="bg-muted/50 rounded-md p-2 text-xs">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="font-mono font-medium text-foreground">{disk.name}</span>
-                              <Badge variant="outline" className="text-[10px] px-1">{disk.status}</Badge>
-                            </div>
-                            <div className="flex items-center gap-2 text-muted-foreground">
-                              <span>{disk.size}</span>
-                              <span className="flex items-center gap-0.5"><Thermometer className="h-3 w-3" />{disk.temp}°C</span>
-                            </div>
-                          </div>
-                        ))}
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-xs">
+                      <div>
+                        <span className="text-muted-foreground">Tilgjengeleg:</span>
+                        <p className="font-mono text-foreground">{formatBytes(pool.totalBytes - pool.usedBytes)}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Helse:</span>
+                        <p className="font-mono text-foreground">{pool.healthy ? "Frisk" : "Degradert"}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">VDevs:</span>
+                        <p className="font-mono text-foreground">{pool.topology?.data?.length || 0}</p>
                       </div>
                     </div>
                   </CardContent>
@@ -187,22 +285,44 @@ export default function TrueNAS() {
           <TabsContent value="datasets">
             <Card className="bg-card border-border">
               <CardContent className="p-0">
-                <ScrollArea className="h-[400px]">
+                <ScrollArea className="h-[500px]">
                   <div className="divide-y divide-border">
-                    {datasets.map((ds) => (
-                      <div key={ds.name} className="p-4 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => setSelectedDataset(ds)}>
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="font-mono font-medium text-foreground">{ds.name}</p>
-                          <Badge variant="outline">{ds.snapshots} snapshots</Badge>
-                        </div>
-                        <div className="grid grid-cols-4 gap-4 text-xs">
-                          <div><span className="text-muted-foreground">Brukt:</span><p className="font-mono text-foreground">{ds.used}</p></div>
-                          <div><span className="text-muted-foreground">Kvote:</span><p className="font-mono text-foreground">{ds.quota}</p></div>
-                          <div><span className="text-muted-foreground">Komprimering:</span><p className="font-mono text-foreground">{ds.compression}</p></div>
-                          <div><span className="text-muted-foreground">Mountpoint:</span><p className="font-mono text-foreground truncate">{ds.mountpoint}</p></div>
-                        </div>
+                    {datasets.length === 0 ? (
+                      <div className="p-8 text-center text-muted-foreground">
+                        <FolderOpen className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">Ingen datasets</p>
                       </div>
-                    ))}
+                    ) : datasets.map((ds) => {
+                      const usedVal = ds.used?.parsed || parseInt(ds.used?.rawvalue || "0");
+                      const availVal = ds.available?.parsed || parseInt(ds.available?.rawvalue || "0");
+                      const quotaVal = ds.quota?.parsed || parseInt(ds.quota?.rawvalue || "0");
+                      return (
+                        <div key={ds.id || ds.name} className="p-4 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => setSelectedDataset(ds)}>
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="font-mono font-medium text-foreground text-sm">{ds.name}</p>
+                            <Badge variant="outline" className="text-[10px]">{ds.type}</Badge>
+                          </div>
+                          <div className="grid grid-cols-3 md:grid-cols-4 gap-4 text-xs">
+                            <div>
+                              <span className="text-muted-foreground">Brukt:</span>
+                              <p className="font-mono text-foreground">{formatBytes(usedVal)}</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Tilgjengeleg:</span>
+                              <p className="font-mono text-foreground">{formatBytes(availVal)}</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Kvote:</span>
+                              <p className="font-mono text-foreground">{quotaVal > 0 ? formatBytes(quotaVal) : "Ingen"}</p>
+                            </div>
+                            <div className="hidden md:block">
+                              <span className="text-muted-foreground">Komprimering:</span>
+                              <p className="font-mono text-foreground">{ds.compression?.value || "—"}</p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </ScrollArea>
               </CardContent>
@@ -213,66 +333,38 @@ export default function TrueNAS() {
           <TabsContent value="snapshots">
             <Card className="bg-card border-border">
               <CardContent className="p-0">
-                <ScrollArea className="h-[400px]">
+                <ScrollArea className="h-[500px]">
                   <div className="divide-y divide-border">
-                    {recentSnapshots.map((snap) => (
-                      <div key={snap.name} className="p-4 hover:bg-muted/50 transition-colors">
-                        <div className="flex items-center justify-between mb-1">
-                          <p className="font-mono text-sm text-foreground">{snap.name}</p>
-                          <Badge variant={snap.type === "auto" ? "secondary" : "outline"}>{snap.type}</Badge>
-                        </div>
-                        <div className="flex gap-4 text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{snap.created}</span>
-                          <span>Størrelse: {snap.size}</span>
-                        </div>
+                    {snapshots.length === 0 ? (
+                      <div className="p-8 text-center text-muted-foreground">
+                        <Clock className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">Ingen snapshots</p>
                       </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Docker Tab */}
-          <TabsContent value="docker">
-            <Card className="bg-card border-border">
-              <CardHeader className="border-b border-border">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Container className="h-5 w-5 text-primary" />
-                  Docker Containere ({dockerContainers.length})
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                <ScrollArea className="h-[400px]">
-                  <div className="divide-y divide-border">
-                    {dockerContainers.map((ct) => (
-                      <div key={ct.id} className="p-4 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => setSelectedContainer(ct)}>
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-3">
-                            <div className={`rounded-lg p-2 ${ct.status === "running" ? "bg-success/10" : "bg-muted"}`}>
-                              <Container className={`h-4 w-4 ${ct.status === "running" ? "text-success" : "text-muted-foreground"}`} />
-                            </div>
-                            <div>
-                              <p className="font-medium text-foreground">{ct.name}</p>
-                              <p className="text-xs text-muted-foreground font-mono">{ct.image}</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Badge variant={ct.status === "running" ? "default" : "secondary"} className="text-[10px]">
-                              {ct.status === "running" ? "Kjører" : "Stoppet"}
+                    ) : snapshots.slice(0, 100).map((snap, idx) => {
+                      const props = snap.properties || {};
+                      const created = props.creation?.value
+                        ? new Date(parseInt(props.creation.value) * 1000).toLocaleString("nb-NO")
+                        : snap.snapshot_name || "—";
+                      const usedBytes = props.used?.parsed || parseInt(props.used?.rawvalue || "0");
+                      return (
+                        <div key={snap.id || idx} className="p-4 hover:bg-muted/50 transition-colors">
+                          <div className="flex items-center justify-between mb-1">
+                            <p className="font-mono text-sm text-foreground truncate max-w-[70%]">
+                              {snap.snapshot_name || snap.name || snap.id}
+                            </p>
+                            <Badge variant="outline" className="text-[10px]">
+                              {formatBytes(usedBytes)}
                             </Badge>
                           </div>
-                        </div>
-                        {ct.status === "running" && (
-                          <div className="grid grid-cols-4 gap-3 text-xs ml-11">
-                            <div><span className="text-muted-foreground">CPU:</span><span className="font-mono text-foreground ml-1">{ct.cpu}%</span></div>
-                            <div><span className="text-muted-foreground">RAM:</span><span className="font-mono text-foreground ml-1">{ct.memory}</span></div>
-                            <div><span className="text-muted-foreground">Porter:</span><span className="font-mono text-foreground ml-1">{ct.ports}</span></div>
-                            <div><span className="text-muted-foreground">Oppetid:</span><span className="font-mono text-foreground ml-1">{ct.uptime}</span></div>
+                          <div className="flex gap-4 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <Clock className="h-3 w-3" /> {created}
+                            </span>
+                            <span>{snap.dataset || ""}</span>
                           </div>
-                        )}
-                      </div>
-                    ))}
+                        </div>
+                      );
+                    })}
                   </div>
                 </ScrollArea>
               </CardContent>
@@ -285,34 +377,35 @@ export default function TrueNAS() {
               <CardHeader className="border-b border-border">
                 <CardTitle className="flex items-center gap-2 text-base">
                   <Share2 className="h-5 w-5 text-primary" />
-                  Delte ressurser ({shares.length})
+                  Delte ressursar ({shares.length})
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
                 <ScrollArea className="h-[400px]">
                   <div className="divide-y divide-border">
-                    {shares.map((share) => (
-                      <div key={share.name} className="p-4 hover:bg-muted/50 transition-colors">
+                    {shares.length === 0 ? (
+                      <div className="p-8 text-center text-muted-foreground">
+                        <Share2 className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">Ingen delte ressursar</p>
+                      </div>
+                    ) : shares.map((share, idx) => (
+                      <div key={share.id || idx} className="p-4 hover:bg-muted/50 transition-colors">
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-3">
-                            <div className={`rounded-lg p-2 ${share.enabled ? "bg-primary/10" : "bg-muted"}`}>
-                              <Share2 className={`h-4 w-4 ${share.enabled ? "text-primary" : "text-muted-foreground"}`} />
+                            <div className={`rounded-lg p-2 ${share.enabled !== false ? "bg-primary/10" : "bg-muted"}`}>
+                              <Share2 className={`h-4 w-4 ${share.enabled !== false ? "text-primary" : "text-muted-foreground"}`} />
                             </div>
                             <div>
-                              <p className="font-medium text-foreground">{share.name}</p>
-                              <p className="text-xs text-muted-foreground">{share.description}</p>
+                              <p className="font-medium text-foreground">{share.name || share.comment || share.path}</p>
+                              <p className="text-xs text-muted-foreground font-mono">{share.path || share.paths?.[0] || "—"}</p>
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
-                            <Badge variant="outline" className="font-mono text-[10px]">{share.type}</Badge>
-                            <Badge variant={share.enabled ? "default" : "secondary"} className="text-[10px]">
-                              {share.enabled ? "Aktiv" : "Deaktivert"}
+                            <Badge variant="outline" className="font-mono text-[10px]">{share.shareType || "SMB"}</Badge>
+                            <Badge variant={share.enabled !== false ? "default" : "secondary"} className="text-[10px]">
+                              {share.enabled !== false ? "Aktiv" : "Deaktivert"}
                             </Badge>
                           </div>
-                        </div>
-                        <div className="grid grid-cols-3 gap-3 text-xs ml-11">
-                          <div><span className="text-muted-foreground">Sti:</span><span className="font-mono text-foreground ml-1">{share.path}</span></div>
-                          <div><span className="text-muted-foreground">Brukere:</span><span className="font-mono text-foreground ml-1">{share.users}</span></div>
                         </div>
                       </div>
                     ))}
@@ -333,77 +426,44 @@ export default function TrueNAS() {
               {selectedDataset?.name}
             </DialogTitle>
           </DialogHeader>
-          {selectedDataset && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div className="bg-muted/50 rounded-lg p-3 text-center">
-                  <p className="text-xs text-muted-foreground mb-1">Brukt</p>
-                  <p className="font-mono font-bold text-foreground">{selectedDataset.used}</p>
+          {selectedDataset && (() => {
+            const usedVal = selectedDataset.used?.parsed || parseInt(selectedDataset.used?.rawvalue || "0");
+            const availVal = selectedDataset.available?.parsed || parseInt(selectedDataset.available?.rawvalue || "0");
+            const quotaVal = selectedDataset.quota?.parsed || parseInt(selectedDataset.quota?.rawvalue || "0");
+            return (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div className="bg-muted/50 rounded-lg p-3 text-center">
+                    <p className="text-xs text-muted-foreground mb-1">Brukt</p>
+                    <p className="font-mono font-bold text-foreground">{formatBytes(usedVal)}</p>
+                  </div>
+                  <div className="bg-muted/50 rounded-lg p-3 text-center">
+                    <p className="text-xs text-muted-foreground mb-1">Tilgjengeleg</p>
+                    <p className="font-mono font-bold text-foreground">{formatBytes(availVal)}</p>
+                  </div>
                 </div>
-                <div className="bg-muted/50 rounded-lg p-3 text-center">
-                  <p className="text-xs text-muted-foreground mb-1">Kvote</p>
-                  <p className="font-mono font-bold text-foreground">{selectedDataset.quota}</p>
-                </div>
-              </div>
-              <Separator />
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between"><span className="text-muted-foreground">Mountpoint</span><span className="font-mono text-foreground text-xs">{selectedDataset.mountpoint}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Komprimering</span><span className="font-mono text-foreground">{selectedDataset.compression}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Recordsize</span><span className="font-mono text-foreground">{selectedDataset.recordsize}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Atime</span><span className="font-mono text-foreground">{selectedDataset.atime}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Snapshots</span><Badge variant="outline">{selectedDataset.snapshots}</Badge></div>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Docker Container Detail Dialog */}
-      <Dialog open={!!selectedContainer} onOpenChange={(open) => !open && setSelectedContainer(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-3">
-              <div className={`rounded-lg p-2 ${selectedContainer?.status === "running" ? "bg-success/10" : "bg-muted"}`}>
-                <Container className={`h-5 w-5 ${selectedContainer?.status === "running" ? "text-success" : "text-muted-foreground"}`} />
-              </div>
-              <div>
-                <span>{selectedContainer?.name}</span>
-                <div className="mt-1">
-                  <Badge variant={selectedContainer?.status === "running" ? "default" : "secondary"} className="text-[10px]">
-                    {selectedContainer?.status === "running" ? "Kjører" : "Stoppet"}
-                  </Badge>
+                <Separator />
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Mountpoint</span>
+                    <span className="font-mono text-foreground text-xs">{selectedDataset.mountpoint || "—"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Komprimering</span>
+                    <span className="font-mono text-foreground">{selectedDataset.compression?.value || "—"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Type</span>
+                    <span className="font-mono text-foreground">{selectedDataset.type || "—"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Kvote</span>
+                    <span className="font-mono text-foreground">{quotaVal > 0 ? formatBytes(quotaVal) : "Ingen"}</span>
+                  </div>
                 </div>
               </div>
-            </DialogTitle>
-          </DialogHeader>
-          {selectedContainer && (
-            <div className="space-y-4">
-              <div className="bg-muted/50 rounded-lg p-3 text-sm">
-                <p className="text-muted-foreground">Image: <span className="text-foreground font-mono text-xs">{selectedContainer.image}</span></p>
-                <p className="text-muted-foreground mt-1">Container ID: <span className="text-foreground font-mono text-xs">{selectedContainer.id}</span></p>
-              </div>
-              <Separator />
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between"><span className="text-muted-foreground">CPU</span><span className="font-mono text-foreground">{selectedContainer.cpu}%</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Minne</span><span className="font-mono text-foreground">{selectedContainer.memory}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Porter</span><span className="font-mono text-foreground text-xs">{selectedContainer.ports}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Oppetid</span><span className="font-mono text-foreground">{selectedContainer.uptime}</span></div>
-              </div>
-              <Separator />
-              <div className="flex gap-2">
-                <Button size="sm" variant={selectedContainer.status === "running" ? "destructive" : "default"} className="flex-1">
-                  {selectedContainer.status === "running" ? <Square className="h-4 w-4 mr-1" /> : <Play className="h-4 w-4 mr-1" />}
-                  {selectedContainer.status === "running" ? "Stopp" : "Start"}
-                </Button>
-                {selectedContainer.status === "running" && (
-                  <Button size="sm" variant="outline">
-                    <RotateCcw className="h-4 w-4 mr-1" />
-                    Restart
-                  </Button>
-                )}
-              </div>
-            </div>
-          )}
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </div>
