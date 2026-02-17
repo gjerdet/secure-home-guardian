@@ -1339,18 +1339,35 @@ app.get('/api/unifi/debug-ids', authenticateToken, async (req, res) => {
 // ============================================
 
 async function truenasRequest(endpoint) {
-  const response = await axios.get(
-    `${process.env.TRUENAS_URL}/api/v2.0${endpoint}`,
-    {
-      headers: {
-        Authorization: `Bearer ${process.env.TRUENAS_API_KEY}`,
-      },
+  const url = process.env.TRUENAS_URL;
+  const apiKey = process.env.TRUENAS_API_KEY;
+
+  if (!url || !apiKey) {
+    throw new Error('TrueNAS er ikke konfigurert. Legg til URL og API-nøkkel i Innstillinger.');
+  }
+
+  try {
+    const response = await axios.get(
+      `${url}/api/v2.0${endpoint}`,
+      {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        httpsAgent,
+        timeout: 15000,
+      }
+    );
+    return response.data;
+  } catch (error) {
+    const status = error.response?.status;
+    const msg = error.response?.data?.message || error.message;
+    console.error(`[TrueNAS] Feil ${status} på ${endpoint}: ${msg}`);
+    if (status === 401 || status === 403) {
+      throw new Error(`TrueNAS ${status}: API-nøkkel avvist. Sjekk at nøkkelen er gyldig i TrueNAS > API Keys.`);
     }
-  );
-  return response.data;
+    throw new Error(`TrueNAS feil (${status || 'network'}): ${msg}`);
+  }
 }
 
-app.get('/api/truenas/pools', async (req, res) => {
+app.get('/api/truenas/pools', authenticateToken, async (req, res) => {
   try {
     const data = await truenasRequest('/pool');
     res.json(data);
@@ -1359,7 +1376,7 @@ app.get('/api/truenas/pools', async (req, res) => {
   }
 });
 
-app.get('/api/truenas/datasets', async (req, res) => {
+app.get('/api/truenas/datasets', authenticateToken, async (req, res) => {
   try {
     const data = await truenasRequest('/pool/dataset');
     res.json(data);
@@ -1368,7 +1385,7 @@ app.get('/api/truenas/datasets', async (req, res) => {
   }
 });
 
-app.get('/api/truenas/snapshots', async (req, res) => {
+app.get('/api/truenas/snapshots', authenticateToken, async (req, res) => {
   try {
     const data = await truenasRequest('/zfs/snapshot');
     res.json(data);
@@ -1377,10 +1394,29 @@ app.get('/api/truenas/snapshots', async (req, res) => {
   }
 });
 
-app.get('/api/truenas/system', async (req, res) => {
+app.get('/api/truenas/system', authenticateToken, async (req, res) => {
   try {
-    const data = await truenasRequest('/system/info');
-    res.json(data);
+    const [info, version] = await Promise.all([
+      truenasRequest('/system/info'),
+      truenasRequest('/system/version').catch(() => null),
+    ]);
+    res.json({ ...info, version_str: version || info.version || 'Unknown' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/truenas/shares', authenticateToken, async (req, res) => {
+  try {
+    const [smb, nfs] = await Promise.all([
+      truenasRequest('/sharing/smb').catch(() => []),
+      truenasRequest('/sharing/nfs').catch(() => []),
+    ]);
+    const shares = [
+      ...smb.map(s => ({ ...s, shareType: 'SMB' })),
+      ...nfs.map(s => ({ ...s, shareType: 'NFS' })),
+    ];
+    res.json(shares);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
