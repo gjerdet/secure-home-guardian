@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Header } from "@/components/Header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -111,6 +111,8 @@ function parseNmapXML(xmlString: string): NmapHost[] {
 export default function Security() {
   const { token } = useAuth();
   const authHeaders = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
+  // Stable ref so callbacks inside useEffect always have fresh headers
+  const authHeadersRef = useRef(authHeaders);
   const [nmapTarget, setNmapTarget] = useState("192.168.1.0/24");
   const [nmapScanType, setNmapScanType] = useState("quick");
   const [nmapResults, setNmapResults] = useState<NmapHost[]>([]);
@@ -180,15 +182,16 @@ export default function Security() {
   const [wanProgress, setWanProgress] = useState<NmapProgress>({ percent: 0, hostsFound: 0, status: 'idle' });
   const wanEventSourceRef = useRef<EventSource | null>(null);
 
-  // Stats
-  const stats = {
+  // Stats – memoized so they don't recompute on every render
+  const stats = useMemo(() => ({
     high: vulnerabilities.filter(v => v.severity === "high").length,
     medium: vulnerabilities.filter(v => v.severity === "medium").length,
     low: vulnerabilities.filter(v => v.severity === "low").length,
     info: vulnerabilities.filter(v => v.severity === "info").length,
-  };
-  // Enrich nmap hosts with UniFi client data
-  const enrichWithUnifi = (hosts: NmapHost[]): NmapHost[] => {
+  }), [vulnerabilities]);
+
+  // Enrich nmap hosts with UniFi client data – stable callback
+  const enrichWithUnifi = useCallback((hosts: NmapHost[]): NmapHost[] => {
     if (unifiClients.length === 0) return hosts;
     return hosts.map(host => {
       const client = unifiClients.find((c: any) => 
@@ -245,7 +248,7 @@ export default function Security() {
       
       return enriched;
     });
-  };
+  }, [unifiClients]);
 
   // Fetch report for a specific OpenVAS scan
   const fetchScanReport = async (scan: OpenVASScan) => {
@@ -357,30 +360,34 @@ export default function Security() {
     } catch { toast.error('Feil ved sletting'); }
   };
 
-  const fetchOpenvasData = async () => {
+  const fetchOpenvasData = useCallback(async () => {
     setIsLoadingOpenvas(true);
     try {
       const [scansRes, vulnsRes] = await Promise.all([
-        fetch(`${API_BASE}/api/openvas/scans`, { headers: authHeaders }),
-        fetch(`${API_BASE}/api/openvas/vulnerabilities`, { headers: authHeaders }),
+        fetchJsonSafely(`${API_BASE}/api/openvas/scans`, { headers: authHeadersRef.current }),
+        fetchJsonSafely(`${API_BASE}/api/openvas/vulnerabilities`, { headers: authHeadersRef.current }),
       ]);
 
-      if (scansRes.ok) {
-        const scansData = await scansRes.json();
-        setOpenvasScans(scansData.tasks || scansData.data || []);
+      if (scansRes.ok && scansRes.data) {
+        const d = scansRes.data as any;
+        setOpenvasScans(d.tasks || d.data || []);
       }
 
-      if (vulnsRes.ok) {
-        const vulnsData = await vulnsRes.json();
-        setVulnerabilities(vulnsData.results || vulnsData.data || []);
+      if (vulnsRes.ok && vulnsRes.data) {
+        const d = vulnsRes.data as any;
+        setVulnerabilities(d.results || d.data || []);
+      }
+
+      // Only show error if BOTH fail (OpenVAS might simply not be configured)
+      if (!scansRes.ok && !vulnsRes.ok) {
+        console.warn("OpenVAS ikkje tilgjengeleg:", scansRes.error);
       }
     } catch (error) {
       console.error("OpenVAS fetch error:", error);
-      toast.error("Kunne ikke koble til OpenVAS. Sjekk at backend kjører.");
     } finally {
       setIsLoadingOpenvas(false);
     }
-  };
+  }, []);
 
   // Poll a nmap job for status
   const startPollingJob = (jobId: string) => {
@@ -643,23 +650,19 @@ export default function Security() {
   };
 
   // Fetch WAN IP
-  const fetchWanIp = async () => {
+  const fetchWanIp = useCallback(async () => {
     setIsLoadingWanIp(true);
     try {
-      const res = await fetch(`${API_BASE}/api/network/wan-ip`, { headers: authHeaders });
-      if (res.ok) {
-        const data = await res.json();
-        setWanIp(data.ip);
-        toast.success(`WAN IP: ${data.ip}`);
-      } else {
-        toast.error("Kunne ikke hente WAN IP");
+      const res = await fetchJsonSafely(`${API_BASE}/api/network/wan-ip`, { headers: authHeadersRef.current });
+      if (res.ok && res.data) {
+        const d = res.data as any;
+        setWanIp(d.ip);
       }
-    } catch {
-      toast.error("Kunne ikke koble til backend for WAN IP");
+      // Silently ignore errors — WAN endpoint may not be configured
     } finally {
       setIsLoadingWanIp(false);
     }
-  };
+  }, []);
 
   // Run WAN scan
   const handleWanScan = () => {
@@ -728,12 +731,17 @@ export default function Security() {
     }
   };
 
+  // Keep authHeadersRef in sync
+  useEffect(() => { authHeadersRef.current = authHeaders; }, [authHeaders]);
+
   // Check for running nmap jobs on mount (resume after navigation)
-  // Also load saved results from backend
+  // Also load saved results + history from backend — single fetch for nmap/results
   useEffect(() => {
+    const hdrs = authHeadersRef.current;
+
     const checkRunningJobs = async () => {
       try {
-        const res = await fetchJsonSafely(`${API_BASE}/api/nmap/jobs`, { headers: authHeaders });
+        const res = await fetchJsonSafely(`${API_BASE}/api/nmap/jobs`, { headers: hdrs });
         if (res.ok && res.data) {
           const runningJob = (res.data as any[]).find((j: any) => j.status === 'scanning');
           if (runningJob) {
@@ -747,28 +755,15 @@ export default function Security() {
       } catch { /* backend might be offline */ }
     };
 
-    const loadSavedResults = async () => {
-      try {
-        const res = await fetchJsonSafely(`${API_BASE}/api/nmap/results`, { headers: authHeaders });
-        if (res.ok && res.data && Array.isArray(res.data) && res.data.length > 0) {
-          // Load the most recent saved result
-          const latest = res.data[0];
-          if (latest.result && nmapResults.length === 0) {
-            const hosts = parseNmapXML(latest.result);
-            setNmapResults(enrichWithUnifi(hosts));
-            setNmapTarget(latest.target || nmapTarget);
-            setNmapProgress({ percent: 100, hostsFound: hosts.length, status: 'complete' });
-          }
-        }
-      } catch { /* silent */ }
-    };
-
-    const loadScanHistory = async () => {
+    // Single fetch — builds both latest result display AND history list
+    const loadNmapData = async () => {
       setIsLoadingHistory(true);
       try {
-        const res = await fetchJsonSafely(`${API_BASE}/api/nmap/results`, { headers: authHeaders });
+        const res = await fetchJsonSafely(`${API_BASE}/api/nmap/results`, { headers: hdrs });
         if (res.ok && res.data && Array.isArray(res.data)) {
-          setScanHistory(res.data.map((r: any, i: number) => ({
+          const data = res.data as any[];
+          // Build history
+          setScanHistory(data.map((r: any, i: number) => ({
             id: r.id || `scan-${i}`,
             target: r.target || 'Ukjent',
             scanType: r.scanType || 'quick',
@@ -777,6 +772,14 @@ export default function Security() {
             duration: r.duration,
             result: r.result,
           })));
+          // Load most recent result if none shown
+          const latest = data[0];
+          if (latest?.result) {
+            const hosts = parseNmapXML(latest.result);
+            setNmapResults(enrichWithUnifi(hosts));
+            setNmapTarget(latest.target || nmapTarget);
+            setNmapProgress({ percent: 100, hostsFound: hosts.length, status: 'complete' });
+          }
         }
       } catch { /* silent */ }
       finally { setIsLoadingHistory(false); }
@@ -785,28 +788,29 @@ export default function Security() {
     // Fetch UniFi clients for nmap enrichment
     const fetchUnifiClients = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/unifi/clients`, { headers: authHeaders });
-        if (res.ok) {
-          const data = await res.json();
-          setUnifiClients(data.data || data || []);
+        const res = await fetchJsonSafely(`${API_BASE}/api/unifi/clients`, { headers: hdrs });
+        if (res.ok && res.data) {
+          const d = res.data as any;
+          setUnifiClients(d.data || d || []);
         }
       } catch { /* silent */ }
     };
 
-    fetchOpenvasData();
-    fetchUnifiClients();
-    fetchWanIp();
-    checkRunningJobs();
-    loadSavedResults();
-    loadScanHistory();
+    // Run in parallel — don't block each other
+    Promise.all([
+      fetchOpenvasData(),
+      fetchUnifiClients(),
+      fetchWanIp(),
+      checkRunningJobs(),
+      loadNmapData(),
+    ]);
     
     return () => {
       if (nmapPollRef.current) clearInterval(nmapPollRef.current);
-      if (wanEventSourceRef.current) {
-        wanEventSourceRef.current.close();
-      }
+      if (wanEventSourceRef.current) wanEventSourceRef.current.close();
       vlanEventSourcesRef.current.forEach(es => es.close());
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const isScanning = nmapProgress.status === 'scanning';
