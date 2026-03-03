@@ -3333,6 +3333,108 @@ app.post('/api/geoip/batch', authenticateToken, (req, res) => {
 initMaxMind();
 
 // Start server
+// ============================================================
+// Kismet WiFi Monitoring
+// ============================================================
+
+// Save Kismet config
+app.post('/api/kismet/config', authenticateToken, async (req, res) => {
+  const { url, username, password } = req.body;
+  if (url) process.env.KISMET_URL = url;
+  if (username) process.env.KISMET_USERNAME = username;
+  if (password) process.env.KISMET_PASSWORD = password;
+
+  // Persist to .env file
+  try {
+    const envPath = path.resolve(__dirname, '.env');
+    let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+    const updates = { KISMET_URL: url, KISMET_USERNAME: username, ...(password ? { KISMET_PASSWORD: password } : {}) };
+    for (const [key, val] of Object.entries(updates)) {
+      if (!val) continue;
+      const regex = new RegExp(`^${key}=.*$`, 'm');
+      if (regex.test(envContent)) {
+        envContent = envContent.replace(regex, `${key}=${val}`);
+      } else {
+        envContent += `\n${key}=${val}`;
+      }
+    }
+    fs.writeFileSync(envPath, envContent);
+  } catch (e) { /* ignore */ }
+
+  res.json({ ok: true });
+});
+
+// Kismet status + devices + alerts
+app.get('/api/kismet/status', authenticateToken, async (req, res) => {
+  const kismetUrl = process.env.KISMET_URL || 'http://localhost:2501';
+  const kismetUser = process.env.KISMET_USERNAME || 'kismet';
+  const kismetPass = process.env.KISMET_PASSWORD || '';
+
+  const auth = Buffer.from(`${kismetUser}:${kismetPass}`).toString('base64');
+  const headers = { Authorization: `Basic ${auth}`, Accept: 'application/json' };
+
+  try {
+    // Test connection with system status
+    const sysRes = await axios.get(`${kismetUrl}/system/status.json`, { headers, timeout: 5000, httpsAgent });
+    const sys = sysRes.data;
+
+    // Fetch devices (APs + clients)
+    let devices = [];
+    try {
+      const devRes = await axios.post(`${kismetUrl}/devices/views/all/devices.json`, {
+        fields: ['kismet.device.base.macaddr', 'kismet.device.base.name', 'kismet.device.base.type',
+                 'kismet.device.base.channel', 'kismet.device.base.signal/kismet.common.signal.last_signal',
+                 'kismet.device.base.crypt_string', 'kismet.device.base.first_time', 'kismet.device.base.last_time',
+                 'kismet.device.base.manuf', 'kismet.device.base.packets.total']
+      }, { headers, timeout: 8000, httpsAgent });
+
+      const raw = Array.isArray(devRes.data) ? devRes.data : [];
+      devices = raw.map(d => ({
+        mac: d['kismet.device.base.macaddr'] || '',
+        ssid: d['kismet.device.base.name'] || '',
+        type: d['kismet.device.base.type'] === 'Wi-Fi AP' ? 'AP' :
+              d['kismet.device.base.type'] === 'Wi-Fi Client' ? 'Client' : 'AP',
+        channel: d['kismet.device.base.channel'] ? parseInt(d['kismet.device.base.channel']) : null,
+        signal: d['kismet.device.base.signal/kismet.common.signal.last_signal'] || null,
+        encryption: d['kismet.device.base.crypt_string'] ? d['kismet.device.base.crypt_string'].split('+').filter(Boolean) : [],
+        firstSeen: d['kismet.device.base.first_time'] ? new Date(d['kismet.device.base.first_time'] * 1000).toISOString() : null,
+        lastSeen: d['kismet.device.base.last_time'] ? new Date(d['kismet.device.base.last_time'] * 1000).toISOString() : null,
+        manufacturer: d['kismet.device.base.manuf'] || null,
+        packets: d['kismet.device.base.packets.total'] || 0,
+        isRogue: false,
+      }));
+    } catch (e) { /* devices not critical */ }
+
+    // Fetch alerts
+    let alerts = [];
+    try {
+      const alertRes = await axios.get(`${kismetUrl}/alerts/last-time/0/alerts.json`, { headers, timeout: 5000, httpsAgent });
+      const rawAlerts = Array.isArray(alertRes.data) ? alertRes.data : [];
+      alerts = rawAlerts.slice(-50).map(a => ({
+        type: a['kismet.alert.class'] || a['kismet.alert.header'] || 'ALERT',
+        text: a['kismet.alert.text'] || '',
+        mac: a['kismet.alert.transmitter_mac'] || null,
+        timestamp: new Date((a['kismet.alert.timestamp'] || 0) * 1000).toISOString(),
+        severity: a['kismet.alert.severity'] >= 15 ? 'critical' :
+                  a['kismet.alert.severity'] >= 10 ? 'high' :
+                  a['kismet.alert.severity'] >= 5  ? 'medium' : 'low',
+      }));
+    } catch (e) { /* alerts not critical */ }
+
+    res.json({
+      connected: true,
+      version: sys['kismet.system.version'] || 'Ukjend',
+      deviceCount: devices.length,
+      alertCount: alerts.length,
+      datasources: (sys['kismet.system.datasource_count'] || []),
+      devices,
+      alerts,
+    });
+  } catch (err) {
+    res.status(503).json({ connected: false, error: `Kan ikkje nå Kismet på ${kismetUrl}: ${err.message}` });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`NetGuard API kjører på port ${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/api/health`);

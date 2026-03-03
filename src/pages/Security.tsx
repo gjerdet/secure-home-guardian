@@ -22,11 +22,12 @@ import { FirewallAuditPanel } from "@/components/security/FirewallAuditPanel";
 import { DnsLeakPanel } from "@/components/security/DnsLeakPanel";
 import { SecurityScorePanel } from "@/components/security/SecurityScorePanel";
 import { IdsIpsPanel } from "@/components/security/IdsIpsPanel";
+import { KismetWifiPanel } from "@/components/security/KismetWifiPanel";
 import { NmapHostDetailDialog, type NmapHostDetail } from "@/components/security/NmapHostDetailDialog";
 import { VulnerabilityDetailDialog, type VulnerabilityDetail } from "@/components/security/VulnerabilityDetailDialog";
 import { 
   Radar, Shield, Search, Clock, AlertTriangle, CheckCircle,
-  Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin, Network, Wifi, ExternalLink, Lock, Activity, History, Trash2
+  Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin, Network, Wifi, ExternalLink, Lock, Activity, History, Trash2, Radio
 } from "lucide-react";
 
 import { API_BASE, fetchJsonSafely } from '@/lib/api';
@@ -872,6 +873,10 @@ export default function Security() {
               <Shield className="h-4 w-4 mr-2" />
               IDS/IPS
             </TabsTrigger>
+            <TabsTrigger value="wifi" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <Radio className="h-4 w-4 mr-2" />
+              WiFi
+            </TabsTrigger>
             <TabsTrigger value="nmap" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               <Target className="h-4 w-4 mr-2" />
               Nmap
@@ -916,6 +921,10 @@ export default function Security() {
 
           <TabsContent value="ids">
             <IdsIpsPanel />
+          </TabsContent>
+
+          <TabsContent value="wifi">
+            <KismetWifiPanel />
           </TabsContent>
 
           <TabsContent value="nmap">
