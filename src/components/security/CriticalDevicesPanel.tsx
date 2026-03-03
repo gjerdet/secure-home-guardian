@@ -9,10 +9,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
 import {
   ShieldAlert, Plus, Trash2, Edit2, Play, Clock, CheckCircle,
   AlertTriangle, Loader2, Server, Router, Laptop, Smartphone,
-  HardDrive, Cpu, Monitor, RefreshCw, Calendar, XCircle
+  HardDrive, Cpu, Monitor, RefreshCw, Calendar, XCircle,
+  Bell, BellOff, Flame, Shield, Zap, Globe, Database, Camera,
+  Printer, Wifi, Lock
 } from "lucide-react";
 import { toast } from "sonner";
 import { API_BASE, fetchJsonSafely } from "@/lib/api";
@@ -20,19 +25,27 @@ import { API_BASE, fetchJsonSafely } from "@/lib/api";
 export interface CriticalDevice {
   id: string;
   name: string;
-  host: string; // IP or hostname
+  host: string;
   description?: string;
   icon: string;
+  priority: "critical" | "high" | "medium";
   tags: string[];
   scheduledScan: {
     enabled: boolean;
-    interval: "hourly" | "daily" | "weekly";
-    scanType: "quick" | "full" | "deep" | "ports";
+    interval: "15min" | "30min" | "hourly" | "6hours" | "daily" | "weekly";
+    scanType: "ping" | "quick" | "ports" | "full" | "deep" | "vuln" | "udp";
+    customPorts?: string;
     lastRun?: string;
     nextRun?: string;
   };
+  alerts: {
+    onNewPort: boolean;
+    onOffline: boolean;
+    onServiceChange: boolean;
+  };
   lastScanStatus?: "ok" | "warning" | "critical" | "error" | "pending";
   lastScanSummary?: string;
+  openPorts?: number[];
 }
 
 interface ScanState {
@@ -44,13 +57,43 @@ interface ScanState {
 
 const ICONS = [
   { value: "server", label: "Server", Icon: Server },
-  { value: "router", label: "Ruter", Icon: Router },
-  { value: "laptop", label: "PC", Icon: Laptop },
-  { value: "smartphone", label: "Mobil", Icon: Smartphone },
+  { value: "router", label: "Ruter/Brannmur", Icon: Router },
+  { value: "laptop", label: "PC/Arbeidsmaskin", Icon: Laptop },
+  { value: "smartphone", label: "Mobil/Nettbrett", Icon: Smartphone },
   { value: "harddrive", label: "NAS/Lagring", Icon: HardDrive },
-  { value: "cpu", label: "PLC/Industri", Icon: Cpu },
-  { value: "monitor", label: "Skjerm/Kamera", Icon: Monitor },
+  { value: "cpu", label: "PLC/Industri-PC", Icon: Cpu },
+  { value: "monitor", label: "Kamera/Skjerm", Icon: Camera },
+  { value: "wifi", label: "Aksesspunkt", Icon: Wifi },
+  { value: "database", label: "Database-server", Icon: Database },
+  { value: "printer", label: "Skrivar/IoT", Icon: Printer },
+  { value: "globe", label: "Ekstern teneste", Icon: Globe },
+  { value: "lock", label: "Sikkerheitseining", Icon: Lock },
 ];
+
+const SCAN_TYPES = [
+  { value: "ping", label: "Ping-sjekk", desc: "Berre sjekk om einheita er online", time: "~5s" },
+  { value: "quick", label: "Rask skanning", desc: "100 vanlegaste portar", time: "~30s" },
+  { value: "ports", label: "Topportar", desc: "1000 vanlegaste TCP-portar", time: "~1m" },
+  { value: "full", label: "Full TCP-skanning", desc: "Alle 65535 TCP-portar", time: "~5m" },
+  { value: "deep", label: "Djup (OS + tenester)", desc: "OS, versjonar, tenesteinfo", time: "~5m" },
+  { value: "vuln", label: "Sårbarheitsscript", desc: "Nmap vuln-NSE-script", time: "~10m" },
+  { value: "udp", label: "UDP-skanning", desc: "Vanlegaste UDP-portar", time: "~3m" },
+];
+
+const INTERVALS = [
+  { value: "15min", label: "Kvart 15. min", desc: "Høg frekvens – bruk med varsling" },
+  { value: "30min", label: "Kvar 30. min", desc: "Semi-sanntid" },
+  { value: "hourly", label: "Kvar time", desc: "God balanse" },
+  { value: "6hours", label: "Kvar 6. time", desc: "Dagleg dekning" },
+  { value: "daily", label: "Dagleg", desc: "Ein gong per dag" },
+  { value: "weekly", label: "Vekeleg", desc: "Lav frekvens" },
+];
+
+const PRIORITY_CONFIG = {
+  critical: { label: "Kritisk", color: "bg-destructive/10 text-destructive border-destructive/30", dot: "bg-destructive", Icon: Flame },
+  high: { label: "Høg", color: "bg-warning/10 text-warning border-warning/30", dot: "bg-warning", Icon: AlertTriangle },
+  medium: { label: "Medium", color: "bg-primary/10 text-primary border-primary/30", dot: "bg-primary", Icon: Shield },
+};
 
 function DeviceIcon({ icon, className }: { icon: string; className?: string }) {
   const found = ICONS.find(i => i.value === icon);
@@ -71,11 +114,12 @@ function saveDevices(devices: CriticalDevice[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(devices));
 }
 
-function nextRunTime(interval: "hourly" | "daily" | "weekly"): string {
+function nextRunTime(interval: CriticalDevice["scheduledScan"]["interval"]): string {
   const now = new Date();
-  if (interval === "hourly") now.setHours(now.getHours() + 1);
-  else if (interval === "daily") now.setDate(now.getDate() + 1);
-  else now.setDate(now.getDate() + 7);
+  const map: Record<string, number> = {
+    "15min": 15, "30min": 30, "hourly": 60, "6hours": 360, "daily": 1440, "weekly": 10080
+  };
+  now.setMinutes(now.getMinutes() + (map[interval] ?? 60));
   return now.toISOString();
 }
 
@@ -84,21 +128,21 @@ function formatRelative(iso?: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60000);
   if (mins < 2) return "Akkurat nå";
-  if (mins < 60) return `${mins} min siden`;
+  if (mins < 60) return `${mins} min sidan`;
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs} t siden`;
-  return `${Math.floor(hrs / 24)} dager siden`;
+  if (hrs < 24) return `${hrs} t sidan`;
+  return `${Math.floor(hrs / 24)} dagar sidan`;
 }
 
 function formatNextRun(iso?: string): string {
-  if (!iso) return "Ikke planlagt";
+  if (!iso) return "Ikkje planlagt";
   const diff = new Date(iso).getTime() - Date.now();
   if (diff <= 0) return "Snart";
   const mins = Math.floor(diff / 60000);
   if (mins < 60) return `Om ${mins} min`;
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `Om ${hrs} t`;
-  return `Om ${Math.floor(hrs / 24)} dager`;
+  return `Om ${Math.floor(hrs / 24)} dagar`;
 }
 
 const statusConfig = {
@@ -109,6 +153,8 @@ const statusConfig = {
   pending: { label: "Venter", color: "bg-primary/10 text-primary border-primary/20", Icon: Clock },
 };
 
+const defaultAlerts = { onNewPort: true, onOffline: true, onServiceChange: false };
+
 interface CriticalDevicesPanelProps {
   authHeaders: Record<string, string>;
 }
@@ -118,16 +164,20 @@ export function CriticalDevicesPanel({ authHeaders }: CriticalDevicesPanelProps)
   const [scans, setScans] = useState<Map<string, ScanState>>(new Map());
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editDevice, setEditDevice] = useState<CriticalDevice | null>(null);
+  const [dialogTab, setDialogTab] = useState("info");
 
   // Form state
   const [formName, setFormName] = useState("");
   const [formHost, setFormHost] = useState("");
   const [formDesc, setFormDesc] = useState("");
   const [formIcon, setFormIcon] = useState("server");
+  const [formPriority, setFormPriority] = useState<CriticalDevice["priority"]>("high");
   const [formTags, setFormTags] = useState("");
   const [formSchedEnabled, setFormSchedEnabled] = useState(false);
-  const [formSchedInterval, setFormSchedInterval] = useState<"hourly" | "daily" | "weekly">("daily");
-  const [formScanType, setFormScanType] = useState<"quick" | "full" | "deep" | "ports">("quick");
+  const [formSchedInterval, setFormSchedInterval] = useState<CriticalDevice["scheduledScan"]["interval"]>("daily");
+  const [formScanType, setFormScanType] = useState<CriticalDevice["scheduledScan"]["scanType"]>("quick");
+  const [formCustomPorts, setFormCustomPorts] = useState("");
+  const [formAlerts, setFormAlerts] = useState({ ...defaultAlerts });
 
   // Check scheduled scans every minute
   useEffect(() => {
@@ -166,18 +216,23 @@ export function CriticalDevicesPanel({ authHeaders }: CriticalDevicesPanelProps)
   const openAdd = () => {
     setEditDevice(null);
     setFormName(""); setFormHost(""); setFormDesc(""); setFormIcon("server");
-    setFormTags(""); setFormSchedEnabled(false); setFormSchedInterval("daily");
-    setFormScanType("quick");
+    setFormPriority("high"); setFormTags(""); setFormSchedEnabled(false);
+    setFormSchedInterval("daily"); setFormScanType("quick");
+    setFormCustomPorts(""); setFormAlerts({ ...defaultAlerts });
+    setDialogTab("info");
     setDialogOpen(true);
   };
 
   const openEdit = (d: CriticalDevice) => {
     setEditDevice(d);
     setFormName(d.name); setFormHost(d.host); setFormDesc(d.description || "");
-    setFormIcon(d.icon); setFormTags(d.tags.join(", "));
+    setFormIcon(d.icon); setFormPriority(d.priority || "high"); setFormTags(d.tags.join(", "));
     setFormSchedEnabled(d.scheduledScan.enabled);
     setFormSchedInterval(d.scheduledScan.interval);
     setFormScanType(d.scheduledScan.scanType);
+    setFormCustomPorts(d.scheduledScan.customPorts || "");
+    setFormAlerts(d.alerts || { ...defaultAlerts });
+    setDialogTab("info");
     setDialogOpen(true);
   };
 
@@ -187,35 +242,28 @@ export function CriticalDevicesPanel({ authHeaders }: CriticalDevicesPanelProps)
       return;
     }
     const tags = formTags.split(",").map(t => t.trim()).filter(Boolean);
+    const base = {
+      name: formName, host: formHost, description: formDesc,
+      icon: formIcon, priority: formPriority, tags,
+      alerts: formAlerts,
+      scheduledScan: {
+        enabled: formSchedEnabled,
+        interval: formSchedInterval,
+        scanType: formScanType,
+        customPorts: formCustomPorts.trim() || undefined,
+        nextRun: formSchedEnabled ? nextRunTime(formSchedInterval) : undefined,
+      },
+    };
     if (editDevice) {
       updateDevices(devices.map(d =>
-        d.id === editDevice.id ? {
-          ...d, name: formName, host: formHost, description: formDesc,
-          icon: formIcon, tags,
-          scheduledScan: {
-            ...d.scheduledScan,
-            enabled: formSchedEnabled,
-            interval: formSchedInterval,
-            scanType: formScanType,
-            nextRun: formSchedEnabled ? nextRunTime(formSchedInterval) : undefined,
-          },
-        } : d
+        d.id === editDevice.id ? { ...d, ...base, scheduledScan: { ...d.scheduledScan, ...base.scheduledScan } } : d
       ));
       toast.success("Enhet oppdatert");
     } else {
-      const newDevice: CriticalDevice = {
-        id: crypto.randomUUID(),
-        name: formName, host: formHost, description: formDesc,
-        icon: formIcon, tags,
-        scheduledScan: {
-          enabled: formSchedEnabled,
-          interval: formSchedInterval,
-          scanType: formScanType,
-          nextRun: formSchedEnabled ? nextRunTime(formSchedInterval) : undefined,
-        },
+      updateDevices([...devices, {
+        id: crypto.randomUUID(), ...base,
         lastScanStatus: "pending",
-      };
-      updateDevices([...devices, newDevice]);
+      }]);
       toast.success("Enhet lagt til");
     }
     setDialogOpen(false);
@@ -239,7 +287,11 @@ export function CriticalDevicesPanel({ authHeaders }: CriticalDevicesPanelProps)
       const res = await fetchJsonSafely(`${API_BASE}/api/nmap/scan`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({ target: device.host, scanType: device.scheduledScan.scanType }),
+        body: JSON.stringify({
+          target: device.host,
+          scanType: device.scheduledScan.scanType,
+          customPorts: device.scheduledScan.customPorts,
+        }),
       });
 
       if (!res.ok || !res.data) throw new Error(res.error || "Kunne ikkje starte skanning");
@@ -247,7 +299,6 @@ export function CriticalDevicesPanel({ authHeaders }: CriticalDevicesPanelProps)
       const jobId = (res.data as any).jobId;
       setScans(prev => new Map(prev).set(device.id, { deviceId: device.id, jobId, percent: 5, status: "scanning" }));
 
-      // Poll for completion
       const poll = setInterval(async () => {
         const statusRes = await fetchJsonSafely(`${API_BASE}/api/nmap/scan-status/${jobId}`, { headers: authHeaders });
         if (!statusRes.ok) return;
@@ -260,22 +311,34 @@ export function CriticalDevicesPanel({ authHeaders }: CriticalDevicesPanelProps)
 
           const openPorts: number[] = [];
           if (data.result) {
-            // Count open ports from raw XML
-            const matches = (data.result as string).matchAll(/state="open"/g);
-            for (const _ of matches) openPorts.push(1);
+            const matches = (data.result as string).matchAll(/portid="(\d+)"[^/]*state="open"/g);
+            for (const m of matches) openPorts.push(parseInt(m[1]));
           }
+
+          const prevDevice = devices.find(d => d.id === device.id);
+          const prevPorts = prevDevice?.openPorts ?? [];
+          const newPorts = openPorts.filter(p => !prevPorts.includes(p));
 
           const lastScanStatus: CriticalDevice["lastScanStatus"] =
             data.status !== "complete" ? "error" :
-            openPorts.length > 10 ? "warning" :
-            "ok";
+            openPorts.length > 15 ? "critical" :
+            openPorts.length > 5 ? "warning" : "ok";
+
+          // Fire alerts
+          if (data.status === "complete") {
+            if (device.alerts?.onOffline && openPorts.length === 0) {
+              toast.warning(`⚠️ ${device.name} – ingen svar (offline?)`);
+            }
+            if (device.alerts?.onNewPort && newPorts.length > 0) {
+              toast.warning(`🔓 ${device.name} – ${newPorts.length} nye opne portar: ${newPorts.slice(0, 5).join(", ")}`);
+            }
+          }
 
           setDevices(prev => {
             const next = prev.map(d => d.id === device.id ? {
-              ...d,
-              lastScanStatus,
+              ...d, lastScanStatus, openPorts,
               lastScanSummary: data.status === "complete"
-                ? `${openPorts.length} opne portar funne`
+                ? `${openPorts.length} opne portar${newPorts.length > 0 ? ` (${newPorts.length} nye)` : ""}`
                 : "Skanning mislyktes",
               scheduledScan: {
                 ...d.scheduledScan,
@@ -287,15 +350,27 @@ export function CriticalDevicesPanel({ authHeaders }: CriticalDevicesPanelProps)
             return next;
           });
 
-          setScans(prev => new Map(prev).set(device.id, { deviceId: device.id, jobId, percent: 100, status: data.status === "complete" ? "complete" : "error" }));
-          toast.success(`Skanning av ${device.name} fullført`);
+          setScans(prev => new Map(prev).set(device.id, {
+            deviceId: device.id, jobId, percent: 100,
+            status: data.status === "complete" ? "complete" : "error"
+          }));
+          toast.success(`Skanning av ${device.name} fullført – ${openPorts.length} opne portar`);
         }
       }, 3000);
     } catch (err: any) {
       setScans(prev => new Map(prev).set(device.id, { deviceId: device.id, jobId: "", percent: 0, status: "error" }));
       toast.error(`Skanning feilet: ${err.message}`);
     }
-  }, [authHeaders, scans]);
+  }, [authHeaders, scans, devices]);
+
+  // Sort: critical first, then high, then medium
+  const sortedDevices = [...devices].sort((a, b) => {
+    const order = { critical: 0, high: 1, medium: 2 };
+    return (order[a.priority] ?? 2) - (order[b.priority] ?? 2);
+  });
+
+  const selectedScanType = SCAN_TYPES.find(s => s.value === formScanType);
+  const selectedInterval = INTERVALS.find(i => i.value === formSchedInterval);
 
   return (
     <Card>
@@ -335,11 +410,14 @@ export function CriticalDevicesPanel({ authHeaders }: CriticalDevicesPanelProps)
         ) : (
           <ScrollArea className="max-h-[560px]">
             <div className="space-y-2">
-              {devices.map(device => {
+              {sortedDevices.map(device => {
                 const scan = scans.get(device.id);
                 const isScanning = scan?.status === "scanning";
                 const statusInfo = statusConfig[device.lastScanStatus ?? "pending"];
                 const StatusIcon = statusInfo.Icon;
+                const prio = PRIORITY_CONFIG[device.priority ?? "high"];
+                const PrioIcon = prio.Icon;
+                const scanTypeLabel = SCAN_TYPES.find(s => s.value === device.scheduledScan.scanType)?.label ?? device.scheduledScan.scanType;
 
                 return (
                   <div
@@ -347,9 +425,12 @@ export function CriticalDevicesPanel({ authHeaders }: CriticalDevicesPanelProps)
                     className="rounded-lg border border-border bg-card p-3 hover:bg-muted/20 transition-colors"
                   >
                     <div className="flex items-start gap-3">
-                      {/* Icon */}
-                      <div className="mt-0.5 h-8 w-8 rounded-md bg-destructive/10 flex items-center justify-center shrink-0">
-                        <DeviceIcon icon={device.icon} className="h-4 w-4 text-destructive" />
+                      {/* Icon + priority dot */}
+                      <div className="relative mt-0.5 shrink-0">
+                        <div className="h-9 w-9 rounded-md bg-muted/50 flex items-center justify-center">
+                          <DeviceIcon icon={device.icon} className="h-4 w-4 text-foreground/70" />
+                        </div>
+                        <span className={`absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-background ${prio.dot}`} />
                       </div>
 
                       {/* Info */}
@@ -357,12 +438,13 @@ export function CriticalDevicesPanel({ authHeaders }: CriticalDevicesPanelProps)
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-medium text-sm">{device.name}</span>
                           <span className="font-mono text-xs text-muted-foreground">{device.host}</span>
-                          <Badge
-                            variant="outline"
-                            className={`text-[10px] px-1.5 py-0 h-4 border ${statusInfo.color}`}
-                          >
+                          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 border ${statusInfo.color}`}>
                             <StatusIcon className="h-2.5 w-2.5 mr-1" />
                             {statusInfo.label}
+                          </Badge>
+                          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 border ${prio.color}`}>
+                            <PrioIcon className="h-2.5 w-2.5 mr-1" />
+                            {prio.label}
                           </Badge>
                         </div>
 
@@ -372,19 +454,45 @@ export function CriticalDevicesPanel({ authHeaders }: CriticalDevicesPanelProps)
 
                         <div className="flex items-center gap-3 mt-1.5 text-[10px] text-muted-foreground flex-wrap">
                           <span className="flex items-center gap-1">
+                            <Zap className="h-3 w-3" />
+                            {scanTypeLabel}
+                          </span>
+                          <span className="flex items-center gap-1">
                             <Clock className="h-3 w-3" />
-                            Sist: {formatRelative(device.scheduledScan.lastRun)}
+                            {formatRelative(device.scheduledScan.lastRun)}
                           </span>
                           {device.scheduledScan.enabled && (
                             <span className="flex items-center gap-1 text-primary">
                               <Calendar className="h-3 w-3" />
-                              Neste: {formatNextRun(device.scheduledScan.nextRun)}
+                              {formatNextRun(device.scheduledScan.nextRun)}
+                            </span>
+                          )}
+                          {device.alerts?.onNewPort && (
+                            <span className="flex items-center gap-1 text-primary/70">
+                              <Bell className="h-3 w-3" />
+                              Varsling på
                             </span>
                           )}
                           {device.lastScanSummary && (
                             <span className="text-muted-foreground">{device.lastScanSummary}</span>
                           )}
                         </div>
+
+                        {/* Open ports preview */}
+                        {device.openPorts && device.openPorts.length > 0 && (
+                          <div className="flex gap-1 mt-1.5 flex-wrap">
+                            {device.openPorts.slice(0, 8).map(p => (
+                              <Badge key={p} variant="outline" className="text-[10px] h-4 px-1.5 py-0 font-mono">
+                                {p}
+                              </Badge>
+                            ))}
+                            {device.openPorts.length > 8 && (
+                              <Badge variant="outline" className="text-[10px] h-4 px-1.5 py-0">
+                                +{device.openPorts.length - 8}
+                              </Badge>
+                            )}
+                          </div>
+                        )}
 
                         {isScanning && (
                           <div className="mt-2">
@@ -409,32 +517,13 @@ export function CriticalDevicesPanel({ authHeaders }: CriticalDevicesPanelProps)
 
                       {/* Actions */}
                       <div className="flex items-center gap-1 shrink-0">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7"
-                          onClick={() => runScan(device)}
-                          disabled={isScanning}
-                          title="Start skanning nå"
-                        >
+                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => runScan(device)} disabled={isScanning} title="Start skanning no">
                           {isScanning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
                         </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7"
-                          onClick={() => openEdit(device)}
-                          title="Rediger"
-                        >
+                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(device)} title="Rediger">
                           <Edit2 className="h-3.5 w-3.5" />
                         </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 hover:text-destructive"
-                          onClick={() => handleDelete(device.id)}
-                          title="Slett"
-                        >
+                        <Button size="icon" variant="ghost" className="h-7 w-7 hover:text-destructive" onClick={() => handleDelete(device.id)} title="Slett">
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
@@ -450,20 +539,20 @@ export function CriticalDevicesPanel({ authHeaders }: CriticalDevicesPanelProps)
         {devices.length > 0 && (
           <div className="mt-3 pt-3 border-t border-border flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
             <span className="flex items-center gap-1">
-              <CheckCircle className="h-3.5 w-3.5 text-success" />
-              {devices.filter(d => d.lastScanStatus === "ok").length} OK
+              <Flame className="h-3.5 w-3.5 text-destructive" />
+              {devices.filter(d => d.priority === "critical").length} Kritisk
             </span>
             <span className="flex items-center gap-1">
               <AlertTriangle className="h-3.5 w-3.5 text-warning" />
-              {devices.filter(d => d.lastScanStatus === "warning").length} Advarsel
+              {devices.filter(d => d.priority === "high").length} Høg
             </span>
             <span className="flex items-center gap-1">
-              <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
-              {devices.filter(d => d.lastScanStatus === "critical").length} Kritisk
+              <CheckCircle className="h-3.5 w-3.5 text-success" />
+              {devices.filter(d => d.lastScanStatus === "ok").length} OK
             </span>
             <span className="ml-auto flex items-center gap-1">
               <Calendar className="h-3.5 w-3.5 text-primary" />
-              {devices.filter(d => d.scheduledScan.enabled).length} planlagte skanningar aktive
+              {devices.filter(d => d.scheduledScan.enabled).length} planlagte aktive
             </span>
           </div>
         )}
@@ -471,7 +560,7 @@ export function CriticalDevicesPanel({ authHeaders }: CriticalDevicesPanelProps)
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ShieldAlert className="h-4 w-4 text-destructive" />
@@ -479,112 +568,181 @@ export function CriticalDevicesPanel({ authHeaders }: CriticalDevicesPanelProps)
             </DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4 py-2">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Namn *</Label>
-                <Input
-                  placeholder="f.eks. Hovudrouter"
-                  value={formName}
-                  onChange={e => setFormName(e.target.value)}
-                  className="h-8 text-sm"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">IP / Hostname *</Label>
-                <Input
-                  placeholder="192.168.1.1"
-                  value={formHost}
-                  onChange={e => setFormHost(e.target.value)}
-                  className="h-8 text-sm font-mono"
-                />
-              </div>
-            </div>
+          <Tabs value={dialogTab} onValueChange={setDialogTab} className="mt-1">
+            <TabsList className="w-full h-8 text-xs">
+              <TabsTrigger value="info" className="flex-1 text-xs">Enhet</TabsTrigger>
+              <TabsTrigger value="scan" className="flex-1 text-xs">Skanning</TabsTrigger>
+              <TabsTrigger value="alerts" className="flex-1 text-xs">Varsling</TabsTrigger>
+            </TabsList>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs">Beskriving</Label>
-              <Input
-                placeholder="Kort beskriving av einheita"
-                value={formDesc}
-                onChange={e => setFormDesc(e.target.value)}
-                className="h-8 text-sm"
-              />
-            </div>
+            {/* ── Tab 1: Enhet ── */}
+            <TabsContent value="info" className="space-y-3 pt-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Namn *</Label>
+                  <Input placeholder="f.eks. Hovudrouter" value={formName} onChange={e => setFormName(e.target.value)} className="h-8 text-sm" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">IP / Hostname *</Label>
+                  <Input placeholder="192.168.1.1" value={formHost} onChange={e => setFormHost(e.target.value)} className="h-8 text-sm font-mono" />
+                </div>
+              </div>
 
-            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-xs">Ikon</Label>
-                <Select value={formIcon} onValueChange={setFormIcon}>
-                  <SelectTrigger className="h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ICONS.map(({ value, label, Icon }) => (
-                      <SelectItem key={value} value={value}>
-                        <span className="flex items-center gap-2">
-                          <Icon className="h-3.5 w-3.5" /> {label}
-                        </span>
+                <Label className="text-xs">Beskriving</Label>
+                <Textarea placeholder="Beskriv kva einheita gjer..." value={formDesc} onChange={e => setFormDesc(e.target.value)} className="text-sm min-h-[60px] resize-none" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Prioritet</Label>
+                  <Select value={formPriority} onValueChange={v => setFormPriority(v as any)}>
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="critical">
+                        <span className="flex items-center gap-2"><Flame className="h-3.5 w-3.5 text-destructive" /> Kritisk – alltid online</span>
                       </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                      <SelectItem value="high">
+                        <span className="flex items-center gap-2"><AlertTriangle className="h-3.5 w-3.5 text-warning" /> Høg – viktig teneste</span>
+                      </SelectItem>
+                      <SelectItem value="medium">
+                        <span className="flex items-center gap-2"><Shield className="h-3.5 w-3.5 text-primary" /> Medium – overvakast</span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Ikon</Label>
+                  <Select value={formIcon} onValueChange={setFormIcon}>
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ICONS.map(({ value, label, Icon }) => (
+                        <SelectItem key={value} value={value}>
+                          <span className="flex items-center gap-2"><Icon className="h-3.5 w-3.5" /> {label}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
+
               <div className="space-y-1.5">
                 <Label className="text-xs">Tagger (komma-separert)</Label>
-                <Input
-                  placeholder="router, kritisk, nett"
-                  value={formTags}
-                  onChange={e => setFormTags(e.target.value)}
-                  className="h-8 text-sm"
-                />
+                <Input placeholder="router, dmz, produksjon" value={formTags} onChange={e => setFormTags(e.target.value)} className="h-8 text-sm" />
               </div>
-            </div>
+            </TabsContent>
 
-            {/* Scheduled scan */}
-            <div className="rounded-lg border border-border p-3 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">Planlagt skanning</p>
-                  <p className="text-xs text-muted-foreground">Køyr Nmap automatisk</p>
+            {/* ── Tab 2: Skanning ── */}
+            <TabsContent value="scan" className="space-y-3 pt-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Scan-type</Label>
+                <div className="grid grid-cols-1 gap-1.5">
+                  {SCAN_TYPES.map(s => (
+                    <button
+                      key={s.value}
+                      type="button"
+                      onClick={() => setFormScanType(s.value as any)}
+                      className={`flex items-center justify-between rounded-md border px-3 py-2 text-left transition-colors ${
+                        formScanType === s.value
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-card hover:bg-muted/40"
+                      }`}
+                    >
+                      <div>
+                        <span className="text-xs font-medium">{s.label}</span>
+                        <span className="block text-[10px] text-muted-foreground">{s.desc}</span>
+                      </div>
+                      <span className="text-[10px] font-mono text-muted-foreground shrink-0 ml-2">{s.time}</span>
+                    </button>
+                  ))}
                 </div>
-                <Switch checked={formSchedEnabled} onCheckedChange={setFormSchedEnabled} />
               </div>
 
-              {formSchedEnabled && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Intervall</Label>
-                    <Select value={formSchedInterval} onValueChange={v => setFormSchedInterval(v as any)}>
-                      <SelectTrigger className="h-8 text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="hourly">Kvar time</SelectItem>
-                        <SelectItem value="daily">Dagleg</SelectItem>
-                        <SelectItem value="weekly">Vekeleg</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Scan-type</Label>
-                    <Select value={formScanType} onValueChange={v => setFormScanType(v as any)}>
-                      <SelectTrigger className="h-8 text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="quick">Rask</SelectItem>
-                        <SelectItem value="ports">Portar</SelectItem>
-                        <SelectItem value="full">Full</SelectItem>
-                        <SelectItem value="deep">Djup (OS + tenestar)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+              {(formScanType === "ports" || formScanType === "quick") && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Egne portar (valfritt, komma-separert)</Label>
+                  <Input placeholder="22, 80, 443, 8080" value={formCustomPorts} onChange={e => setFormCustomPorts(e.target.value)} className="h-8 text-sm font-mono" />
+                  <p className="text-[10px] text-muted-foreground">La stå tomt for standardportar</p>
                 </div>
               )}
-            </div>
-          </div>
 
-          <DialogFooter>
+              <div className="rounded-lg border border-border p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Automatisk skanning</p>
+                    <p className="text-xs text-muted-foreground">Køyr Nmap etter ein fast plan</p>
+                  </div>
+                  <Switch checked={formSchedEnabled} onCheckedChange={setFormSchedEnabled} />
+                </div>
+
+                {formSchedEnabled && (
+                  <div className="space-y-2">
+                    <Label className="text-xs">Intervall</Label>
+                    <div className="grid grid-cols-1 gap-1">
+                      {INTERVALS.map(i => (
+                        <button
+                          key={i.value}
+                          type="button"
+                          onClick={() => setFormSchedInterval(i.value as any)}
+                          className={`flex items-center justify-between rounded-md border px-3 py-2 text-left transition-colors ${
+                            formSchedInterval === i.value
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border bg-card hover:bg-muted/40"
+                          }`}
+                        >
+                          <span className="text-xs font-medium">{i.label}</span>
+                          <span className="text-[10px] text-muted-foreground">{i.desc}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+
+            {/* ── Tab 3: Varsling ── */}
+            <TabsContent value="alerts" className="space-y-3 pt-3">
+              <p className="text-xs text-muted-foreground">
+                Vel kva hendingar som skal utløyse varsling (toast-melding) i brukargrensesnittet.
+              </p>
+
+              <div className="space-y-2">
+                {[
+                  { key: "onOffline", label: "Einheit ikkje svarande", desc: "Varsle når ingen opne portar vert funne etter skanning", Icon: BellOff },
+                  { key: "onNewPort", label: "Ny open port oppdaga", desc: "Varsle når ein port ikkje sett tidlegare vert opna", Icon: Bell },
+                  { key: "onServiceChange", label: "Teneste-endring", desc: "Varsle ved endringar i tenestebanner eller versjon (krev djup scan)", Icon: Zap },
+                ].map(({ key, label, desc, Icon: ItemIcon }) => (
+                  <div key={key} className="flex items-start gap-3 rounded-lg border border-border p-3">
+                    <Checkbox
+                      id={key}
+                      checked={formAlerts[key as keyof typeof formAlerts]}
+                      onCheckedChange={v => setFormAlerts(prev => ({ ...prev, [key]: !!v }))}
+                      className="mt-0.5"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <label htmlFor={key} className="flex items-center gap-1.5 text-sm font-medium cursor-pointer">
+                        <ItemIcon className="h-3.5 w-3.5 text-primary" />
+                        {label}
+                      </label>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">{desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="rounded-lg border border-border/50 bg-muted/20 p-3">
+                <p className="text-[11px] text-muted-foreground">
+                  <strong>Merk:</strong> Varslingar visast som toast-meldingar i nettlesaren. E-post og push-varsling krev Webhook-integrasjon (ikkje tilgjengeleg enno).
+                </p>
+              </div>
+            </TabsContent>
+          </Tabs>
+
+          <DialogFooter className="mt-2">
             <Button variant="outline" onClick={() => setDialogOpen(false)} className="h-8 text-sm">
               Avbryt
             </Button>
