@@ -24,6 +24,7 @@ import { SecurityScorePanel } from "@/components/security/SecurityScorePanel";
 import { IdsIpsPanel } from "@/components/security/IdsIpsPanel";
 import { KismetWifiPanel } from "@/components/security/KismetWifiPanel";
 import { CveLookupPanel } from "@/components/security/CveLookupPanel";
+import { CriticalDevicesPanel } from "@/components/security/CriticalDevicesPanel";
 import { NetworkTopologyMap } from "@/components/security/NetworkTopologyMap";
 import { NmapHostDetailDialog, type NmapHostDetail } from "@/components/security/NmapHostDetailDialog";
 import { VulnerabilityDetailDialog, type VulnerabilityDetail } from "@/components/security/VulnerabilityDetailDialog";
@@ -927,6 +928,10 @@ export default function Security() {
               <Network className="h-4 w-4 mr-2" />
               Topologi
             </TabsTrigger>
+            <TabsTrigger value="critical" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <ShieldAlert className="h-4 w-4 mr-2" />
+              Kritiske einheiter
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="score">
@@ -1784,6 +1789,10 @@ export default function Security() {
 
           <TabsContent value="topology">
             <NetworkTopologyMap hosts={nmapResults} unifiClients={unifiClients} />
+          </TabsContent>
+
+          <TabsContent value="critical">
+            <CriticalDevicesPanel authHeaders={authHeaders} />
           </TabsContent>
 
         </Tabs>
