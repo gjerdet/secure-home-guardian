@@ -23,11 +23,13 @@ import { DnsLeakPanel } from "@/components/security/DnsLeakPanel";
 import { SecurityScorePanel } from "@/components/security/SecurityScorePanel";
 import { IdsIpsPanel } from "@/components/security/IdsIpsPanel";
 import { KismetWifiPanel } from "@/components/security/KismetWifiPanel";
+import { CveLookupPanel } from "@/components/security/CveLookupPanel";
+import { NetworkTopologyMap } from "@/components/security/NetworkTopologyMap";
 import { NmapHostDetailDialog, type NmapHostDetail } from "@/components/security/NmapHostDetailDialog";
 import { VulnerabilityDetailDialog, type VulnerabilityDetail } from "@/components/security/VulnerabilityDetailDialog";
 import { 
   Radar, Shield, Search, Clock, AlertTriangle, CheckCircle,
-  Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin, Network, Wifi, ExternalLink, Lock, Activity, History, Trash2, Radio
+  Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin, Network, Wifi, ExternalLink, Lock, Activity, History, Trash2, Radio, ShieldAlert
 } from "lucide-react";
 
 import { API_BASE, fetchJsonSafely } from '@/lib/api';
@@ -917,6 +919,14 @@ export default function Security() {
               <History className="h-4 w-4 mr-2" />
               Historikk ({scanHistory.length})
             </TabsTrigger>
+            <TabsTrigger value="cve" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <ShieldAlert className="h-4 w-4 mr-2" />
+              CVE
+            </TabsTrigger>
+            <TabsTrigger value="topology" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <Network className="h-4 w-4 mr-2" />
+              Topologi
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="score">
@@ -1766,6 +1776,14 @@ export default function Security() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="cve">
+            <CveLookupPanel hosts={nmapResults} />
+          </TabsContent>
+
+          <TabsContent value="topology">
+            <NetworkTopologyMap hosts={nmapResults} unifiClients={unifiClients} />
           </TabsContent>
 
         </Tabs>
