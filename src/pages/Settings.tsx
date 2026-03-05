@@ -12,8 +12,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { 
   Settings as SettingsIcon, Server, Wifi, HardDrive, Shield, ShieldAlert,
   Save, TestTube, CheckCircle, XCircle, Users, UserPlus, Trash2, User, Loader2, RefreshCw, Pencil, KeyRound,
-  Download, GitBranch, ArrowUpCircle, Clock, AlertTriangle, Globe
+  Download, GitBranch, ArrowUpCircle, Clock, AlertTriangle, Globe, Activity, RotateCcw, Terminal
 } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
@@ -109,6 +110,47 @@ export default function Settings() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateProgress, setUpdateProgress] = useState<{ step: number; message: string; status: string }[]>([]);
   const [updateError, setUpdateError] = useState<string | null>(null);
+
+  // OpenVAS diagnostics
+  const [openvasDiag, setOpenvasDiag] = useState<{
+    container: { status: string; startedAt?: string } | null;
+    gvmReady: boolean;
+    gvmVersion: string | null;
+    port9390: boolean;
+    logs: string;
+  } | null>(null);
+  const [openvasDiagLoading, setOpenvasDiagLoading] = useState(false);
+  const [openvasRestarting, setOpenvasRestarting] = useState(false);
+
+  const fetchOpenvasDiagnostics = async () => {
+    setOpenvasDiagLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/openvas/diagnostics`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) setOpenvasDiag(await res.json());
+      else toast.error('Kunne ikkje hente OpenVAS-diagnostikk');
+    } catch { toast.error('Feil ved henting av diagnostikk'); }
+    finally { setOpenvasDiagLoading(false); }
+  };
+
+  const restartOpenvas = async () => {
+    setOpenvasRestarting(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/openvas/restart`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(data.message);
+        setTimeout(fetchOpenvasDiagnostics, 3000);
+      } else {
+        toast.error(data.message);
+      }
+    } catch { toast.error('Kunne ikkje restarte container'); }
+    finally { setOpenvasRestarting(false); }
+  };
 
   const isAdmin = currentUser?.role === 'admin';
 
@@ -649,6 +691,87 @@ export default function Settings() {
                       <Input type="password" value={configs.openvas.password} onChange={e => updateConfig('openvas', 'password', e.target.value)} className="bg-muted border-border mt-1" />
                     </div>
                   </div>
+
+                  {/* Diagnostics panel */}
+                  <div className="rounded-md bg-muted/30 border border-border p-3 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                        <Activity className="h-3.5 w-3.5 text-primary" />
+                        Container-diagnostikk
+                      </p>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" onClick={fetchOpenvasDiagnostics} disabled={openvasDiagLoading} className="h-7 text-xs">
+                          {openvasDiagLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                          <span className="ml-1">Sjekk status</span>
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={restartOpenvas} disabled={openvasRestarting} className="h-7 text-xs border-warning/40 text-warning hover:bg-warning/10">
+                          {openvasRestarting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                          <span className="ml-1">Restart container</span>
+                        </Button>
+                      </div>
+                    </div>
+
+                    {openvasDiag && (
+                      <div className="space-y-2">
+                        {/* Status grid */}
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="bg-background rounded p-2 text-center border border-border">
+                            <p className="text-[10px] text-muted-foreground mb-1">Container</p>
+                            {openvasDiag.container?.status === 'running' ? (
+                              <Badge className="bg-success/10 text-success border-success/20 text-[10px]"><CheckCircle className="h-3 w-3 mr-1" />Køyrer</Badge>
+                            ) : (
+                              <Badge className="bg-destructive/10 text-destructive border-destructive/20 text-[10px]"><XCircle className="h-3 w-3 mr-1" />{openvasDiag.container?.status || 'Ukjent'}</Badge>
+                            )}
+                          </div>
+                          <div className="bg-background rounded p-2 text-center border border-border">
+                            <p className="text-[10px] text-muted-foreground mb-1">Port 9390</p>
+                            {openvasDiag.port9390 ? (
+                              <Badge className="bg-success/10 text-success border-success/20 text-[10px]"><CheckCircle className="h-3 w-3 mr-1" />Lyttar</Badge>
+                            ) : (
+                              <Badge className="bg-warning/10 text-warning border-warning/20 text-[10px]"><Clock className="h-3 w-3 mr-1" />Ikkje klar</Badge>
+                            )}
+                          </div>
+                          <div className="bg-background rounded p-2 text-center border border-border">
+                            <p className="text-[10px] text-muted-foreground mb-1">GVM klar</p>
+                            {openvasDiag.gvmReady ? (
+                              <Badge className="bg-success/10 text-success border-success/20 text-[10px]"><CheckCircle className="h-3 w-3 mr-1" />v{openvasDiag.gvmVersion}</Badge>
+                            ) : (
+                              <Badge className="bg-warning/10 text-warning border-warning/20 text-[10px]"><Clock className="h-3 w-3 mr-1" />Startar...</Badge>
+                            )}
+                          </div>
+                        </div>
+
+                        {!openvasDiag.gvmReady && openvasDiag.container?.status === 'running' && (
+                          <div className="flex items-start gap-2 rounded bg-warning/5 border border-warning/20 p-2">
+                            <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0 mt-0.5" />
+                            <p className="text-xs text-warning">GVM startar framleis opp — dette kan ta 2–10 minutt første gong (NVT-database initialisering). Trykk «Sjekk status» igjen om litt.</p>
+                          </div>
+                        )}
+
+                        {openvasDiag.container?.status !== 'running' && (
+                          <div className="flex items-start gap-2 rounded bg-destructive/5 border border-destructive/20 p-2">
+                            <XCircle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
+                            <p className="text-xs text-destructive">Container er ikkje i gang. Trykk «Restart container» for å starte han opp.</p>
+                          </div>
+                        )}
+
+                        {/* Recent logs */}
+                        {openvasDiag.logs && (
+                          <div>
+                            <p className="text-[10px] text-muted-foreground mb-1 flex items-center gap-1"><Terminal className="h-3 w-3" />Siste logglinjer</p>
+                            <ScrollArea className="h-28">
+                              <pre className="bg-background border border-border rounded p-2 text-[10px] font-mono text-muted-foreground whitespace-pre-wrap">{openvasDiag.logs}</pre>
+                            </ScrollArea>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {!openvasDiag && (
+                      <p className="text-xs text-muted-foreground">Trykk «Sjekk status» for å sjå container- og GVM-tilstand.</p>
+                    )}
+                  </div>
+
                   <div className="rounded-md bg-muted/50 border border-border p-3 space-y-2">
                     <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                       <AlertTriangle className="h-3.5 w-3.5" />
@@ -1029,7 +1152,7 @@ export default function Settings() {
                           {p.status === 'done' && <CheckCircle className="h-4 w-4 text-success shrink-0" />}
                           {p.status === 'running' && <Loader2 className="h-4 w-4 text-primary animate-spin shrink-0" />}
                           {p.status === 'error' && <XCircle className="h-4 w-4 text-destructive shrink-0" />}
-                          {p.status === 'warning' && <AlertTriangle className="h-4 w-4 text-yellow-500 shrink-0" />}
+                          {p.status === 'warning' && <AlertTriangle className="h-4 w-4 text-warning shrink-0" />}
                           {p.status === 'complete' && <CheckCircle className="h-4 w-4 text-success shrink-0" />}
                           <span className={`${p.status === 'error' ? 'text-destructive' : p.status === 'complete' ? 'text-success font-medium' : 'text-foreground'}`}>
                             {p.message}

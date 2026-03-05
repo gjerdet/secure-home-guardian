@@ -1600,6 +1600,47 @@ function extractXmlValue(xml, tagName) {
   return match ? match[1].trim() : null;
 }
 
+// OpenVAS diagnostics: container status + GVM readiness
+app.get('/api/openvas/diagnostics', authenticateToken, async (req, res) => {
+  const containerName = process.env.OPENVAS_CONTAINER || 'openvas';
+  const result = { container: null, gvmReady: false, gvmVersion: null, port9390: false, logs: '' };
+  try {
+    const { stdout: psOut } = await execAsync(`docker inspect ${containerName} --format "{{.State.Status}} {{.State.StartedAt}}" 2>/dev/null || echo "not_found"`);
+    const parts = psOut.trim().split(' ');
+    result.container = { status: parts[0], startedAt: parts[1] || null };
+  } catch { result.container = { status: 'not_found' }; }
+
+  try {
+    const { stdout: portOut } = await execAsync(`docker exec ${containerName} bash -c "ss -tlnp 2>/dev/null | grep 9390 || netstat -tlnp 2>/dev/null | grep 9390 || echo ''" 2>/dev/null`);
+    result.port9390 = portOut.trim().length > 0;
+  } catch {}
+
+  try {
+    const gmpResult = gmpExec('<get_version/>', 10);
+    const version = extractXmlValue(gmpResult, 'version');
+    result.gvmReady = !!version;
+    result.gvmVersion = version;
+  } catch {}
+
+  try {
+    const { stdout: logsOut } = await execAsync(`docker logs ${containerName} --tail 20 2>&1`);
+    result.logs = logsOut;
+  } catch {}
+
+  res.json(result);
+});
+
+// Restart OpenVAS container
+app.post('/api/openvas/restart', authenticateToken, async (req, res) => {
+  const containerName = process.env.OPENVAS_CONTAINER || 'openvas';
+  try {
+    await execAsync(`docker restart ${containerName}`);
+    res.json({ success: true, message: `Container '${containerName}' restartet. GVM brukar vanlegvis 2-10 minutt på oppstart.` });
+  } catch (err) {
+    res.json({ success: false, message: err.message });
+  }
+});
+
 // Test OpenVAS GMP connection
 app.post('/api/openvas/test-gmp', authenticateToken, async (req, res) => {
   try {
