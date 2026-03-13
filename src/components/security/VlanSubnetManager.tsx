@@ -71,11 +71,32 @@ interface VlanSubnetManagerProps {
   onVlansChange?: (vlans: VlanSubnet[]) => void;
 }
 
+interface DiscoverResult {
+  vlanId: number;
+  subnet: string;
+  gateway: string;
+  reachable: boolean;
+}
+
+interface DiscoverState {
+  loading: boolean;
+  hits?: DiscoverResult[];
+  misses?: DiscoverResult[];
+  error?: string;
+}
+
 export function VlanSubnetManager({ selectedVlans, onSelectionChange, onScanTargetChange, onVlansChange }: VlanSubnetManagerProps) {
   const { token } = useAuth();
   const [vlans, setVlans] = useState<VlanSubnet[]>(defaultVlans);
   const [probeStates, setProbeStates] = useState<Record<string, VlanProbeState>>({});
   const [probeDialogVlan, setProbeDialogVlan] = useState<VlanSubnet | null>(null);
+
+  // Discovery state
+  const [discoverOpen, setDiscoverOpen] = useState(false);
+  const [discoverTemplate, setDiscoverTemplate] = useState("192.168.{vlan}.0/24");
+  const [discoverFrom, setDiscoverFrom] = useState("1");
+  const [discoverTo, setDiscoverTo] = useState("10");
+  const [discoverState, setDiscoverState] = useState<DiscoverState>({ loading: false });
 
   const updateVlans = (newVlans: VlanSubnet[]) => {
     setVlans(newVlans);
@@ -94,6 +115,35 @@ export function VlanSubnetManager({ selectedVlans, onSelectionChange, onScanTarg
   useEffect(() => {
     onVlansChange?.(vlans);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const runDiscover = async () => {
+    setDiscoverState({ loading: true });
+    try {
+      const resp = await fetch(`${API_BASE}/api/vlan/discover`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ template: discoverTemplate, from: parseInt(discoverFrom), to: parseInt(discoverTo) }),
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      const data = await resp.json();
+      setDiscoverState({ loading: false, hits: data.hits, misses: data.misses });
+    } catch (err) {
+      setDiscoverState({ loading: false, error: (err as Error).message });
+    }
+  };
+
+  const importHit = (hit: DiscoverResult) => {
+    const already = vlans.find(v => v.vlanId === hit.vlanId);
+    if (already) return;
+    updateVlans([...vlans, {
+      id: Date.now().toString() + hit.vlanId,
+      name: `VLAN ${hit.vlanId}`,
+      vlanId: hit.vlanId,
+      subnet: hit.subnet,
+      description: `Oppdaga via discovery`,
+      icon: "network",
+    }]);
+  };
 
   const toggleVlan = (id: string) => {
     const updated = selectedVlans.includes(id)
