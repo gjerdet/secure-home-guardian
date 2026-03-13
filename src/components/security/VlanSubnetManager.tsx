@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Network, Plus, Trash2, Wifi, Server, Shield, Monitor, Pencil, Activity, CheckCircle2, XCircle, AlertCircle, Loader2 } from "lucide-react";
+import { Network, Plus, Trash2, Wifi, Server, Shield, Monitor, Pencil, Activity, CheckCircle2, XCircle, AlertCircle, Loader2, ScanSearch } from "lucide-react";
 import { API_BASE } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
