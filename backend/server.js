@@ -3476,6 +3476,95 @@ app.get('/api/kismet/status', authenticateToken, async (req, res) => {
   }
 });
 
+// ============================================
+// VLAN Probe — ping gateway + sample hosts
+// ============================================
+app.post('/api/vlan/probe', authenticateToken, async (req, res) => {
+  const { subnet } = req.body;
+  if (!subnet) return res.status(400).json({ error: 'subnet påkrevd' });
+
+  const { exec } = require('child_process');
+  const { promisify } = require('util');
+  const execAsync = promisify(exec);
+
+  // Derive gateway: replace last octet with .1
+  function subnetToGateway(cidr) {
+    const base = cidr.split('/')[0];
+    const parts = base.split('.');
+    parts[3] = '1';
+    return parts.join('.');
+  }
+
+  // Parse ping output for latency + loss
+  function parsePing(stdout) {
+    const latencyMatch = stdout.match(/min\/avg\/max[^=]*=\s*([\d.]+)\/([\d.]+)\/([\d.]+)/);
+    const lossMatch = stdout.match(/(\d+)%\s+packet loss/);
+    return {
+      latency: latencyMatch ? parseFloat(latencyMatch[2]) : null,
+      loss: lossMatch ? parseInt(lossMatch[1]) : 100,
+    };
+  }
+
+  async function pingHost(ip) {
+    try {
+      const { stdout } = await execAsync(`ping -c 3 -W 1 ${ip}`, { timeout: 6000 });
+      const { latency, loss } = parsePing(stdout);
+      return { ip, reachable: loss < 100, latency, loss };
+    } catch {
+      return { ip, reachable: false, latency: null, loss: 100 };
+    }
+  }
+
+  try {
+    const gateway = subnetToGateway(subnet);
+
+    // Use nmap -sn to quickly discover live hosts (max 5s), fallback to just gateway
+    let sampleHosts = [];
+    try {
+      const { stdout: nmapOut } = await execAsync(
+        `nmap -sn --max-rtt-timeout 500ms --host-timeout 2s ${subnet} 2>/dev/null | grep "Nmap scan report" | awk '{print $NF}' | tr -d '()' | head -8`,
+        { timeout: 10000 }
+      );
+      sampleHosts = nmapOut.trim().split('\n').filter(Boolean).slice(0, 6);
+    } catch {
+      sampleHosts = [gateway];
+    }
+
+    // Always include gateway, deduplicate
+    const targets = [...new Set([gateway, ...sampleHosts])].slice(0, 6);
+
+    // Ping all targets in parallel
+    const results = await Promise.all(targets.map(pingHost));
+
+    const gatewayResult = results.find(r => r.ip === gateway) || results[0];
+    const reachableCount = results.filter(r => r.reachable).length;
+    const avgLatency = results
+      .filter(r => r.reachable && r.latency !== null)
+      .map(r => r.latency)
+      .reduce((a, b, _, arr) => a + b / arr.length, 0);
+
+    res.json({
+      subnet,
+      gateway: gatewayResult,
+      hosts: results,
+      summary: {
+        total: results.length,
+        reachable: reachableCount,
+        avgLatency: reachableCount > 0 ? Math.round(avgLatency * 10) / 10 : null,
+        status: gatewayResult.reachable
+          ? reachableCount > 1 ? 'up' : 'gateway-only'
+          : 'down',
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`NetGuard API kjører på port ${PORT}`);
+});
+
 app.listen(PORT, () => {
   console.log(`NetGuard API kjører på port ${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/api/health`);
