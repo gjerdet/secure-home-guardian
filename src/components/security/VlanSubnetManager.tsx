@@ -244,6 +244,14 @@ export function VlanSubnetManager({ selectedVlans, onSelectionChange, onScanTarg
             <div className="flex items-center gap-2">
               <Button variant="ghost" size="sm" className="text-xs h-7" onClick={selectAll}>Velg alle</Button>
               <Button variant="ghost" size="sm" className="text-xs h-7" onClick={selectNone}>Fjern alle</Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-7" onClick={() => { setDiscoverState({ loading: false }); setDiscoverOpen(true); }}>
+                    <ScanSearch className="h-3.5 w-3.5 mr-1" />Søk VLAN
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Finn aktive VLAN-ID-ar i eit område</TooltipContent>
+              </Tooltip>
               <Button variant="outline" size="sm" className="h-7" onClick={openAddDialog}>
                 <Plus className="h-3.5 w-3.5 mr-1" />Legg til
               </Button>
