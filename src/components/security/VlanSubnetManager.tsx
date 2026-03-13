@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Network, Plus, Trash2, Wifi, Server, Shield, Monitor, Pencil, Activity, CheckCircle2, XCircle, AlertCircle, Loader2 } from "lucide-react";
+import { Network, Plus, Trash2, Wifi, Server, Shield, Monitor, Pencil, Activity, CheckCircle2, XCircle, AlertCircle, Loader2, ScanSearch } from "lucide-react";
 import { API_BASE } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -71,11 +71,32 @@ interface VlanSubnetManagerProps {
   onVlansChange?: (vlans: VlanSubnet[]) => void;
 }
 
+interface DiscoverResult {
+  vlanId: number;
+  subnet: string;
+  gateway: string;
+  reachable: boolean;
+}
+
+interface DiscoverState {
+  loading: boolean;
+  hits?: DiscoverResult[];
+  misses?: DiscoverResult[];
+  error?: string;
+}
+
 export function VlanSubnetManager({ selectedVlans, onSelectionChange, onScanTargetChange, onVlansChange }: VlanSubnetManagerProps) {
   const { token } = useAuth();
   const [vlans, setVlans] = useState<VlanSubnet[]>(defaultVlans);
   const [probeStates, setProbeStates] = useState<Record<string, VlanProbeState>>({});
   const [probeDialogVlan, setProbeDialogVlan] = useState<VlanSubnet | null>(null);
+
+  // Discovery state
+  const [discoverOpen, setDiscoverOpen] = useState(false);
+  const [discoverTemplate, setDiscoverTemplate] = useState("192.168.{vlan}.0/24");
+  const [discoverFrom, setDiscoverFrom] = useState("1");
+  const [discoverTo, setDiscoverTo] = useState("10");
+  const [discoverState, setDiscoverState] = useState<DiscoverState>({ loading: false });
 
   const updateVlans = (newVlans: VlanSubnet[]) => {
     setVlans(newVlans);
@@ -94,6 +115,35 @@ export function VlanSubnetManager({ selectedVlans, onSelectionChange, onScanTarg
   useEffect(() => {
     onVlansChange?.(vlans);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const runDiscover = async () => {
+    setDiscoverState({ loading: true });
+    try {
+      const resp = await fetch(`${API_BASE}/api/vlan/discover`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ template: discoverTemplate, from: parseInt(discoverFrom), to: parseInt(discoverTo) }),
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      const data = await resp.json();
+      setDiscoverState({ loading: false, hits: data.hits, misses: data.misses });
+    } catch (err) {
+      setDiscoverState({ loading: false, error: (err as Error).message });
+    }
+  };
+
+  const importHit = (hit: DiscoverResult) => {
+    const already = vlans.find(v => v.vlanId === hit.vlanId);
+    if (already) return;
+    updateVlans([...vlans, {
+      id: Date.now().toString() + hit.vlanId,
+      name: `VLAN ${hit.vlanId}`,
+      vlanId: hit.vlanId,
+      subnet: hit.subnet,
+      description: `Oppdaga via discovery`,
+      icon: "network",
+    }]);
+  };
 
   const toggleVlan = (id: string) => {
     const updated = selectedVlans.includes(id)
@@ -194,6 +244,14 @@ export function VlanSubnetManager({ selectedVlans, onSelectionChange, onScanTarg
             <div className="flex items-center gap-2">
               <Button variant="ghost" size="sm" className="text-xs h-7" onClick={selectAll}>Velg alle</Button>
               <Button variant="ghost" size="sm" className="text-xs h-7" onClick={selectNone}>Fjern alle</Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-7" onClick={() => { setDiscoverState({ loading: false }); setDiscoverOpen(true); }}>
+                    <ScanSearch className="h-3.5 w-3.5 mr-1" />Søk VLAN
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Finn aktive VLAN-ID-ar i eit område</TooltipContent>
+              </Tooltip>
               <Button variant="outline" size="sm" className="h-7" onClick={openAddDialog}>
                 <Plus className="h-3.5 w-3.5 mr-1" />Legg til
               </Button>
@@ -406,6 +464,127 @@ export function VlanSubnetManager({ selectedVlans, onSelectionChange, onScanTarg
           </DialogContent>
         </Dialog>
       </Card>
+
+      {/* VLAN Discovery Dialog */}
+      <Dialog open={discoverOpen} onOpenChange={setDiscoverOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ScanSearch className="h-4 w-4 text-primary" />
+              Søk etter aktive VLAN
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Subnet-mal</Label>
+              <Input
+                className="font-mono"
+                value={discoverTemplate}
+                onChange={e => setDiscoverTemplate(e.target.value)}
+                placeholder="192.168.{vlan}.0/24"
+              />
+              <p className="text-[11px] text-muted-foreground">Bruk <code className="bg-muted px-1 rounded">{"{vlan}"}</code> som plasshaldar for VLAN-ID</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Fra VLAN-ID</Label>
+                <Input type="number" value={discoverFrom} onChange={e => setDiscoverFrom(e.target.value)} min={1} max={4094} />
+              </div>
+              <div className="space-y-2">
+                <Label>Til VLAN-ID</Label>
+                <Input type="number" value={discoverTo} onChange={e => setDiscoverTo(e.target.value)} min={1} max={4094} />
+              </div>
+            </div>
+
+            <Button
+              className="w-full"
+              onClick={runDiscover}
+              disabled={discoverState.loading || !discoverTemplate || !discoverFrom || !discoverTo}
+            >
+              {discoverState.loading
+                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Søkjer... ({discoverFrom}–{discoverTo})</>
+                : <><ScanSearch className="h-4 w-4 mr-2" />Start søk</>
+              }
+            </Button>
+
+            {discoverState.error && (
+              <p className="text-sm text-destructive">{discoverState.error}</p>
+            )}
+
+            {!discoverState.loading && discoverState.hits !== undefined && (
+              <div className="space-y-3">
+                {/* Hits */}
+                <div className="rounded-lg border border-border overflow-hidden">
+                  <div className="flex items-center gap-2 px-3 py-2 bg-success/10 border-b border-border">
+                    <CheckCircle2 className="h-4 w-4 text-success" />
+                    <span className="text-sm font-medium text-success">Treff — {discoverState.hits.length} VLAN aktive</span>
+                    <span className="text-xs text-muted-foreground ml-auto font-mono">
+                      {discoverState.hits.map(h => h.vlanId).join(", ") || "—"}
+                    </span>
+                  </div>
+                  {discoverState.hits.length > 0 ? (
+                    <ScrollArea className="max-h-[180px]">
+                      {discoverState.hits.map((hit, i) => {
+                        const alreadyAdded = vlans.some(v => v.vlanId === hit.vlanId);
+                        return (
+                          <div key={hit.vlanId} className={`flex items-center justify-between px-3 py-2 text-sm ${i > 0 ? "border-t border-border" : ""}`}>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-[10px] font-mono px-1.5 h-4">VLAN {hit.vlanId}</Badge>
+                              <span className="font-mono text-xs text-muted-foreground">{hit.subnet}</span>
+                              <span className="text-[10px] text-muted-foreground">gw: {hit.gateway}</span>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant={alreadyAdded ? "ghost" : "outline"}
+                              className="h-6 text-xs"
+                              disabled={alreadyAdded}
+                              onClick={() => importHit(hit)}
+                            >
+                              {alreadyAdded ? "Lagt til" : "+ Importer"}
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </ScrollArea>
+                  ) : (
+                    <p className="text-xs text-muted-foreground px-3 py-2">Ingen aktive VLAN funne</p>
+                  )}
+                </div>
+
+                {/* Misses */}
+                {discoverState.misses && discoverState.misses.length > 0 && (
+                  <div className="rounded-lg border border-border px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <XCircle className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground">Ingen svar — VLAN {discoverState.misses.map(m => m.vlanId).join(", ")}</span>
+                    </div>
+                  </div>
+                )}
+
+                {discoverState.hits.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => {
+                      discoverState.hits!.forEach(h => importHit(h));
+                    }}
+                  >
+                    <Plus className="h-3.5 w-3.5 mr-1.5" />
+                    Importer alle treff ({discoverState.hits.length})
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDiscoverOpen(false)}>Lukk</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </TooltipProvider>
   );
 }

@@ -3561,6 +3561,61 @@ app.post('/api/vlan/probe', authenticateToken, async (req, res) => {
   }
 });
 
+
+// ============================================
+// VLAN Discover — probe a range of VLAN IDs
+// ============================================
+app.post('/api/vlan/discover', authenticateToken, async (req, res) => {
+  const { template, from, to } = req.body;
+  // template: "192.168.{vlan}.0/24", from: 1, to: 10
+  if (!template || from == null || to == null) {
+    return res.status(400).json({ error: 'template, from og to er påkrevd' });
+  }
+  if (to - from > 50) return res.status(400).json({ error: 'Maks 50 VLAN-ID-ar per søk' });
+
+  const { exec } = require('child_process');
+  const { promisify } = require('util');
+  const execAsync = promisify(exec);
+
+  function subnetToGateway(cidr) {
+    const base = cidr.split('/')[0];
+    const parts = base.split('.');
+    parts[3] = '1';
+    return parts.join('.');
+  }
+
+  async function pingGateway(ip) {
+    try {
+      const { stdout } = await execAsync(`ping -c 2 -W 1 ${ip}`, { timeout: 4000 });
+      return stdout.includes('bytes from');
+    } catch {
+      return false;
+    }
+  }
+
+  const results = [];
+  // Run in batches of 10 to avoid overwhelming the network
+  const ids = [];
+  for (let i = parseInt(from); i <= parseInt(to); i++) ids.push(i);
+
+  const batchSize = 10;
+  for (let b = 0; b < ids.length; b += batchSize) {
+    const batch = ids.slice(b, b + batchSize);
+    const batchResults = await Promise.all(batch.map(async (vlanId) => {
+      const subnet = template.replace(/\{vlan\}/g, vlanId);
+      const gateway = subnetToGateway(subnet);
+      const reachable = await pingGateway(gateway);
+      return { vlanId, subnet, gateway, reachable };
+    }));
+    results.push(...batchResults);
+  }
+
+  const hits = results.filter(r => r.reachable);
+  const misses = results.filter(r => !r.reachable);
+
+  res.json({ hits, misses, total: results.length });
+});
+
 app.listen(PORT, () => {
   console.log(`NetGuard API kjører på port ${PORT}`);
 });
