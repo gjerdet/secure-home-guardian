@@ -39,7 +39,7 @@ export function StatusCardsModule() {
       .catch(() => setUnifi({ status: "offline", value: "—", subtitle: "Ikke tilkoblet" }));
 
     // Check TrueNAS
-    fetchJsonSafely(`${API_BASE}/api/truenas/pools`)
+    fetchJsonSafely(`${API_BASE}/api/truenas/pools`, { headers: authHeaders })
       .then(res => {
         if (res.ok && res.data) {
           const pools = Array.isArray(res.data) ? res.data : [];
