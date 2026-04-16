@@ -929,6 +929,10 @@ export default function Security() {
               <Network className="h-4 w-4 mr-2" />
               Topologi
             </TabsTrigger>
+            <TabsTrigger value="sniffer" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <Eye className="h-4 w-4 mr-2" />
+              Sniffer
+            </TabsTrigger>
             <TabsTrigger value="critical" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               <ShieldAlert className="h-4 w-4 mr-2" />
               Kritiske einheiter
@@ -1790,6 +1794,10 @@ export default function Security() {
 
           <TabsContent value="topology">
             <NetworkTopologyMap hosts={nmapResults} unifiClients={unifiClients} />
+          </TabsContent>
+
+          <TabsContent value="sniffer">
+            <PacketSnifferPanel />
           </TabsContent>
 
           <TabsContent value="critical">
