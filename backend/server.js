@@ -3617,7 +3617,185 @@ app.post('/api/vlan/discover', authenticateToken, async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`NetGuard API kjører på port ${PORT}`);
+// ============================================
+// Packet Sniffer (tcpdump)
+// ============================================
+let snifferProcess = null;
+
+app.get('/api/sniffer/interfaces', authenticateToken, async (req, res) => {
+  const { exec } = require('child_process');
+  const { promisify } = require('util');
+  const execAsync = promisify(exec);
+  try {
+    const { stdout } = await execAsync("ip -o link show | awk -F': ' '{print $2}'");
+    const ifaces = stdout.trim().split('\n').filter(i => i && i !== 'lo');
+    res.json(ifaces);
+  } catch {
+    res.json(['eth0', 'ens18', 'br0']);
+  }
+});
+
+app.post('/api/sniffer/stop', authenticateToken, (req, res) => {
+  if (snifferProcess) {
+    snifferProcess.kill('SIGTERM');
+    snifferProcess = null;
+  }
+  res.json({ ok: true });
+});
+
+app.get('/api/sniffer/capture', (req, res) => {
+  const token = req.query.token;
+  if (!token) return res.status(401).end();
+  try {
+    const jwt = require('jsonwebtoken');
+    jwt.verify(token, process.env.JWT_SECRET || 'netguard-secret');
+  } catch {
+    return res.status(401).end();
+  }
+
+  const iface = (req.query.iface || 'any').replace(/[^a-zA-Z0-9_.-]/g, '');
+  const maxPkts = Math.min(parseInt(req.query.max) || 500, 5000);
+  const bpfFilter = req.query.filter || '';
+
+  // Validate BPF filter - only allow safe characters
+  if (bpfFilter && !/^[a-zA-Z0-9 .:/()!<>=&|_-]+$/.test(bpfFilter)) {
+    res.writeHead(400, { 'Content-Type': 'text/event-stream' });
+    res.write('event: error_msg\ndata: Ugyldig BPF-filter\n\n');
+    res.end();
+    return;
+  }
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+  });
+
+  const { spawn } = require('child_process');
+  // -l for line-buffered, -nn no name resolution, -q quiet, -tttt timestamps
+  const args = ['-l', '-nn', '-tttt', '-i', iface, '-c', String(maxPkts)];
+  if (bpfFilter) args.push(...bpfFilter.split(' '));
+
+  const tcpdump = spawn('tcpdump', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  snifferProcess = tcpdump;
+
+  const sources = {};
+  const destinations = {};
+  const protocols = {};
+  const ports = {};
+  let totalBytes = 0;
+  let totalPackets = 0;
+  let startTime = Date.now();
+
+  tcpdump.stdout.on('data', (data) => {
+    const lines = data.toString().split('\n').filter(l => l.trim());
+    for (const line of lines) {
+      const pkt = parseTcpdumpLine(line);
+      if (!pkt) continue;
+
+      totalPackets++;
+      totalBytes += pkt.length || 0;
+
+      // Track stats
+      if (pkt.src) sources[pkt.src] = (sources[pkt.src] || 0) + 1;
+      if (pkt.dst) destinations[pkt.dst] = (destinations[pkt.dst] || 0) + 1;
+      if (pkt.proto) protocols[pkt.proto] = (protocols[pkt.proto] || 0) + 1;
+      if (pkt.srcPort) ports[pkt.srcPort] = (ports[pkt.srcPort] || 0) + 1;
+      if (pkt.dstPort) ports[pkt.dstPort] = (ports[pkt.dstPort] || 0) + 1;
+
+      res.write(`event: packet\ndata: ${JSON.stringify(pkt)}\n\n`);
+    }
+  });
+
+  tcpdump.stderr.on('data', (data) => {
+    const msg = data.toString().trim();
+    if (msg && !msg.startsWith('tcpdump:') && !msg.includes('listening on')) {
+      res.write(`event: error_msg\ndata: ${msg}\n\n`);
+    }
+  });
+
+  const sendSummary = () => {
+    const toTop = (obj, n = 10) => Object.entries(obj)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, n)
+      .map(([k, v]) => ({ [k.includes('.') ? 'ip' : (k.match(/^\d+$/) ? 'port' : 'proto')]: k.match(/^\d+$/) ? parseInt(k) : k, count: v }));
+
+    const summary = {
+      totalPackets,
+      totalBytes,
+      duration: (Date.now() - startTime) / 1000,
+      topSources: Object.entries(sources).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([ip, count]) => ({ ip, count })),
+      topDestinations: Object.entries(destinations).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([ip, count]) => ({ ip, count })),
+      topProtocols: Object.entries(protocols).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([proto, count]) => ({ proto, count })),
+      topPorts: Object.entries(ports).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([port, count]) => ({ port: parseInt(port), count })),
+    };
+    res.write(`event: summary\ndata: ${JSON.stringify(summary)}\n\n`);
+  };
+
+  tcpdump.on('close', () => {
+    snifferProcess = null;
+    sendSummary();
+    res.write('event: done\ndata: ok\n\n');
+    res.end();
+  });
+
+  req.on('close', () => {
+    tcpdump.kill('SIGTERM');
+    snifferProcess = null;
+  });
+});
+
+function parseTcpdumpLine(line) {
+  try {
+    // Format: 2024-01-01 12:00:00.000000 IP 1.2.3.4.80 > 5.6.7.8.443: ...
+    const timestampMatch = line.match(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+)/);
+    const timestamp = timestampMatch ? timestampMatch[1].split('.')[0].split(' ').pop() : '';
+
+    let proto = 'OTHER';
+    let src = '', dst = '', srcPort, dstPort, info = '';
+    const lengthMatch = line.match(/length\s+(\d+)/);
+    const pktLength = lengthMatch ? parseInt(lengthMatch[1]) : 0;
+
+    if (line.includes(' IP ') || line.includes(' IP6 ')) {
+      proto = 'TCP';
+      if (line.includes(' UDP')) proto = 'UDP';
+      if (line.includes(' ICMP') || line.includes(' icmp')) proto = 'ICMP';
+
+      const ipMatch = line.match(/(?:IP6?)\s+(\S+)\s+>\s+(\S+?):/);
+      if (ipMatch) {
+        const srcFull = ipMatch[1];
+        const dstFull = ipMatch[2];
+        // Split IP and port
+        const srcParts = srcFull.lastIndexOf('.');
+        src = srcFull.substring(0, srcParts);
+        srcPort = parseInt(srcFull.substring(srcParts + 1));
+        const dstParts = dstFull.lastIndexOf('.');
+        dst = dstFull.substring(0, dstParts);
+        dstPort = parseInt(dstFull.substring(dstParts + 1));
+
+        if (isNaN(srcPort)) { src = srcFull; srcPort = undefined; }
+        if (isNaN(dstPort)) { dst = dstFull; dstPort = undefined; }
+      }
+
+      // Extract flags/info
+      const flagsMatch = line.match(/Flags \[([^\]]+)\]/);
+      if (flagsMatch) info = `Flags [${flagsMatch[1]}]`;
+      if (dstPort === 53 || srcPort === 53) proto = 'DNS';
+      if (dstPort === 443 || srcPort === 443) info = (info ? info + ' ' : '') + 'HTTPS';
+      if (dstPort === 80 || srcPort === 80) info = (info ? info + ' ' : '') + 'HTTP';
+    } else if (line.includes('ARP')) {
+      proto = 'ARP';
+      const arpMatch = line.match(/ARP,\s+(.+)/);
+      info = arpMatch ? arpMatch[1].substring(0, 80) : 'ARP';
+    }
+
+    return { timestamp, src, dst, proto, length: pktLength, info, srcPort, dstPort };
+  } catch {
+    return null;
+  }
+}
+
+console.log(`NetGuard API kjører på port ${PORT}`);
 });
 
 app.listen(PORT, () => {

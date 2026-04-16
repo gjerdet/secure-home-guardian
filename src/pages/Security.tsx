@@ -26,11 +26,12 @@ import { KismetWifiPanel } from "@/components/security/KismetWifiPanel";
 import { CveLookupPanel } from "@/components/security/CveLookupPanel";
 import { CriticalDevicesPanel } from "@/components/security/CriticalDevicesPanel";
 import { NetworkTopologyMap } from "@/components/security/NetworkTopologyMap";
+import { PacketSnifferPanel } from "@/components/security/PacketSnifferPanel";
 import { NmapHostDetailDialog, type NmapHostDetail } from "@/components/security/NmapHostDetailDialog";
 import { VulnerabilityDetailDialog, type VulnerabilityDetail } from "@/components/security/VulnerabilityDetailDialog";
 import { 
   Radar, Shield, Search, Clock, AlertTriangle, CheckCircle,
-  Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin, Network, Wifi, ExternalLink, Lock, Activity, History, Trash2, Radio, ShieldAlert
+  Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin, Network, Wifi, ExternalLink, Lock, Activity, History, Trash2, Radio, ShieldAlert, Eye
 } from "lucide-react";
 
 import { API_BASE, fetchJsonSafely } from '@/lib/api';
@@ -928,6 +929,10 @@ export default function Security() {
               <Network className="h-4 w-4 mr-2" />
               Topologi
             </TabsTrigger>
+            <TabsTrigger value="sniffer" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <Eye className="h-4 w-4 mr-2" />
+              Sniffer
+            </TabsTrigger>
             <TabsTrigger value="critical" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               <ShieldAlert className="h-4 w-4 mr-2" />
               Kritiske einheiter
@@ -1789,6 +1794,10 @@ export default function Security() {
 
           <TabsContent value="topology">
             <NetworkTopologyMap hosts={nmapResults} unifiClients={unifiClients} />
+          </TabsContent>
+
+          <TabsContent value="sniffer">
+            <PacketSnifferPanel />
           </TabsContent>
 
           <TabsContent value="critical">
