@@ -33,6 +33,7 @@ import {
   Radar, Shield, Search, Clock, AlertTriangle, CheckCircle,
   Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin, Network, Wifi, ExternalLink, Lock, Activity, History, Trash2, Radio, ShieldAlert
 } from "lucide-react";
+import { Eye } from "lucide-react";
 
 import { API_BASE, fetchJsonSafely } from '@/lib/api';
 
