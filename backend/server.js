@@ -3673,7 +3673,8 @@ app.get('/api/sniffer/capture', (req, res) => {
 
   const { spawn } = require('child_process');
   // -l for line-buffered, -nn no name resolution, -q quiet, -tttt timestamps
-  const args = ['-l', '-nn', '-tttt', '-i', iface, '-c', String(maxPkts)];
+  // -v for verbose (more protocol detail), -l line-buffered, -nn no name resolution, -tttt timestamps
+  const args = ['-l', '-nn', '-tttt', '-v', '-i', iface, '-c', String(maxPkts)];
   if (bpfFilter) args.push(...bpfFilter.split(' '));
 
   const tcpdump = spawn('tcpdump', args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -3747,7 +3748,6 @@ app.get('/api/sniffer/capture', (req, res) => {
 
 function parseTcpdumpLine(line) {
   try {
-    // Format: 2024-01-01 12:00:00.000000 IP 1.2.3.4.80 > 5.6.7.8.443: ...
     const timestampMatch = line.match(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+)/);
     const timestamp = timestampMatch ? timestampMatch[1].split('.')[0].split(' ').pop() : '';
 
@@ -3765,7 +3765,6 @@ function parseTcpdumpLine(line) {
       if (ipMatch) {
         const srcFull = ipMatch[1];
         const dstFull = ipMatch[2];
-        // Split IP and port
         const srcParts = srcFull.lastIndexOf('.');
         src = srcFull.substring(0, srcParts);
         srcPort = parseInt(srcFull.substring(srcParts + 1));
@@ -3777,16 +3776,117 @@ function parseTcpdumpLine(line) {
         if (isNaN(dstPort)) { dst = dstFull; dstPort = undefined; }
       }
 
-      // Extract flags/info
+      // Deep protocol decoding
+      const infoParts = [];
+
+      // TCP flags
       const flagsMatch = line.match(/Flags \[([^\]]+)\]/);
-      if (flagsMatch) info = `Flags [${flagsMatch[1]}]`;
-      if (dstPort === 53 || srcPort === 53) proto = 'DNS';
-      if (dstPort === 443 || srcPort === 443) info = (info ? info + ' ' : '') + 'HTTPS';
-      if (dstPort === 80 || srcPort === 80) info = (info ? info + ' ' : '') + 'HTTP';
+      if (flagsMatch) infoParts.push(`Flags [${flagsMatch[1]}]`);
+
+      // TCP seq/ack/win
+      const seqMatch = line.match(/seq\s+(\d+[:\d]*)/);
+      if (seqMatch) infoParts.push(`seq ${seqMatch[1]}`);
+      const ackMatch = line.match(/ack\s+(\d+)/);
+      if (ackMatch) infoParts.push(`ack ${ackMatch[1]}`);
+      const winMatch = line.match(/win\s+(\d+)/);
+      if (winMatch) infoParts.push(`win ${winMatch[1]}`);
+
+      // DNS queries/responses
+      if (dstPort === 53 || srcPort === 53) {
+        proto = 'DNS';
+        // Query: "A? example.com" or response with answers
+        const dnsQueryMatch = line.match(/(\d+\+?)\s+(A\??|AAAA\??|PTR\??|MX\??|CNAME\??|NS\??|SOA\??|TXT\??|SRV\??)\s+(\S+)/);
+        if (dnsQueryMatch) {
+          infoParts.length = 0; // Clear TCP details for DNS
+          infoParts.push(`${dnsQueryMatch[2]} ${dnsQueryMatch[3]}`);
+        }
+        const dnsRespMatch = line.match(/(\d+\/\d+\/\d+)/);
+        if (dnsRespMatch && srcPort === 53) {
+          infoParts.push(`answers: ${dnsRespMatch[1]}`);
+        }
+        // NXDomain
+        if (line.includes('NXDomain')) infoParts.push('NXDomain');
+        if (line.includes('ServFail')) infoParts.push('ServFail');
+      }
+
+      // HTTP methods
+      if (dstPort === 80 || srcPort === 80) {
+        proto = 'HTTP';
+        const httpMatch = line.match(/(GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH)\s+(\S+)/);
+        if (httpMatch) {
+          infoParts.push(`${httpMatch[1]} ${httpMatch[2]}`);
+        } else {
+          infoParts.push('HTTP');
+        }
+      }
+
+      // TLS/HTTPS
+      if (dstPort === 443 || srcPort === 443) {
+        proto = 'TLS';
+        // TLS version detection from verbose output
+        const tlsMatch = line.match(/TLSv([\d.]+)/);
+        if (tlsMatch) {
+          infoParts.push(`TLSv${tlsMatch[1]}`);
+        }
+        const handshakeMatch = line.match(/(ClientHello|ServerHello|Certificate|ChangeCipherSpec|Finished|Alert)/);
+        if (handshakeMatch) {
+          infoParts.push(handshakeMatch[1]);
+        } else if (!tlsMatch) {
+          infoParts.push('HTTPS');
+        }
+      }
+
+      // DHCP
+      if (dstPort === 67 || dstPort === 68 || srcPort === 67 || srcPort === 68) {
+        proto = 'DHCP';
+        const dhcpMatch = line.match(/(DISCOVER|OFFER|REQUEST|ACK|NAK|RELEASE|INFORM|DECLINE)/i);
+        if (dhcpMatch) infoParts.push(dhcpMatch[1].toUpperCase());
+      }
+
+      // NTP
+      if (dstPort === 123 || srcPort === 123) {
+        proto = 'NTP';
+      }
+
+      // SSH
+      if (dstPort === 22 || srcPort === 22) {
+        infoParts.push('SSH');
+      }
+
+      // ICMP details
+      if (proto === 'ICMP') {
+        const icmpMatch = line.match(/ICMP\s+(.+?)(?:,\s*length|$)/);
+        if (icmpMatch) {
+          infoParts.length = 0;
+          infoParts.push(icmpMatch[1].substring(0, 80));
+        }
+      }
+
+      // TTL
+      const ttlMatch = line.match(/ttl\s+(\d+)/);
+      if (ttlMatch) infoParts.push(`ttl=${ttlMatch[1]}`);
+
+      info = infoParts.join(' | ');
     } else if (line.includes('ARP')) {
       proto = 'ARP';
       const arpMatch = line.match(/ARP,\s+(.+)/);
-      info = arpMatch ? arpMatch[1].substring(0, 80) : 'ARP';
+      if (arpMatch) {
+        const arpInfo = arpMatch[1];
+        if (arpInfo.includes('Request')) {
+          const whoMatch = arpInfo.match(/who-has\s+(\S+)\s+tell\s+(\S+)/);
+          info = whoMatch ? `Who has ${whoMatch[1]}? Tell ${whoMatch[2]}` : 'ARP Request';
+          src = whoMatch ? whoMatch[2] : '';
+          dst = whoMatch ? whoMatch[1] : '';
+        } else if (arpInfo.includes('Reply')) {
+          const replyMatch = arpInfo.match(/(\S+)\s+is-at\s+(\S+)/);
+          info = replyMatch ? `${replyMatch[1]} is at ${replyMatch[2]}` : 'ARP Reply';
+          src = replyMatch ? replyMatch[1] : '';
+        } else {
+          info = arpInfo.substring(0, 80);
+        }
+      } else {
+        info = 'ARP';
+      }
     }
 
     return { timestamp, src, dst, proto, length: pktLength, info, srcPort, dstPort };
