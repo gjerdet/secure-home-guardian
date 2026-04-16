@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
-import { Play, StopCircle, Loader2, Download, Trash2, Eye, Activity } from "lucide-react";
+import { Play, StopCircle, Loader2, Download, Trash2, Eye, Activity, ArrowUpDown, Filter, X } from "lucide-react";
 import { API_BASE, fetchJsonSafely } from "@/lib/api";
 
 interface Packet {
@@ -18,6 +18,8 @@ interface Packet {
   proto: string;
   length: number;
   info: string;
+  srcPort?: number;
+  dstPort?: number;
 }
 
 interface SnifferSummary {
@@ -29,6 +31,11 @@ interface SnifferSummary {
   topProtocols: { proto: string; count: number }[];
   topPorts: { port: number; count: number }[];
 }
+
+type SortField = "id" | "timestamp" | "src" | "dst" | "proto" | "length" | "info";
+type SortDir = "asc" | "desc";
+
+const ALL_PROTOCOLS = ["TCP", "UDP", "DNS", "HTTP", "TLS", "ICMP", "ARP", "DHCP", "NTP", "OTHER"] as const;
 
 function formatBytes(b: number) {
   if (b < 1024) return `${b} B`;
@@ -43,6 +50,10 @@ function protoColor(proto: string) {
   if (p === "ICMP") return "bg-warning/20 text-warning border-warning/30";
   if (p === "ARP") return "bg-purple-500/20 text-purple-400 border-purple-500/30";
   if (p === "DNS") return "bg-green-500/20 text-green-400 border-green-500/30";
+  if (p === "HTTP") return "bg-orange-500/20 text-orange-400 border-orange-500/30";
+  if (p === "TLS") return "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";
+  if (p === "DHCP") return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
+  if (p === "NTP") return "bg-indigo-500/20 text-indigo-400 border-indigo-500/30";
   return "bg-muted text-muted-foreground";
 }
 
@@ -57,22 +68,25 @@ export function PacketSnifferPanel() {
   const [showSummary, setShowSummary] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
   const [searchFilter, setSearchFilter] = useState("");
+  const [activeProtoFilters, setActiveProtoFilters] = useState<Set<string>>(new Set());
+  const [quickFilter, setQuickFilter] = useState<{ field: string; value: string } | null>(null);
+  const [sortField, setSortField] = useState<SortField>("id");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
   const eventSourceRef = useRef<EventSource | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const packetIdRef = useRef(0);
   const authHeaders = { Authorization: `Bearer ${localStorage.getItem("token")}` };
 
-  // Fetch available interfaces
+  // Live protocol counts for distribution bar
+  const [protoCounts, setProtoCounts] = useState<Record<string, number>>({});
+
   useEffect(() => {
     fetchJsonSafely(`${API_BASE}/api/sniffer/interfaces`, { headers: authHeaders })
       .then((res) => {
-        if (res.ok && Array.isArray(res.data)) {
-          setInterfaces(res.data);
-        }
+        if (res.ok && Array.isArray(res.data)) setInterfaces(res.data);
       });
   }, []);
 
-  // Auto-scroll
   useEffect(() => {
     if (autoScroll && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -84,6 +98,7 @@ export function PacketSnifferPanel() {
     setSummary(null);
     setShowSummary(false);
     setIsCapturing(true);
+    setProtoCounts({});
     packetIdRef.current = 0;
 
     const params = new URLSearchParams({
@@ -100,17 +115,21 @@ export function PacketSnifferPanel() {
       try {
         const pkt = JSON.parse(e.data);
         packetIdRef.current++;
+        const newPkt = { ...pkt, id: packetIdRef.current };
         setPackets((prev) => {
-          const next = [...prev, { ...pkt, id: packetIdRef.current }];
+          const next = [...prev, newPkt];
           return next.length > maxPackets ? next.slice(-maxPackets) : next;
         });
+        setProtoCounts((prev) => ({
+          ...prev,
+          [pkt.proto]: (prev[pkt.proto] || 0) + 1,
+        }));
       } catch {}
     });
 
     es.addEventListener("summary", (e) => {
       try {
-        const s = JSON.parse(e.data);
-        setSummary(s);
+        setSummary(JSON.parse(e.data));
         setShowSummary(true);
       } catch {}
     });
@@ -141,7 +160,7 @@ export function PacketSnifferPanel() {
 
   const downloadPcap = () => {
     const blob = new Blob(
-      [packets.map((p) => `${p.timestamp} ${p.src} -> ${p.dst} ${p.proto} ${p.length} ${p.info}`).join("\n")],
+      [packets.map((p) => `${p.timestamp} ${p.src}${p.srcPort ? ':' + p.srcPort : ''} -> ${p.dst}${p.dstPort ? ':' + p.dstPort : ''} ${p.proto} ${p.length} ${p.info}`).join("\n")],
       { type: "text/plain" }
     );
     const a = document.createElement("a");
@@ -150,12 +169,102 @@ export function PacketSnifferPanel() {
     a.click();
   };
 
-  const filteredPackets = searchFilter
-    ? packets.filter((p) => {
-        const s = searchFilter.toLowerCase();
-        return p.src?.toLowerCase().includes(s) || p.dst?.toLowerCase().includes(s) || p.proto?.toLowerCase().includes(s) || p.info?.toLowerCase().includes(s);
-      })
-    : packets;
+  const toggleProtoFilter = (proto: string) => {
+    setActiveProtoFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(proto)) next.delete(proto);
+      else next.add(proto);
+      return next;
+    });
+  };
+
+  const applyQuickFilter = (field: string, value: string) => {
+    if (quickFilter?.field === field && quickFilter?.value === value) {
+      setQuickFilter(null);
+    } else {
+      setQuickFilter({ field, value });
+    }
+  };
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortDir("asc");
+    }
+  };
+
+  const filteredAndSorted = useMemo(() => {
+    let result = packets;
+
+    // Protocol filter
+    if (activeProtoFilters.size > 0) {
+      result = result.filter((p) => activeProtoFilters.has(p.proto));
+    }
+
+    // Quick filter (click-to-filter)
+    if (quickFilter) {
+      result = result.filter((p) => {
+        if (quickFilter.field === "src") return p.src === quickFilter.value;
+        if (quickFilter.field === "dst") return p.dst === quickFilter.value;
+        if (quickFilter.field === "proto") return p.proto === quickFilter.value;
+        if (quickFilter.field === "srcPort") return String(p.srcPort) === quickFilter.value;
+        if (quickFilter.field === "dstPort") return String(p.dstPort) === quickFilter.value;
+        return true;
+      });
+    }
+
+    // Text search
+    if (searchFilter) {
+      const s = searchFilter.toLowerCase();
+      result = result.filter(
+        (p) =>
+          p.src?.toLowerCase().includes(s) ||
+          p.dst?.toLowerCase().includes(s) ||
+          p.proto?.toLowerCase().includes(s) ||
+          p.info?.toLowerCase().includes(s) ||
+          String(p.srcPort).includes(s) ||
+          String(p.dstPort).includes(s)
+      );
+    }
+
+    // Sort
+    const dir = sortDir === "asc" ? 1 : -1;
+    result = [...result].sort((a, b) => {
+      const av = a[sortField];
+      const bv = b[sortField];
+      if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
+      return String(av ?? "").localeCompare(String(bv ?? "")) * dir;
+    });
+
+    return result;
+  }, [packets, activeProtoFilters, quickFilter, searchFilter, sortField, sortDir]);
+
+  // Protocol distribution for bar
+  const totalProtoCount = useMemo(() => Object.values(protoCounts).reduce((s, c) => s + c, 0), [protoCounts]);
+  const protoDistribution = useMemo(() => {
+    if (totalProtoCount === 0) return [];
+    return Object.entries(protoCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([proto, count]) => ({
+        proto,
+        count,
+        pct: (count / totalProtoCount) * 100,
+      }));
+  }, [protoCounts, totalProtoCount]);
+
+  const SortHeader = ({ field, children }: { field: SortField; children: React.ReactNode }) => (
+    <TableHead
+      className="text-xs cursor-pointer hover:text-foreground select-none"
+      onClick={() => handleSort(field)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {children}
+        <ArrowUpDown className={`h-3 w-3 ${sortField === field ? "text-primary" : "text-muted-foreground/40"}`} />
+      </span>
+    </TableHead>
+  );
 
   return (
     <div className="space-y-4">
@@ -165,7 +274,11 @@ export function PacketSnifferPanel() {
           <CardTitle className="text-sm flex items-center gap-2">
             <Eye className="h-4 w-4 text-primary" />
             Packet Sniffer (tcpdump)
-            {isCapturing && <Badge className="bg-destructive/20 text-destructive border-destructive/30 text-[10px] animate-pulse">FANGST AKTIV</Badge>}
+            {isCapturing && (
+              <Badge className="bg-destructive/20 text-destructive border-destructive/30 text-[10px] animate-pulse">
+                FANGST AKTIV
+              </Badge>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-4 space-y-3">
@@ -217,10 +330,85 @@ export function PacketSnifferPanel() {
             </div>
           </div>
           <p className="text-[10px] text-muted-foreground">
-            Bruker <code className="bg-muted px-1 rounded">tcpdump</code> på serveren. Krev root/sudo-tilgang. BPF-filter er valfritt (t.d. <code className="bg-muted px-1 rounded">host 192.168.1.1</code>, <code className="bg-muted px-1 rounded">port 443</code>).
+            Bruker <code className="bg-muted px-1 rounded">tcpdump -v</code> på serveren. Krev root/sudo-tilgang. BPF-filter er valfritt (t.d. <code className="bg-muted px-1 rounded">host 192.168.1.1</code>, <code className="bg-muted px-1 rounded">port 443</code>).
           </p>
         </CardContent>
       </Card>
+
+      {/* Protocol quick-filter buttons */}
+      {packets.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <Filter className="h-3.5 w-3.5 text-muted-foreground mr-1" />
+          {ALL_PROTOCOLS.map((proto) => {
+            const count = protoCounts[proto] || 0;
+            if (count === 0 && !activeProtoFilters.has(proto)) return null;
+            const isActive = activeProtoFilters.has(proto);
+            return (
+              <Button
+                key={proto}
+                size="sm"
+                variant={isActive ? "default" : "outline"}
+                className={`h-6 text-[10px] px-2 ${!isActive ? protoColor(proto) : ""}`}
+                onClick={() => toggleProtoFilter(proto)}
+              >
+                {proto} ({count})
+              </Button>
+            );
+          })}
+          {activeProtoFilters.size > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 text-[10px] px-2"
+              onClick={() => setActiveProtoFilters(new Set())}
+            >
+              <X className="h-3 w-3 mr-0.5" /> Nullstill
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Active quick-filter indicator */}
+      {quickFilter && (
+        <div className="flex items-center gap-2">
+          <Badge variant="secondary" className="text-xs">
+            <Filter className="h-3 w-3 mr-1" />
+            Filtrer: {quickFilter.field} = {quickFilter.value}
+          </Badge>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 text-[10px] px-2"
+            onClick={() => setQuickFilter(null)}
+          >
+            <X className="h-3 w-3 mr-0.5" /> Fjern
+          </Button>
+        </div>
+      )}
+
+      {/* Protocol distribution bar */}
+      {packets.length > 0 && protoDistribution.length > 0 && (
+        <div className="space-y-1">
+          <div className="flex h-3 rounded-sm overflow-hidden border border-border">
+            {protoDistribution.map(({ proto, pct }) => (
+              <div
+                key={proto}
+                className={`${protoColor(proto)} transition-all duration-300`}
+                style={{ width: `${pct}%` }}
+                title={`${proto}: ${pct.toFixed(1)}%`}
+              />
+            ))}
+          </div>
+          <div className="flex gap-3 flex-wrap">
+            {protoDistribution.map(({ proto, count, pct }) => (
+              <span key={proto} className="text-[10px] text-muted-foreground">
+                <span className={`inline-block w-2 h-2 rounded-full ${protoColor(proto).split(" ")[0]} mr-1`} />
+                {proto} {pct.toFixed(0)}% ({count})
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Stats bar */}
       {packets.length > 0 && (
@@ -232,6 +420,11 @@ export function PacketSnifferPanel() {
             <Badge variant="secondary" className="text-xs">
               {formatBytes(packets.reduce((s, p) => s + (p.length || 0), 0))}
             </Badge>
+            {filteredAndSorted.length !== packets.length && (
+              <Badge variant="outline" className="text-xs">
+                Viser {filteredAndSorted.length} av {packets.length}
+              </Badge>
+            )}
             {isCapturing && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />}
           </div>
           <div className="flex items-center gap-2">
@@ -244,7 +437,19 @@ export function PacketSnifferPanel() {
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={downloadPcap}>
               <Download className="h-3 w-3 mr-1" /> Eksporter
             </Button>
-            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => { setPackets([]); setSummary(null); setShowSummary(false); }}>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs"
+              onClick={() => {
+                setPackets([]);
+                setSummary(null);
+                setShowSummary(false);
+                setProtoCounts({});
+                setQuickFilter(null);
+                setActiveProtoFilters(new Set());
+              }}
+            >
               <Trash2 className="h-3 w-3 mr-1" /> Tøm
             </Button>
             <Button
@@ -256,7 +461,12 @@ export function PacketSnifferPanel() {
               Auto-scroll {autoScroll ? "på" : "av"}
             </Button>
             {summary && (
-              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setShowSummary(!showSummary)}>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                onClick={() => setShowSummary(!showSummary)}
+              >
                 {showSummary ? "Vis pakker" : "Vis oppsummering"}
               </Button>
             )}
@@ -292,14 +502,17 @@ export function PacketSnifferPanel() {
             </CardContent>
           </Card>
 
-          {/* Top sources */}
           <Card className="bg-card border-border">
             <CardHeader className="py-2 border-b border-border">
               <CardTitle className="text-xs text-muted-foreground">Topp kjelder</CardTitle>
             </CardHeader>
             <CardContent className="p-2">
               {summary.topSources.map((s, i) => (
-                <div key={i} className="flex justify-between py-1 text-xs">
+                <div
+                  key={i}
+                  className="flex justify-between py-1 text-xs cursor-pointer hover:bg-muted/30 px-1 rounded"
+                  onClick={() => applyQuickFilter("src", s.ip)}
+                >
                   <span className="font-mono truncate">{s.ip}</span>
                   <Badge variant="secondary" className="text-[10px]">{s.count}</Badge>
                 </div>
@@ -307,14 +520,17 @@ export function PacketSnifferPanel() {
             </CardContent>
           </Card>
 
-          {/* Top destinations */}
           <Card className="bg-card border-border">
             <CardHeader className="py-2 border-b border-border">
               <CardTitle className="text-xs text-muted-foreground">Topp mål</CardTitle>
             </CardHeader>
             <CardContent className="p-2">
               {summary.topDestinations.map((d, i) => (
-                <div key={i} className="flex justify-between py-1 text-xs">
+                <div
+                  key={i}
+                  className="flex justify-between py-1 text-xs cursor-pointer hover:bg-muted/30 px-1 rounded"
+                  onClick={() => applyQuickFilter("dst", d.ip)}
+                >
                   <span className="font-mono truncate">{d.ip}</span>
                   <Badge variant="secondary" className="text-[10px]">{d.count}</Badge>
                 </div>
@@ -322,14 +538,17 @@ export function PacketSnifferPanel() {
             </CardContent>
           </Card>
 
-          {/* Top protocols */}
           <Card className="bg-card border-border">
             <CardHeader className="py-2 border-b border-border">
               <CardTitle className="text-xs text-muted-foreground">Topp protokollar</CardTitle>
             </CardHeader>
             <CardContent className="p-2">
               {summary.topProtocols.map((p, i) => (
-                <div key={i} className="flex justify-between py-1 text-xs">
+                <div
+                  key={i}
+                  className="flex justify-between py-1 text-xs cursor-pointer hover:bg-muted/30 px-1 rounded"
+                  onClick={() => toggleProtoFilter(p.proto)}
+                >
                   <Badge className={`${protoColor(p.proto)} text-[10px]`}>{p.proto}</Badge>
                   <span className="font-mono">{p.count}</span>
                 </div>
@@ -337,7 +556,6 @@ export function PacketSnifferPanel() {
             </CardContent>
           </Card>
 
-          {/* Top ports */}
           <Card className="bg-card border-border">
             <CardHeader className="py-2 border-b border-border">
               <CardTitle className="text-xs text-muted-foreground">Topp portar</CardTitle>
@@ -361,25 +579,49 @@ export function PacketSnifferPanel() {
             <Table>
               <TableHeader>
                 <TableRow className="border-border">
-                  <TableHead className="text-xs w-12">#</TableHead>
-                  <TableHead className="text-xs">Tid</TableHead>
-                  <TableHead className="text-xs">Kjelde</TableHead>
-                  <TableHead className="text-xs">Mål</TableHead>
-                  <TableHead className="text-xs">Proto</TableHead>
-                  <TableHead className="text-xs">Storleik</TableHead>
-                  <TableHead className="text-xs">Info</TableHead>
+                  <SortHeader field="id">#</SortHeader>
+                  <SortHeader field="timestamp">Tid</SortHeader>
+                  <SortHeader field="src">Kjelde</SortHeader>
+                  <SortHeader field="dst">Mål</SortHeader>
+                  <SortHeader field="proto">Proto</SortHeader>
+                  <SortHeader field="length">Storleik</SortHeader>
+                  <SortHeader field="info">Info</SortHeader>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredPackets.map((p) => (
+                {filteredAndSorted.map((p) => (
                   <TableRow key={p.id} className="border-border hover:bg-muted/30 h-7">
                     <TableCell className="font-mono text-[10px] text-muted-foreground py-1">{p.id}</TableCell>
-                    <TableCell className="font-mono text-[10px] text-muted-foreground py-1 whitespace-nowrap">{p.timestamp}</TableCell>
-                    <TableCell className="font-mono text-xs py-1">{p.src}</TableCell>
-                    <TableCell className="font-mono text-xs py-1">{p.dst}</TableCell>
-                    <TableCell className="py-1"><Badge className={`${protoColor(p.proto)} text-[10px]`}>{p.proto}</Badge></TableCell>
+                    <TableCell className="font-mono text-[10px] text-muted-foreground py-1 whitespace-nowrap">
+                      {p.timestamp}
+                    </TableCell>
+                    <TableCell
+                      className="font-mono text-xs py-1 cursor-pointer hover:text-primary hover:underline"
+                      onClick={() => applyQuickFilter("src", p.src)}
+                      title={`Filtrer på kjelde: ${p.src}`}
+                    >
+                      {p.src}{p.srcPort ? `:${p.srcPort}` : ""}
+                    </TableCell>
+                    <TableCell
+                      className="font-mono text-xs py-1 cursor-pointer hover:text-primary hover:underline"
+                      onClick={() => applyQuickFilter("dst", p.dst)}
+                      title={`Filtrer på mål: ${p.dst}`}
+                    >
+                      {p.dst}{p.dstPort ? `:${p.dstPort}` : ""}
+                    </TableCell>
+                    <TableCell className="py-1">
+                      <Badge
+                        className={`${protoColor(p.proto)} text-[10px] cursor-pointer`}
+                        onClick={() => toggleProtoFilter(p.proto)}
+                        title={`Filtrer på ${p.proto}`}
+                      >
+                        {p.proto}
+                      </Badge>
+                    </TableCell>
                     <TableCell className="font-mono text-[10px] py-1">{p.length}</TableCell>
-                    <TableCell className="text-[10px] text-muted-foreground py-1 truncate max-w-[300px]">{p.info}</TableCell>
+                    <TableCell className="text-[10px] text-muted-foreground py-1 truncate max-w-[400px]" title={p.info}>
+                      {p.info}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -394,7 +636,9 @@ export function PacketSnifferPanel() {
           <CardContent className="py-12 text-center">
             <Eye className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-30" />
             <p className="text-sm text-muted-foreground">Trykk «Start fangst» for å fange pakker</p>
-            <p className="text-xs text-muted-foreground mt-1">Brukar tcpdump — krev at backend køyrer med tilstrekkelege rettar</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Brukar tcpdump — krev at backend køyrer med tilstrekkelege rettar
+            </p>
           </CardContent>
         </Card>
       )}
