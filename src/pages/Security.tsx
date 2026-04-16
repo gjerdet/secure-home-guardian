@@ -26,6 +26,7 @@ import { KismetWifiPanel } from "@/components/security/KismetWifiPanel";
 import { CveLookupPanel } from "@/components/security/CveLookupPanel";
 import { CriticalDevicesPanel } from "@/components/security/CriticalDevicesPanel";
 import { NetworkTopologyMap } from "@/components/security/NetworkTopologyMap";
+import { PacketSnifferPanel } from "@/components/security/PacketSnifferPanel";
 import { NmapHostDetailDialog, type NmapHostDetail } from "@/components/security/NmapHostDetailDialog";
 import { VulnerabilityDetailDialog, type VulnerabilityDetail } from "@/components/security/VulnerabilityDetailDialog";
 import { 
