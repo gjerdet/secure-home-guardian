@@ -31,9 +31,8 @@ import { NmapHostDetailDialog, type NmapHostDetail } from "@/components/security
 import { VulnerabilityDetailDialog, type VulnerabilityDetail } from "@/components/security/VulnerabilityDetailDialog";
 import { 
   Radar, Shield, Search, Clock, AlertTriangle, CheckCircle,
-  Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin, Network, Wifi, ExternalLink, Lock, Activity, History, Trash2, Radio, ShieldAlert
+  Play, Target, Globe, Server, FileText, ChevronRight, Loader2, RefreshCw, Plus, StopCircle, MapPin, Network, Wifi, ExternalLink, Lock, Activity, History, Trash2, Radio, ShieldAlert, Eye
 } from "lucide-react";
-import { Eye } from "lucide-react";
 
 import { API_BASE, fetchJsonSafely } from '@/lib/api';
 
