@@ -3616,7 +3616,6 @@ app.post('/api/vlan/discover', authenticateToken, async (req, res) => {
   res.json({ hits, misses, total: results.length });
 });
 
-app.listen(PORT, () => {
 // ============================================
 // Packet Sniffer (tcpdump)
 // ============================================
@@ -3895,8 +3894,6 @@ function parseTcpdumpLine(line) {
   }
 }
 
-console.log(`NetGuard API kjører på port ${PORT}`);
-});
 
 app.listen(PORT, () => {
   console.log(`NetGuard API kjører på port ${PORT}`);
