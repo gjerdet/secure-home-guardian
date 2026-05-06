@@ -1801,6 +1801,10 @@ export default function Security() {
             <NetworkTopologyMap hosts={nmapResults} unifiClients={unifiClients} />
           </TabsContent>
 
+          <TabsContent value="lldp">
+            <LldpNeighborsPanel />
+          </TabsContent>
+
           <TabsContent value="sniffer">
             <PacketSnifferPanel />
           </TabsContent>
