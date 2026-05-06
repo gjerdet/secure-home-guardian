@@ -1062,6 +1062,85 @@ app.get('/api/unifi/devices', authenticateToken, async (req, res) => {
   }
 });
 
+// ============================================
+// LLDP neighbors (UniFi switches + local lldpctl)
+// ============================================
+app.get('/api/lldp/neighbors', authenticateToken, async (req, res) => {
+  const result = { unifi: [], local: [], errors: {} };
+
+  // UniFi: parse port_table for lldp info
+  try {
+    const data = await unifiRequest('/stat/device');
+    const devices = data?.data || [];
+    for (const dev of devices) {
+      const devName = dev.name || dev.hostname || dev.mac;
+      const devModel = dev.model || dev.type;
+      const ports = dev.port_table || [];
+      for (const p of ports) {
+        const hasLldp = p.lldp_chassis_id || p.lldp_port_id || p.lldp_system_name;
+        if (!hasLldp) continue;
+        result.unifi.push({
+          source_device: devName,
+          source_model: devModel,
+          source_mac: dev.mac,
+          port_idx: p.port_idx,
+          port_name: p.name || `Port ${p.port_idx}`,
+          neighbor_name: p.lldp_system_name || null,
+          neighbor_chassis_id: p.lldp_chassis_id || null,
+          neighbor_port_id: p.lldp_port_id || null,
+          neighbor_port_desc: p.lldp_port_desc || null,
+          neighbor_mgmt_ip: p.lldp_mgmt_addr || null,
+          neighbor_capabilities: p.lldp_system_capabilities || null,
+          speed: p.speed,
+          up: p.up,
+        });
+      }
+    }
+  } catch (err) {
+    result.errors.unifi = err.message;
+  }
+
+  // Local lldpctl
+  try {
+    const { execFile } = require('child_process');
+    const out = await new Promise((resolve, reject) => {
+      execFile('lldpctl', ['-f', 'json'], { timeout: 5000, maxBuffer: 5 * 1024 * 1024 }, (err, stdout, stderr) => {
+        if (err) return reject(new Error(stderr || err.message));
+        resolve(stdout);
+      });
+    });
+    const parsed = JSON.parse(out);
+    const ifaces = parsed?.lldp?.interface || {};
+    const list = Array.isArray(ifaces) ? ifaces : [ifaces];
+    for (const entry of list) {
+      const ifName = Object.keys(entry)[0];
+      const info = entry[ifName] || {};
+      const chassis = info.chassis || {};
+      const chassisName = Object.keys(chassis)[0];
+      const chassisInfo = chassis[chassisName] || chassis;
+      const port = info.port || {};
+      const portId = port.id?.value || (typeof port.id === 'string' ? port.id : null);
+      result.local.push({
+        local_iface: ifName,
+        neighbor_name: chassisName || chassisInfo.name?.[0] || chassisInfo.name || null,
+        neighbor_descr: chassisInfo.descr || null,
+        neighbor_mgmt_ip: chassisInfo['mgmt-ip'] || null,
+        neighbor_capabilities: chassisInfo.capability
+          ? (Array.isArray(chassisInfo.capability) ? chassisInfo.capability : [chassisInfo.capability])
+              .filter((c) => c.enabled).map((c) => c.type).join(', ')
+          : null,
+        port_id: portId,
+        port_descr: port.descr || null,
+        vlan: info.vlan?.['vlan-id'] || info.vlan?.value || null,
+      });
+    }
+  } catch (err) {
+    result.errors.local = err.message;
+  }
+
+  res.json(result);
+});
+
 app.get('/api/unifi/health', authenticateToken, async (req, res) => {
   try {
     const data = await unifiRequest('/stat/health');

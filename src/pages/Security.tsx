@@ -26,6 +26,7 @@ import { KismetWifiPanel } from "@/components/security/KismetWifiPanel";
 import { CveLookupPanel } from "@/components/security/CveLookupPanel";
 import { CriticalDevicesPanel } from "@/components/security/CriticalDevicesPanel";
 import { NetworkTopologyMap } from "@/components/security/NetworkTopologyMap";
+import { LldpNeighborsPanel } from "@/components/security/LldpNeighborsPanel";
 import { PacketSnifferPanel } from "@/components/security/PacketSnifferPanel";
 import { NmapHostDetailDialog, type NmapHostDetail } from "@/components/security/NmapHostDetailDialog";
 import { VulnerabilityDetailDialog, type VulnerabilityDetail } from "@/components/security/VulnerabilityDetailDialog";
@@ -929,6 +930,10 @@ export default function Security() {
               <Network className="h-4 w-4 mr-2" />
               Topologi
             </TabsTrigger>
+            <TabsTrigger value="lldp" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <Network className="h-4 w-4 mr-2" />
+              LLDP
+            </TabsTrigger>
             <TabsTrigger value="sniffer" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               <Eye className="h-4 w-4 mr-2" />
               Sniffer
@@ -1794,6 +1799,10 @@ export default function Security() {
 
           <TabsContent value="topology">
             <NetworkTopologyMap hosts={nmapResults} unifiClients={unifiClients} />
+          </TabsContent>
+
+          <TabsContent value="lldp">
+            <LldpNeighborsPanel />
           </TabsContent>
 
           <TabsContent value="sniffer">
