@@ -930,6 +930,10 @@ export default function Security() {
               <Network className="h-4 w-4 mr-2" />
               Topologi
             </TabsTrigger>
+            <TabsTrigger value="lldp" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <Network className="h-4 w-4 mr-2" />
+              LLDP
+            </TabsTrigger>
             <TabsTrigger value="sniffer" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               <Eye className="h-4 w-4 mr-2" />
               Sniffer
